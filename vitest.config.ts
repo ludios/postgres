@@ -3,6 +3,12 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
 	test: {
+		// `vitest run --coverage` prints the coverage of each file in src/
+		coverage: {
+			provider: "v8",
+			include: ["src/**"],
+			reporter: ["text"],
+		},
 		projects: [
 			{
 				test: {
