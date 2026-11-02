@@ -166,7 +166,7 @@ test("Async stack trace", async () => {
 test("Debug has long async stack trace", async () => {
 	const sql = postgres({ ...options, debug: true });
 
-	const inlines = typeof Bun !== "undefined";
+	const inlines = "Bun" in globalThis;
 	const expected = inlines ? "true" : "watyo";
 	expect(
 		await yo().catch((x) =>
