@@ -1,5 +1,4 @@
 import { beforeEach, inject } from "vitest";
-import { exec } from "./bootstrap.ts";
 import { options, postgres } from "./common.ts";
 import { replace_pg_vars } from "./pg_env.ts";
 
@@ -20,7 +19,6 @@ export const second_pg_port = inject("second_pg_port");
 /** The directory of the Unix socket of the server at `pg_port` */
 export const pg_socket_dir = inject("pg_socket_dir");
 
-export { exec };
 export * from "./common.ts";
 
 const log = console.log;

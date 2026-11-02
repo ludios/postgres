@@ -8,7 +8,7 @@ import { spawnSync } from "child_process";
  * @param {NodeJS.ProcessEnv} [env] - the environment to run the program in (default: this process's)
  * @throws {Error} if the program could not run, or did not exit with status 0
  */
-export function exec(cmd, args, env = process.env) {
+function exec(cmd, args, env = process.env) {
 	const { error, status, stderr } = spawnSync(cmd, args, { stdio: "pipe", encoding: "utf8", env });
 	if (error) {
 		throw error;

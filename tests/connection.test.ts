@@ -11,7 +11,6 @@ import {
 	login_scram,
 	delay,
 	idle_timeout,
-	exec,
 	pg_port,
 	second_pg_port,
 	pg_socket_dir,
@@ -113,21 +112,16 @@ test("Connect using SSL direct", async ({ skip }) => {
 	).toBe(true);
 });
 
-test("Connect using SSL prefer", async () => {
-	await exec("psql", ["-c", "alter system set ssl=off"]);
-	await exec("psql", ["-c", "select pg_reload_conf()"]);
-
+test("Connect using SSL prefer to a server without SSL", async () => {
+	// The second server has `ssl` off (tests/global_setup.ts turns it on only on the first server)
 	const sql = postgres({
 		ssl: "prefer",
 		idle_timeout,
+		port: second_pg_port,
 	});
 
-	try {
-		expect((await sql`select 1 as x`)[0].x).toBe(1);
-	} finally {
-		await exec("psql", ["-c", "alter system set ssl=on"]);
-		await exec("psql", ["-c", "select pg_reload_conf()"]);
-	}
+	const [{ ssl }] = await sql`select ssl from pg_stat_ssl where pid = pg_backend_pid()`;
+	expect(ssl).toBe(false);
 });
 
 test("Reconnect using SSL", async () => {
