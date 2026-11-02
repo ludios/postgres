@@ -531,7 +531,6 @@ test(
 		console.error = (...xs) => (console.error.calls = xs[1] && xs[1].message);
 		try {
 			expect(await failing(false)).toBe("after no user now");
-			return;
 		} finally {
 			console.error = error;
 		}

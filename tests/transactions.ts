@@ -584,7 +584,6 @@ test("Disconnect rejects queued transaction queries and allows reconnect", async
 		expect([error.code, ...results.map((x) => x.status), x].join(",")).toBe(
 			"57P01,rejected,rejected,rejected,1",
 		);
-		return;
 	} finally {
 		await sql.end({ timeout: 0 });
 	}

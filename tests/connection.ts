@@ -158,7 +158,6 @@ test("An ssl object without a ca builds a TLS context per connection, and with o
 		reserved.push(await sql.reserve());
 		reserved.forEach((x) => x.release());
 		expect([without, shared, built].join(" ")).toBe("3 4 5");
-		return;
 	} finally {
 		tls.createSecureContext = create;
 		await sql.end({ timeout: 0 });
@@ -861,7 +860,6 @@ test("Connection end cancels a pending socket factory", async () => {
 		expect([await query, count, socket.destroyed, closes].join()).toBe(
 			"CONNECTION_DESTROYED,0,true,0",
 		);
-		return;
 	} finally {
 		socket.destroy();
 		await client.end({ timeout: 0 });
@@ -884,7 +882,6 @@ test("Connection end stops a listen connection that is reconnecting", async () =
 		const [{ count }] =
 			await sql`select count(*)::int as count from pg_stat_activity where application_name = ${application_name}`;
 		expect(count).toBe(0);
-		return;
 	} finally {
 		await client.end({ timeout: 0 });
 		await sql`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${application_name}`;

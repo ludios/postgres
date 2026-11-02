@@ -66,7 +66,6 @@ test("multiple listeners work after a reconnect", async () => {
 		await sql.notify("test", "b");
 		await until(() => xs.length === 8);
 		expect(xs.join("")).toBe("1a2a1b2b");
-		return;
 	} finally {
 		await sql.end();
 	}
@@ -151,7 +150,6 @@ test("listen keeps retrying when a reconnect attempt fails", { timeout: 20_000 }
 		await admin.notify("test", "a");
 		await until(() => xs.length === 1);
 		expect(listens + " " + xs[0]).toBe("2 a");
-		return;
 	} finally {
 		await sql.end();
 		await admin`drop role postgres_js_test_listen`;
@@ -272,7 +270,6 @@ test("Original listen handles unsubscribe after a reconnect", async () => {
       where pid = ${s2.state.pid} and query ilike 'listen %'
     `;
 		expect(xs.join("") + ":" + available + ":" + retained).toBe("1a2a1b2b2c:1:0");
-		return;
 	} finally {
 		await sql.end();
 	}
@@ -305,7 +302,6 @@ test("Unlisten while reconnecting keeps only the other listener", async () => {
 		await sql.notify("test", "after");
 		await arrived;
 		expect(callbacks.join(",") + ":" + second).toBe("first:1");
-		return;
 	} finally {
 		await sql.end();
 	}

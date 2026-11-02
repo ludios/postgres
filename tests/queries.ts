@@ -60,7 +60,7 @@ test("Execute", async () => {
 		sql`select 1`.execute();
 	});
 
-	expect("select 1").toBe(result);
+	expect(result).toBe("select 1");
 });
 
 test("Cancel running query", async () => {

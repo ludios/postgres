@@ -174,7 +174,6 @@ test("Debug has long async stack trace", async () => {
 			inlines ? String(x.stack.includes("errors.ts")) : x.stack.match(/wat|yo/g).join(""),
 		),
 	).toBe(expected);
-	return;
 
 	function yo() {
 		return wat();
