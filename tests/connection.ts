@@ -2,7 +2,7 @@
 import net from "net";
 import tls from "tls";
 import crypto from "crypto";
-import { t } from "./test.ts";
+import { expect, test } from "vitest";
 import {
 	postgres,
 	sql,
@@ -18,87 +18,90 @@ import {
 	pg_socket_dir,
 } from "./setup.ts";
 
-t("Connects with no options", async () => {
+test("Connects with no options", async () => {
 	const sql = postgres({ max: 1 });
 
 	const result = (await sql`select 1 as x`)[0].x;
 	await sql.end();
 
-	return [1, result];
+	expect(result).toBe(1);
 });
 
-t("Uses default database without slash", async () => {
+test("Uses default database without slash", async () => {
 	const sql = postgres("postgres://localhost");
-	return [sql.options.user, sql.options.database];
+	expect(sql.options.database).toBe(sql.options.user);
 });
 
-t("Uses default database with slash", async () => {
+test("Uses default database with slash", async () => {
 	const sql = postgres("postgres://localhost/");
-	return [sql.options.user, sql.options.database];
+	expect(sql.options.database).toBe(sql.options.user);
 });
 
-t("Connect using uri", async () => [
-	true,
-	await new Promise((resolve, reject) => {
-		const sql = postgres(
-			"postgres://" +
-				login.user +
-				":" +
-				(login.pass || "") +
-				"@localhost:" +
-				pg_port +
-				"/" +
-				options.db,
-			{
-				idle_timeout,
-			},
-		);
-		sql`select 1`.then(() => resolve(true), reject);
-	}),
-]);
-
-t("Options from uri with special characters in user and pass", async () => {
-	const opt = postgres({ user: "öla", pass: "pass^word" }).options;
-	return [[opt.user, opt.pass].toString(), "öla,pass^word"];
-});
-
-t("Fail with proper error on no host", async () => [
-	"ECONNREFUSED",
-	(
+test("Connect using uri", async () => {
+	expect(
 		await new Promise((resolve, reject) => {
-			const sql = postgres("postgres://localhost:33333/" + options.db, {
+			const sql = postgres(
+				"postgres://" +
+					login.user +
+					":" +
+					(login.pass || "") +
+					"@localhost:" +
+					pg_port +
+					"/" +
+					options.db,
+				{
+					idle_timeout,
+				},
+			);
+			sql`select 1`.then(() => resolve(true), reject);
+		}),
+	).toBe(true);
+});
+
+test("Options from uri with special characters in user and pass", async () => {
+	const opt = postgres({ user: "öla", pass: "pass^word" }).options;
+	expect([opt.user, opt.pass].toString()).toBe("öla,pass^word");
+});
+
+test("Fail with proper error on no host", async () => {
+	expect(
+		(
+			await new Promise((resolve, reject) => {
+				const sql = postgres("postgres://localhost:33333/" + options.db, {
+					idle_timeout,
+				});
+				sql`select 1`.then(reject, resolve);
+			})
+		).code,
+	).toBe("ECONNREFUSED");
+});
+
+test("Connect using SSL", async () => {
+	expect(
+		await new Promise((resolve, reject) => {
+			postgres({
+				ssl: { rejectUnauthorized: false },
 				idle_timeout,
-			});
-			sql`select 1`.then(reject, resolve);
-		})
-	).code,
-]);
+			})`select 1`.then(() => resolve(true), reject);
+		}),
+	).toBe(true);
+});
 
-t("Connect using SSL", async () => [
-	true,
-	await new Promise((resolve, reject) => {
-		postgres({
-			ssl: { rejectUnauthorized: false },
-			idle_timeout,
-		})`select 1`.then(() => resolve(true), reject);
-	}),
-]);
+test("Connect using SSL require", async () => {
+	expect(
+		await new Promise((resolve, reject) => {
+			postgres({
+				ssl: "require",
+				idle_timeout,
+			})`select 1`.then(() => resolve(true), reject);
+		}),
+	).toBe(true);
+});
 
-t("Connect using SSL require", async () => [
-	true,
-	await new Promise((resolve, reject) => {
-		postgres({
-			ssl: "require",
-			idle_timeout,
-		})`select 1`.then(() => resolve(true), reject);
-	}),
-]);
-
-t("Connect using SSL direct", async () => {
+test("Connect using SSL direct", async () => {
 	const [{ supported }] =
 		await sql`select current_setting('server_version_num')::int >= 180000 as supported`;
-	return [
-		true,
+	expect(
 		!supported ||
 			(await new Promise((resolve, reject) => {
 				postgres({
@@ -107,10 +110,10 @@ t("Connect using SSL direct", async () => {
 					idle_timeout,
 				})`select 1`.then(() => resolve(true), reject);
 			})),
-	];
+	).toBe(true);
 });
 
-t("Connect using SSL prefer", async () => {
+test("Connect using SSL prefer", async () => {
 	await exec("psql", ["-c", "alter system set ssl=off"]);
 	await exec("psql", ["-c", "select pg_reload_conf()"]);
 
@@ -119,15 +122,12 @@ t("Connect using SSL prefer", async () => {
 		idle_timeout,
 	});
 
-	return [
-		1,
-		(await sql`select 1 as x`)[0].x,
-		await exec("psql", ["-c", "alter system set ssl=on"]),
-		await exec("psql", ["-c", "select pg_reload_conf()"]),
-	];
+	expect((await sql`select 1 as x`)[0].x).toBe(1);
+	await exec("psql", ["-c", "alter system set ssl=on"]);
+	await exec("psql", ["-c", "select pg_reload_conf()"]);
 });
 
-t("Reconnect using SSL", async () => {
+test("Reconnect using SSL", async () => {
 	const sql = postgres({
 		ssl: "require",
 		idle_timeout: 0.1,
@@ -136,55 +136,52 @@ t("Reconnect using SSL", async () => {
 	await sql`select 1`;
 	await delay(200);
 
-	return [1, (await sql`select 1 as x`)[0].x];
+	expect((await sql`select 1 as x`)[0].x).toBe(1);
 });
 
-t(
-	"An ssl object without a ca builds a TLS context per connection, and with one a context its connections share until a value changes",
-	async () => {
-		const create = tls.createSecureContext,
-			ssl = { rejectUnauthorized: false },
-			sql = postgres({ ...options, ssl, max: 6 });
-		let built = 0;
-		tls.createSecureContext = (...xs) => (built++, create(...xs));
-		try {
-			const reserved = [await sql.reserve(), await sql.reserve(), await sql.reserve()],
-				without = built;
-			ssl.ca = tls.rootCertificates;
-			reserved.push(await sql.reserve(), await sql.reserve());
-			const shared = built;
-			ssl.ca = [...tls.rootCertificates];
-			reserved.push(await sql.reserve());
-			reserved.forEach((x) => x.release());
-			return ["3 4 5", [without, shared, built].join(" ")];
-		} finally {
-			tls.createSecureContext = create;
-			await sql.end({ timeout: 0 });
-		}
-	},
-);
-
-t("Login without password", async () => {
-	return [true, (await postgres({ ...options, ...login })`select true as x`)[0].x];
+test("An ssl object without a ca builds a TLS context per connection, and with one a context its connections share until a value changes", async () => {
+	const create = tls.createSecureContext,
+		ssl = { rejectUnauthorized: false },
+		sql = postgres({ ...options, ssl, max: 6 });
+	let built = 0;
+	tls.createSecureContext = (...xs) => (built++, create(...xs));
+	try {
+		const reserved = [await sql.reserve(), await sql.reserve(), await sql.reserve()],
+			without = built;
+		ssl.ca = tls.rootCertificates;
+		reserved.push(await sql.reserve(), await sql.reserve());
+		const shared = built;
+		ssl.ca = [...tls.rootCertificates];
+		reserved.push(await sql.reserve());
+		reserved.forEach((x) => x.release());
+		expect([without, shared, built].join(" ")).toBe("3 4 5");
+		return;
+	} finally {
+		tls.createSecureContext = create;
+		await sql.end({ timeout: 0 });
+	}
 });
 
-t("Login using MD5", async () => {
-	return [true, (await postgres({ ...options, ...login_md5 })`select true as x`)[0].x];
+test("Login without password", async () => {
+	expect((await postgres({ ...options, ...login })`select true as x`)[0].x).toBe(true);
 });
 
-t("Login using scram-sha-256", async () => {
-	return [true, (await postgres({ ...options, ...login_scram })`select true as x`)[0].x];
+test("Login using MD5", async () => {
+	expect((await postgres({ ...options, ...login_md5 })`select true as x`)[0].x).toBe(true);
 });
 
-t(
+test("Login using scram-sha-256", async () => {
+	expect((await postgres({ ...options, ...login_scram })`select true as x`)[0].x).toBe(true);
+});
+
+test(
 	"Parallel connections using scram-sha-256",
 	{
-		timeout: 2,
+		timeout: 2000,
 	},
 	async () => {
 		const sql = postgres({ ...options, ...login_scram });
-		return [
-			true,
+		expect(
 			(
 				await Promise.all([
 					sql`select true as x, pg_sleep(0.01)`,
@@ -192,13 +189,12 @@ t(
 					sql`select true as x, pg_sleep(0.01)`,
 				])
 			)[0][0].x,
-		];
+		).toBe(true);
 	},
 );
 
-t("Support dynamic password function", async () => {
-	return [
-		true,
+test("Support dynamic password function", async () => {
+	expect(
 		(
 			await postgres({
 				...options,
@@ -206,12 +202,11 @@ t("Support dynamic password function", async () => {
 				pass: () => "postgres_js_test_scram",
 			})`select true as x`
 		)[0].x,
-	];
+	).toBe(true);
 });
 
-t("Support dynamic async password function", async () => {
-	return [
-		true,
+test("Support dynamic async password function", async () => {
+	expect(
 		(
 			await postgres({
 				...options,
@@ -219,70 +214,71 @@ t("Support dynamic async password function", async () => {
 				pass: () => Promise.resolve("postgres_js_test_scram"),
 			})`select true as x`
 		)[0].x,
-	];
+	).toBe(true);
 });
 
-t("Connection ended promise", async () => {
+test("Connection ended promise", async () => {
 	const sql = postgres(options);
 
 	await sql.end();
 
-	return [undefined, await sql.end()];
+	expect(await sql.end()).toBe(undefined);
 });
 
-t("Connection ended timeout", async () => {
+test("Connection ended timeout", async () => {
 	const sql = postgres(options);
 
 	await sql.end({ timeout: 10 });
 
-	return [undefined, await sql.end()];
+	expect(await sql.end()).toBe(undefined);
 });
 
-t("Connection ended error", async () => {
+test("Connection ended error", async () => {
 	const sql = postgres(options);
 	await sql.end();
-	return ["CONNECTION_ENDED", await sql``.catch((x) => x.code)];
+	expect(await sql``.catch((x) => x.code)).toBe("CONNECTION_ENDED");
 });
 
-t("Connection end does not cancel query", async () => {
+test("Connection end does not cancel query", async () => {
 	const sql = postgres(options);
 
 	const promise = sql`select 1 as x`.execute();
 
 	await sql.end();
 
-	return [1, (await promise)[0].x];
+	expect((await promise)[0].x).toBe(1);
 });
 
-t("Connection destroyed", async () => {
+test("Connection destroyed", async () => {
 	const sql = postgres(options);
 	process.nextTick(() => sql.end({ timeout: 0 }));
-	return ["CONNECTION_DESTROYED", await sql``.catch((x) => x.code)];
+	expect(await sql``.catch((x) => x.code)).toBe("CONNECTION_DESTROYED");
 });
 
-t("Connection destroyed with query before", async () => {
+test("Connection destroyed with query before", async () => {
 	const sql = postgres(options),
 		error = sql`select pg_sleep(0.2)`.catch((err) => err.code);
 
 	sql.end({ timeout: 0 });
-	return ["CONNECTION_DESTROYED", await error];
+	expect(await error).toBe("CONNECTION_DESTROYED");
 });
 
-t("responds with server parameters (application_name)", async () => [
-	"postgres.js",
-	await new Promise((resolve, reject) =>
-		postgres({
-			...options,
-			onparameter: (k, v) => k === "application_name" && resolve(v),
-		})`select 1`.catch(reject),
-	),
-]);
-
-t("has server parameters", async () => {
-	return ["postgres.js", await sql`select 1`.then(() => sql.parameters.application_name)];
+test("responds with server parameters (application_name)", async () => {
+	expect(
+		await new Promise((resolve, reject) =>
+			postgres({
+				...options,
+				onparameter: (k, v) => k === "application_name" && resolve(v),
+			})`select 1`.catch(reject),
+		),
+	).toBe("postgres.js");
 });
 
-t("connection parameters", async () => {
+test("has server parameters", async () => {
+	expect(await sql`select 1`.then(() => sql.parameters.application_name)).toBe("postgres.js");
+});
+
+test("connection parameters", async () => {
 	const sql = postgres({
 		...options,
 		connection: {
@@ -290,19 +286,19 @@ t("connection parameters", async () => {
 		},
 	});
 
-	return ["yay", (await sql`select current_setting('some.var') as x`)[0].x];
+	expect((await sql`select current_setting('some.var') as x`)[0].x).toBe("yay");
 });
 
-t("Unix socket", async () => {
+test("Unix socket", async () => {
 	const sql = postgres({
 		...options,
 		host: pg_socket_dir,
 	});
 
-	return [1, (await sql`select 1 as x`)[0].x];
+	expect((await sql`select 1 as x`)[0].x).toBe(1);
 });
 
-t("connect_timeout", { timeout: 20 }, async () => {
+test("connect_timeout", { timeout: 20_000 }, async () => {
 	const connect_timeout = 0.2;
 	const server = net.createServer();
 	await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -314,19 +310,20 @@ t("connect_timeout", { timeout: 20 }, async () => {
 		end = Date.now();
 	});
 	server.close();
-	return [connect_timeout, Math.round((end - start) / 100) / 10];
+	expect(Math.round((end - start) / 100) / 10).toBe(connect_timeout);
 });
 
-t("connect_timeout throws proper error", async () => [
-	"CONNECT_TIMEOUT",
-	await postgres({
-		...options,
-		...login_scram,
-		connect_timeout: 0.001,
-	})`select 1`.catch((e) => e.code),
-]);
+test("connect_timeout throws proper error", async () => {
+	expect(
+		await postgres({
+			...options,
+			...login_scram,
+			connect_timeout: 0.001,
+		})`select 1`.catch((e) => e.code),
+	).toBe("CONNECT_TIMEOUT");
+});
 
-t("connect_timeout error message includes host:port", { timeout: 20 }, async () => {
+test("connect_timeout error message includes host:port", { timeout: 20_000 }, async () => {
 	const connect_timeout = 0.2;
 	const server = net.createServer();
 	await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -338,10 +335,11 @@ t("connect_timeout error message includes host:port", { timeout: 20 }, async () 
 		err = e.message;
 	});
 	server.close();
-	return [["write CONNECT_TIMEOUT 127.0.0.1:", port].join(""), err];
+	const expected = ["write CONNECT_TIMEOUT 127.0.0.1:", port].join("");
+	expect(err).toBe(expected);
 });
 
-t("requests works after single connect_timeout", async () => {
+test("requests works after single connect_timeout", async () => {
 	let first = true;
 
 	const sql = postgres({
@@ -354,8 +352,7 @@ t("requests works after single connect_timeout", async () => {
 		},
 	});
 
-	return [
-		"CONNECT_TIMEOUT,,1",
+	expect(
 		[
 			await sql`select 1 as x`.then(
 				() => "success",
@@ -364,10 +361,10 @@ t("requests works after single connect_timeout", async () => {
 			await delay(10),
 			(await sql`select 1 as x`)[0].x,
 		].join(","),
-	];
+	).toBe("CONNECT_TIMEOUT,,1");
 });
 
-t("Catches connection config errors", async () => {
+test("Catches connection config errors", async () => {
 	const sql = postgres({
 		...options,
 		user: {
@@ -378,10 +375,10 @@ t("Catches connection config errors", async () => {
 		database: "prut",
 	});
 
-	return ["wat", await sql`select 1`.catch((e) => e.message)];
+	expect(await sql`select 1`.catch((e) => e.message)).toBe("wat");
 });
 
-t("Catches connection config errors with end", async () => {
+test("Catches connection config errors with end", async () => {
 	const sql = postgres({
 		...options,
 		user: {
@@ -392,13 +389,14 @@ t("Catches connection config errors with end", async () => {
 		database: "prut",
 	});
 
-	return ["wat", await sql`select 1`.catch((e) => e.message), await sql.end()];
+	expect(await sql`select 1`.catch((e) => e.message)).toBe("wat");
+	await sql.end();
 });
 
-t(
+test(
 	"Multiple hosts",
 	{
-		timeout: 1,
+		timeout: 1000,
 	},
 	async () => {
 		const s1 = postgres({ idle_timeout }),
@@ -424,11 +422,12 @@ t(
 
 		result.push((await sql`select system_identifier as x from pg_control_system()`)[0].x);
 
-		return [[id1, id2, id1].join(","), result.join(",")];
+		const expected = [id1, id2, id1].join(",");
+		expect(result.join(",")).toBe(expected);
 	},
 );
 
-t("multiple queries before connect", async () => {
+test("multiple queries before connect", async () => {
 	const sql = postgres({ ...options, max: 2 });
 	const xs = await Promise.all([
 		sql`select 1 as x`,
@@ -437,10 +436,10 @@ t("multiple queries before connect", async () => {
 		sql`select 4 as x`,
 	]);
 
-	return ["1,2,3,4", xs.map((x) => x[0].x).join()];
+	expect(xs.map((x) => x[0].x).join()).toBe("1,2,3,4");
 });
 
-t("Custom socket", {}, async () => {
+test("Custom socket", async () => {
 	let result;
 	const sql = postgres({
 		socket: () =>
@@ -456,10 +455,10 @@ t("Custom socket", {}, async () => {
 
 	await sql`select 1`;
 
-	return [result, 82];
+	expect(result).toBe(82);
 });
 
-t("Ensure drain only dequeues if ready", async () => {
+test("Ensure drain only dequeues if ready", async () => {
 	const sql = postgres(options);
 
 	const res = await Promise.all([
@@ -467,15 +466,16 @@ t("Ensure drain only dequeues if ready", async () => {
 		sql.unsafe("SELECT 0+$1+$2+$3", [1, 2, 3]),
 	]);
 
-	return [res.length, 2];
+	expect(res.length).toBe(2);
 });
 
-t("max: undefined uses the default", async () => {
+test("max: undefined uses the default", async () => {
 	const sql = postgres({ ...options, max: undefined });
-	return [10, sql.options.max, await sql.end()];
+	expect(sql.options.max).toBe(10);
+	await sql.end();
 });
 
-t("onnotice: false silences notices", async () => {
+test("onnotice: false silences notices", async () => {
 	const sql = postgres({ ...options, onnotice: false });
 	const log = console.log;
 	let logged = false;
@@ -485,37 +485,42 @@ t("onnotice: false silences notices", async () => {
 	} finally {
 		console.log = log;
 	}
-	return [false, logged, await sql.end()];
+	expect(logged).toBe(false);
+	await sql.end();
 });
 
-t("Multiple hosts errors when all hosts are down", { timeout: 10 }, async () => {
+test("Multiple hosts errors when all hosts are down", { timeout: 10_000 }, async () => {
 	const sql = postgres({
 		...options,
 		host: ["localhost", "localhost"],
 		port: [1, 2],
 		connect_timeout: 1,
 	});
-	return ["ECONNREFUSED", await sql`select 1`.catch((e) => e.code)];
+	expect(await sql`select 1`.catch((e) => e.code)).toBe("ECONNREFUSED");
 });
 
-t("Multiple hosts continues to next host after connect timeout", { timeout: 10 }, async () => {
-	const server = net.createServer();
-	await new Promise((r) => server.listen(0, "127.0.0.1", r));
-	const sql = postgres({
-		...options,
-		host: ["127.0.0.1", "localhost"],
-		port: [server.address().port, pg_port],
-		connect_timeout: 1,
-	});
-	const x = (await sql`select 1 as x`)[0].x;
-	server.close();
-	await sql.end();
-	return [1, x];
-});
+test(
+	"Multiple hosts continues to next host after connect timeout",
+	{ timeout: 10_000 },
+	async () => {
+		const server = net.createServer();
+		await new Promise((r) => server.listen(0, "127.0.0.1", r));
+		const sql = postgres({
+			...options,
+			host: ["127.0.0.1", "localhost"],
+			port: [server.address().port, pg_port],
+			connect_timeout: 1,
+		});
+		const x = (await sql`select 1 as x`)[0].x;
+		server.close();
+		await sql.end();
+		expect(x).toBe(1);
+	},
+);
 
-t(
+test(
 	"prefer-standby connects to the primary when the standby host is down",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({
 			...options,
@@ -526,37 +531,45 @@ t(
 		});
 		const x = (await sql`select 1 as x`)[0].x;
 		await sql.end();
-		return [1, x];
+		expect(x).toBe(1);
 	},
 );
 
-t("prefer-standby connects to a primary when no host is a standby", { timeout: 10 }, async () => {
-	const sql = postgres({
-		idle_timeout,
-		max: 1,
-		host: ["localhost", "localhost"],
-		port: [pg_port, second_pg_port],
-		target_session_attrs: "prefer-standby",
-	});
-	const x = (await sql`select 1 as x`)[0].x;
-	await sql.end();
-	return [1, x];
-});
+test(
+	"prefer-standby connects to a primary when no host is a standby",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({
+			idle_timeout,
+			max: 1,
+			host: ["localhost", "localhost"],
+			port: [pg_port, second_pg_port],
+			target_session_attrs: "prefer-standby",
+		});
+		const x = (await sql`select 1 as x`)[0].x;
+		await sql.end();
+		expect(x).toBe(1);
+	},
+);
 
-t("target_session_attrs standby errors when no host is a standby", { timeout: 10 }, async () => {
-	const sql = postgres({
-		idle_timeout,
-		max: 1,
-		host: ["localhost", "localhost"],
-		port: [pg_port, second_pg_port],
-		target_session_attrs: "standby",
-	});
-	return ["CONNECTION_DESTROYED", await sql`select 1`.catch((e) => e.code)];
-});
+test(
+	"target_session_attrs standby errors when no host is a standby",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({
+			idle_timeout,
+			max: 1,
+			host: ["localhost", "localhost"],
+			port: [pg_port, second_pg_port],
+			target_session_attrs: "standby",
+		});
+		expect(await sql`select 1`.catch((e) => e.code)).toBe("CONNECTION_DESTROYED");
+	},
+);
 
-t(
+test(
 	"Multiple hosts rejects within connect_timeout × hosts when every host times out",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		const connect_timeout = 0.3;
 		const a = await listening(net.createServer());
@@ -573,13 +586,13 @@ t(
 		b.close();
 		await sql.end();
 
-		return ["CONNECT_TIMEOUT,true", code + "," + (elapsed < connect_timeout * host.length + 1)];
+		expect(code + "," + (elapsed < connect_timeout * host.length + 1)).toBe("CONNECT_TIMEOUT,true");
 	},
 );
 
-t(
+test(
 	"prefer-standby tries every host for a standby before accepting a primary",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		let probe = 0;
 		const server = await listening(net.createServer((socket) => (probe++, socket.destroy())));
@@ -594,7 +607,7 @@ t(
 		server.close();
 		await sql.end();
 
-		return ["1,1", [x, probe].join(",")];
+		expect([x, probe].join(",")).toBe("1,1");
 	},
 );
 
@@ -616,7 +629,7 @@ const authenticated = Buffer.concat([
 	backendMessage("Z", Buffer.from("I")),
 ]);
 
-t("Query runs on a new connection if the backend dies while fetching array types", async () => {
+test("Query runs on a new connection if the backend dies while fetching array types", async () => {
 	let killed = false,
 		unhandled = 0;
 
@@ -649,35 +662,31 @@ t("Query runs on a new connection if the backend dies while fetching array types
 	proxy.close();
 	process.off("unhandledRejection", onunhandled);
 
-	return ["1,0,true", [x, unhandled, killed].join(",")];
+	expect([x, unhandled, killed].join(",")).toBe("1,0,true");
 });
 
-t(
-	"Clean closes during startup reject queries and reserves instead of reconnecting forever",
-	async () => {
-		let attempts = 0;
+test("Clean closes during startup reject queries and reserves instead of reconnecting forever", async () => {
+	let attempts = 0;
 
-		const server = net.createServer((socket) => (attempts++, socket.end()));
-		await new Promise((r) => server.listen(0, "localhost", r));
-		const sql = postgres({ ...options, max: 2, host: "localhost", port: server.address().port });
-		const codes = await Promise.all([
-			sql`select 1`.catch((e) => e.code),
-			sql`select 2`.catch((e) => e.code),
-			sql.reserve().catch((e) => e.code),
-		]);
-		await sql.end();
-		server.close();
+	const server = net.createServer((socket) => (attempts++, socket.end()));
+	await new Promise((r) => server.listen(0, "localhost", r));
+	const sql = postgres({ ...options, max: 2, host: "localhost", port: server.address().port });
+	const codes = await Promise.all([
+		sql`select 1`.catch((e) => e.code),
+		sql`select 2`.catch((e) => e.code),
+		sql.reserve().catch((e) => e.code),
+	]);
+	await sql.end();
+	server.close();
 
-		return [
-			"CONNECTION_CLOSED,CONNECTION_CLOSED,CONNECTION_CLOSED,true",
-			[...codes, attempts < 10].join(","),
-		];
-	},
-);
+	expect([...codes, attempts < 10].join(",")).toBe(
+		"CONNECTION_CLOSED,CONNECTION_CLOSED,CONNECTION_CLOSED,true",
+	);
+});
 
-t(
+test(
 	"Clean closes while fetching array types reject queries once connect_timeout has passed",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		let attempts = 0;
 
@@ -706,83 +715,76 @@ t(
 		await sql.end();
 		proxy.close();
 
-		return [
-			"CONNECTION_CLOSED true true select $1::int as x 1",
+		expect(
 			[error.code, waited >= 500, attempts < 10, error.query, error.parameters].join(" "),
-		];
+		).toBe("CONNECTION_CLOSED true true select $1::int as x 1");
 	},
 );
 
-t(
-	"A clean close while fetching array types is retried when connect_timeout is disabled",
-	async () => {
-		let attempts = 0,
-			closed = false;
+test("A clean close while fetching array types is retried when connect_timeout is disabled", async () => {
+	let attempts = 0,
+		closed = false;
 
-		const proxy = net.createServer((client) => {
-			const server = net.connect(pg_port, "localhost");
-			attempts++;
-			client.on("data", (x) =>
-				!closed && x.includes("pg_type")
-					? ((closed = true), server.destroy(), client.end())
-					: server.write(x),
-			);
-			server.on("data", (x) => client.writable && client.write(x));
-			client.on("error", () => server.destroy());
-			server.on("error", () => client.destroy());
-			client.on("close", () => server.destroy());
-		});
-
-		await new Promise((r) => proxy.listen(0, "localhost", r));
-		const sql = postgres({
-			...options,
-			host: "localhost",
-			port: proxy.address().port,
-			connect_timeout: 0,
-		});
-		const x = await sql`select 1 as x`.then(
-			([x]) => x.x,
-			(e) => e.code,
+	const proxy = net.createServer((client) => {
+		const server = net.connect(pg_port, "localhost");
+		attempts++;
+		client.on("data", (x) =>
+			!closed && x.includes("pg_type")
+				? ((closed = true), server.destroy(), client.end())
+				: server.write(x),
 		);
-		await sql.end();
-		proxy.close();
+		server.on("data", (x) => client.writable && client.write(x));
+		client.on("error", () => server.destroy());
+		server.on("error", () => client.destroy());
+		client.on("close", () => server.destroy());
+	});
 
-		return ["1 true 2", [x, closed, attempts].join(" ")];
-	},
-);
+	await new Promise((r) => proxy.listen(0, "localhost", r));
+	const sql = postgres({
+		...options,
+		host: "localhost",
+		port: proxy.address().port,
+		connect_timeout: 0,
+	});
+	const x = await sql`select 1 as x`.then(
+		([x]) => x.x,
+		(e) => e.code,
+	);
+	await sql.end();
+	proxy.close();
 
-t(
-	"A query refused with a FATAL error rejects with the peer error instead of reconnecting forever",
-	async () => {
-		let attempts = 0,
-			unhandled = 0;
+	expect([x, closed, attempts].join(" ")).toBe("1 true 2");
+});
 
-		const onunhandled = () => unhandled++;
-		process.on("unhandledRejection", onunhandled);
+test("A query refused with a FATAL error rejects with the peer error instead of reconnecting forever", async () => {
+	let attempts = 0,
+		unhandled = 0;
 
-		const server = net.createServer((socket) => {
-			let started = false;
-			attempts++;
-			socket.on("error", () => socket.destroy());
-			socket.on("data", () =>
-				started
-					? socket.end(errorResponse("FATAL", "08P01"))
-					: ((started = true), socket.write(authenticated)),
-			);
-		});
+	const onunhandled = () => unhandled++;
+	process.on("unhandledRejection", onunhandled);
 
-		await new Promise((r) => server.listen(0, "localhost", r));
-		const sql = postgres({ ...options, host: "localhost", port: server.address().port });
-		const code = await sql`select 1`.catch((e) => e.code);
-		await sql.end();
-		server.close();
-		process.off("unhandledRejection", onunhandled);
+	const server = net.createServer((socket) => {
+		let started = false;
+		attempts++;
+		socket.on("error", () => socket.destroy());
+		socket.on("data", () =>
+			started
+				? socket.end(errorResponse("FATAL", "08P01"))
+				: ((started = true), socket.write(authenticated)),
+		);
+	});
 
-		return ["08P01,true,0", [code, attempts < 10, unhandled].join(",")];
-	},
-);
+	await new Promise((r) => server.listen(0, "localhost", r));
+	const sql = postgres({ ...options, host: "localhost", port: server.address().port });
+	const code = await sql`select 1`.catch((e) => e.code);
+	await sql.end();
+	server.close();
+	process.off("unhandledRejection", onunhandled);
 
-t("Failed array type fetch on a live connection is not an unhandled rejection", async () => {
+	expect([code, attempts < 10, unhandled].join(",")).toBe("08P01,true,0");
+});
+
+test("Failed array type fetch on a live connection is not an unhandled rejection", async () => {
 	let unhandled = 0;
 
 	const onunhandled = () => unhandled++;
@@ -808,10 +810,10 @@ t("Failed array type fetch on a live connection is not an unhandled rejection", 
 	server.close();
 	process.off("unhandledRejection", onunhandled);
 
-	return [0, unhandled];
+	expect(unhandled).toBe(0);
 });
 
-t("end() completes after the backend is terminated mid-query", { timeout: 5 }, async () => {
+test("end() completes after the backend is terminated mid-query", { timeout: 5000 }, async () => {
 	const sql = postgres({ ...options, max: 1 }),
 		killer = postgres(options);
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
@@ -822,10 +824,10 @@ t("end() completes after the backend is terminated mid-query", { timeout: 5 }, a
 	const error = await query;
 	const start = Date.now();
 	await sql.end();
-	return ["true,true", [error instanceof Error, Date.now() - start < 1000].join()];
+	expect([error instanceof Error, Date.now() - start < 1000].join()).toBe("true,true");
 });
 
-t("Connection end cancels a pending socket factory", async () => {
+test("Connection end cancels a pending socket factory", async () => {
 	let release,
 		started,
 		closes = 0;
@@ -853,7 +855,10 @@ t("Connection end cancels a pending socket factory", async () => {
 		await delay(200);
 		const [{ count }] =
 			await sql`select count(*)::int as count from pg_stat_activity where application_name = ${application_name}`;
-		return ["CONNECTION_DESTROYED,0,true,0", [await query, count, socket.destroyed, closes].join()];
+		expect([await query, count, socket.destroyed, closes].join()).toBe(
+			"CONNECTION_DESTROYED,0,true,0",
+		);
+		return;
 	} finally {
 		socket.destroy();
 		await client.end({ timeout: 0 });
@@ -861,7 +866,7 @@ t("Connection end cancels a pending socket factory", async () => {
 	}
 });
 
-t("Connection end stops a listen connection that is reconnecting", async () => {
+test("Connection end stops a listen connection that is reconnecting", async () => {
 	const application_name = "postgres.js end reconnect " + crypto.randomBytes(4).toString("hex"),
 		client = postgres({ ...options, connection: { application_name } });
 
@@ -875,14 +880,15 @@ t("Connection end stops a listen connection that is reconnecting", async () => {
 		await delay(400);
 		const [{ count }] =
 			await sql`select count(*)::int as count from pg_stat_activity where application_name = ${application_name}`;
-		return [0, count];
+		expect(count).toBe(0);
+		return;
 	} finally {
 		await client.end({ timeout: 0 });
 		await sql`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${application_name}`;
 	}
 });
 
-t("Connection end cancels the first listen attempt", async () => {
+test("Connection end cancels the first listen attempt", async () => {
 	const server = net.createServer((socket) => socket.resume());
 	await new Promise((r) => server.listen(0, "127.0.0.1", r));
 	const socket = new net.Socket();
@@ -896,10 +902,10 @@ t("Connection end cancels the first listen attempt", async () => {
 	await sql.end();
 	await closed;
 	server.close();
-	return ["CONNECTION_DESTROYED", await listening];
+	expect(await listening).toBe("CONNECTION_DESTROYED");
 });
 
-t("Cancel query while its connection is opening", async () => {
+test("Cancel query while its connection is opening", async () => {
 	let open;
 	const opened = new Promise((r) => (open = r));
 	const sql = postgres({
@@ -921,12 +927,13 @@ t("Cancel query while its connection is opening", async () => {
 	const next = sql`select 2 as x`.execute();
 	open();
 	const [{ x }] = await next;
-	return ["57014,2", (await error).code + "," + x, await sql.end()];
+	expect((await error).code + "," + x).toBe("57014,2");
+	await sql.end();
 });
 
-t(
+test(
 	"A query cancelled while its connection starts up leaves the connection in the pool (#1266)",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		const results = [];
 		for (const [phase, o] of [
@@ -981,11 +988,11 @@ t(
 			await sql.end({ timeout: 0 });
 			proxy.close();
 		}
-		return ["auth true 2 true,types true 2 true,auth true 2 true", results.join()];
+		expect(results.join()).toBe("auth true 2 true,types true 2 true,auth true 2 true");
 	},
 );
 
-t("sql.begin works with max_pipeline: 0 and max: 1 (#1264)", async () => {
+test("sql.begin works with max_pipeline: 0 and max: 1 (#1264)", async () => {
 	const sql = postgres({ ...options, max: 1, max_pipeline: 0 });
 	const x = await sql
 		.begin((sql) => sql`select 1 as x`)
@@ -1002,17 +1009,19 @@ t("sql.begin works with max_pipeline: 0 and max: 1 (#1264)", async () => {
 			(x) => x,
 			(e) => e.code,
 		);
-	return ["1 2", x + " " + y, await sql.end()];
+	expect(x + " " + y).toBe("1 2");
+	await sql.end();
 });
 
-t("onread: false reads through the socket stream instead of a shared buffer", async () => {
+test("onread: false reads through the socket stream instead of a shared buffer", async () => {
 	const sql = postgres({ ...options, onread: false, max: 1 });
 	const [{ x }] = await sql`select 1 as x`;
 	const rows = await sql`select generate_series(1, 20000) as n`;
-	return ["1,20000", [x, rows.length].join(), await sql.end()];
+	expect([x, rows.length].join()).toBe("1,20000");
+	await sql.end();
 });
 
-t("sql.stats is current, not a snapshot from creation", async () => {
+test("sql.stats is current, not a snapshot from creation", async () => {
 	const sql = postgres({ ...options, max: 2 });
 	const before = sql.stats.connections;
 	const queries = Promise.all([sql`select pg_sleep(0.2)`, sql`select pg_sleep(0.2)`]);
@@ -1020,16 +1029,13 @@ t("sql.stats is current, not a snapshot from creation", async () => {
 	const during = sql.stats;
 	await queries;
 	const after = sql.stats;
-	return [
-		"0 2 0 2",
-		[before, during.connections, during.idle, after.idle].join(" "),
-		await sql.end(),
-	];
+	expect([before, during.connections, during.idle, after.idle].join(" ")).toBe("0 2 0 2");
+	await sql.end();
 });
 
-t(
+test(
 	"A socket error without a close rejects the query in flight instead of hanging (#1246, #1089)",
-	{ timeout: 5 },
+	{ timeout: 5000 },
 	async () => {
 		let raw;
 		const sql = postgres({
@@ -1046,17 +1052,16 @@ t(
 		raw.emit("error", new Error("half open"));
 		const start = Date.now();
 		const result = await q;
-		return [
+		expect(result + " " + (Date.now() - start < 1000) + " " + (await sql`select 1 as x`)[0].x).toBe(
 			"CONNECTION_CLOSED true 1",
-			result + " " + (Date.now() - start < 1000) + " " + (await sql`select 1 as x`)[0].x,
-			await sql.end(),
-		];
+		);
+		await sql.end();
 	},
 );
 
-t(
+test(
 	"Queries keep working after the backend dies under a burst of pipelined writes (#1250)",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1 });
 		const [{ pid }] = await sql`select pg_backend_pid() as pid`;
@@ -1075,7 +1080,8 @@ t(
 		await delay(50);
 		await other.end();
 		const [{ x }] = await sql`select 1 as x`;
-		return [true, settled.length === 200 && x === 1, await sql.end()];
+		expect(settled.length === 200 && x === 1).toBe(true);
+		await sql.end();
 	},
 );
 
@@ -1153,7 +1159,7 @@ function lyingServer(final) {
 	return new Promise((r) => server.listen(0, "127.0.0.1", () => r(server)));
 }
 
-t("A server whose SCRAM signature is wrong is not trusted", async () => {
+test("A server whose SCRAM signature is wrong is not trusted", async () => {
 	const server = await lyingServer(true);
 	const sql = postgres({
 		host: "127.0.0.1",
@@ -1170,10 +1176,10 @@ t("A server whose SCRAM signature is wrong is not trusted", async () => {
 	);
 	await sql.end({ timeout: 0 });
 	server.close();
-	return ["SASL_SIGNATURE_MISMATCH", code];
+	expect(code).toBe("SASL_SIGNATURE_MISMATCH");
 });
 
-t("A server that ends SCRAM without its signature is not trusted", async () => {
+test("A server that ends SCRAM without its signature is not trusted", async () => {
 	const server = await lyingServer(false);
 	const sql = postgres({
 		host: "127.0.0.1",
@@ -1190,10 +1196,10 @@ t("A server that ends SCRAM without its signature is not trusted", async () => {
 	);
 	await sql.end({ timeout: 0 });
 	server.close();
-	return ["SASL_SIGNATURE_MISMATCH", code];
+	expect(code).toBe("SASL_SIGNATURE_MISMATCH");
 });
 
-t("A cancel request on a TLS connection is sent over TLS", { timeout: 10 }, async () => {
+test("A cancel request on a TLS connection is sent over TLS", { timeout: 10_000 }, async () => {
 	const firsts = [];
 	const server = net.createServer((c) => {
 		const up = net.connect(pg_port, "localhost");
@@ -1222,10 +1228,10 @@ t("A cancel request on a TLS connection is sent over TLS", { timeout: 10 }, asyn
 	);
 	await sql.end();
 	server.close();
-	return ["57014 80877103,80877103", code + " " + firsts.join()];
+	expect(code + " " + firsts.join()).toBe("57014 80877103,80877103");
 });
 
-t("sql.close() lets a running transaction and a reserved connection finish first", async () => {
+test("sql.close() lets a running transaction and a reserved connection finish first", async () => {
 	const sql = postgres(options);
 	await sql`create table test (a int)`;
 	const tx = sql
@@ -1250,15 +1256,12 @@ t("sql.close() lets a running transaction and a reserved connection finish first
 	);
 	reserved.release();
 	await closing;
-	return [
-		"committed 2 1",
-		result + " " + n + " " + after,
-		await sql`drop table test`,
-		await sql.end(),
-	];
+	expect(result + " " + n + " " + after).toBe("committed 2 1");
+	await sql`drop table test`;
+	await sql.end();
 });
 
-t("With several hosts every new connection tries the first host first, as in v3", async () => {
+test("With several hosts every new connection tries the first host first, as in v3", async () => {
 	const hosts = "localhost:" + pg_port + ",localhost:" + second_pg_port;
 	const sql = postgres({
 		...options,
@@ -1277,12 +1280,14 @@ t("With several hosts every new connection tries the first host first, as in v3"
 	}
 	reserved.forEach((r) => r.release());
 	const first = pg_port;
-	return [[first, first, first].join(), ports.join(), await sql.end()];
+	const expected = [first, first, first].join();
+	expect(ports.join()).toBe(expected);
+	await sql.end();
 });
 
-t(
+test(
 	"A query waiting while new connections fail and the only one is reserved is rejected instead of waiting forever",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		const admin = postgres({ ...options, user: "postgres", pass: "", max: 1 });
 		await admin`drop role if exists postgres_js_test_limit`;
@@ -1303,58 +1308,54 @@ t(
 		reserved.release();
 		await sql.end();
 		await admin`drop role postgres_js_test_limit`;
-		return ["53300", code, await admin.end()];
+		expect(code).toBe("53300");
+		await admin.end();
 	},
 );
 
-t("Falsy connection parameters are left out of the startup message, as in v3", async () => {
+test("Falsy connection parameters are left out of the startup message, as in v3", async () => {
 	const sql = postgres({ ...options, connection: { search_path: "" } });
 	const [{ search_path }] = await sql`show search_path`;
-	return ['"$user", public', search_path, await sql.end()];
+	expect(search_path).toBe('"$user", public');
+	await sql.end();
 });
 
-t("sql.options.parsers and sql.options.serializers are objects keyed by oid", async () => {
+test("sql.options.parsers and sql.options.serializers are objects keyed by oid", async () => {
 	const sql = postgres(options);
 	const { parsers, serializers } = sql.options;
-	return [
-		"5 true true",
+	expect(
 		[parsers[23]("5"), Object.keys(parsers).length > 0, typeof serializers[23] === "function"].join(
 			" ",
 		),
-		await sql.end(),
-	];
+	).toBe("5 true true");
+	await sql.end();
 });
 
-t(
-	"Queries and transactions fail fast with the connection error while connections keep failing",
-	async () => {
-		const sql = postgres({ ...options, port: 1, max: 2 });
-		const times = [];
-		for (let i = 0; i < 4; i++) {
-			const start = Date.now();
-			times.push(await sql`select 1`.catch((e) => e.code), Date.now() - start);
-		}
-		for (let i = 0; i < 3; i++) {
-			const start = Date.now();
-			times.push(await sql.begin((sql) => sql`select 1`).catch((e) => e.code), Date.now() - start);
-		}
-		const codes = times.filter((x, i) => i % 2 === 0);
-		const slow = times.filter((x, i) => i % 2 === 1 && i > 3 && x > 200);
-		await sql.end();
-		return [
-			"true x7, slow 0",
-			codes.every((x) => x === "ECONNREFUSED") + " x" + codes.length + ", slow " + slow.length,
-		];
-	},
-);
+test("Queries and transactions fail fast with the connection error while connections keep failing", async () => {
+	const sql = postgres({ ...options, port: 1, max: 2 });
+	const times = [];
+	for (let i = 0; i < 4; i++) {
+		const start = Date.now();
+		times.push(await sql`select 1`.catch((e) => e.code), Date.now() - start);
+	}
+	for (let i = 0; i < 3; i++) {
+		const start = Date.now();
+		times.push(await sql.begin((sql) => sql`select 1`).catch((e) => e.code), Date.now() - start);
+	}
+	const codes = times.filter((x, i) => i % 2 === 0);
+	const slow = times.filter((x, i) => i % 2 === 1 && i > 3 && x > 200);
+	await sql.end();
+	expect(
+		codes.every((x) => x === "ECONNREFUSED") + " x" + codes.length + ", slow " + slow.length,
+	).toBe("true x7, slow 0");
+});
 
-t("Errors from fast failures are separate objects for each query", async () => {
+test("Errors from fast failures are separate objects for each query", async () => {
 	const sql = postgres({ ...options, port: 1 });
 	const errors = [];
 	for (let i = 0; i < 4; i++) errors.push(await sql.unsafe("select " + i).catch((e) => e));
 	await sql.end();
-	return [
-		"true",
+	expect(
 		String(
 			new Set(errors).size === errors.length &&
 				errors.every(
@@ -1362,12 +1363,12 @@ t("Errors from fast failures are separate objects for each query", async () => {
 						e.query === "select " + i && typeof e.stack === "string" && e.code === "ECONNREFUSED",
 				),
 		),
-	];
+	).toBe("true");
 });
 
-t(
+test(
 	"A failed connection attempt does not give up on queries a connection still loading types will serve",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		const admin = postgres({ ...options, user: "postgres", pass: "", max: 1 });
 		await admin`drop role if exists postgres_js_test_loading`;
@@ -1392,13 +1393,14 @@ t(
 		]);
 		await sql.end();
 		await admin`drop role postgres_js_test_loading`;
-		return ["1,reserved", results.join(), await admin.end()];
+		expect(results.join()).toBe("1,reserved");
+		await admin.end();
 	},
 );
 
-t(
+test(
 	"Connections refused for too many connections are retried until connect_timeout",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		const admin = postgres({ ...options, user: "postgres", pass: "", max: 1 });
 		await admin`drop role if exists postgres_js_test_burst`;
@@ -1424,13 +1426,14 @@ t(
 		const got = (await results).join();
 		await sql.end();
 		await admin`drop role postgres_js_test_burst`;
-		return ["0,1,2,3", got, await admin.end()];
+		expect(got).toBe("0,1,2,3");
+		await admin.end();
 	},
 );
 
-t(
+test(
 	"Connections refused for too many connections reject once connect_timeout has passed",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		const admin = postgres({ ...options, user: "postgres", pass: "", max: 1 });
 		await admin`drop role if exists postgres_js_test_none`;
@@ -1451,28 +1454,33 @@ t(
 		const waited = Date.now() - start;
 		await sql.end();
 		await admin`drop role postgres_js_test_none`;
-		return ["53300 true", code + " " + (waited >= 400 && waited < 4000), await admin.end()];
+		expect(code + " " + (waited >= 400 && waited < 4000)).toBe("53300 true");
+		await admin.end();
 	},
 );
 
-t("unref_sockets lets the process exit while connections are idle", { timeout: 20 }, async () => {
-	const script = (idle) =>
-		[
-			"const postgres = (await import(" +
-				JSON.stringify(new URL("../src/index.ts", import.meta.url).href) +
-				")).default",
-			"const sql = postgres(" +
-				JSON.stringify({ ...options, idle_timeout: 60, unref_sockets: idle }) +
-				")",
-			"await sql`select 1`",
-			"await sql.begin(sql => sql`select 2`)",
-			'console.log("done")',
-		].join("\n");
-	const [unref, kept] = await Promise.all([exits(script(true)), exits(script(false))]);
-	return ["done true false", unref.out + " " + unref.exited + " " + kept.exited];
-});
+test(
+	"unref_sockets lets the process exit while connections are idle",
+	{ timeout: 20_000 },
+	async () => {
+		const script = (idle) =>
+			[
+				"const postgres = (await import(" +
+					JSON.stringify(new URL("../src/index.ts", import.meta.url).href) +
+					")).default",
+				"const sql = postgres(" +
+					JSON.stringify({ ...options, idle_timeout: 60, unref_sockets: idle }) +
+					")",
+				"await sql`select 1`",
+				"await sql.begin(sql => sql`select 2`)",
+				'console.log("done")',
+			].join("\n");
+		const [unref, kept] = await Promise.all([exits(script(true)), exits(script(false))]);
+		expect(unref.out + " " + unref.exited + " " + kept.exited).toBe("done true false");
+	},
+);
 
-t("sql and reserved connections are async disposable", async () => {
+test("sql and reserved connections are async disposable", async () => {
 	const sql = postgres(options);
 	const reserved = await sql.reserve();
 	await reserved`select 1`;
@@ -1482,15 +1490,14 @@ t("sql and reserved connections are async disposable", async () => {
 		(e) => e.code,
 	);
 	await sql[Symbol.asyncDispose]();
-	return [
-		"UNSAFE_TRANSACTION CONNECTION_ENDED",
+	expect(
 		released +
 			" " +
 			(await sql`select 1`.then(
 				() => "ran",
 				(e) => e.code,
 			)),
-	];
+	).toBe("UNSAFE_TRANSACTION CONNECTION_ENDED");
 });
 
 async function exits(source) {
@@ -1515,62 +1522,66 @@ function listening(server) {
 	return new Promise((r) => server.listen(0, "127.0.0.1", () => r(server)));
 }
 
-t("user can be a function, called for each connection", async () => {
+test("user can be a function, called for each connection", async () => {
 	let calls = 0;
 	const sql = postgres({ ...options, max: 2, user: async () => (calls++, login.user) });
 	const users = await Promise.all([
 		sql`select current_user as u, pg_sleep(0.05)`,
 		sql`select current_user as u, pg_sleep(0.05)`,
 	]);
-	return [
-		login.user + " " + login.user + " 2",
-		users.map((x) => x[0].u).join(" ") + " " + calls,
-		await sql.end(),
-	];
+	const expected = login.user + " " + login.user + " 2";
+	expect(users.map((x) => x[0].u).join(" ") + " " + calls).toBe(expected);
+	await sql.end();
 });
 
-t("min keeps that many connections open once the pool is used", { timeout: 10 }, async () => {
-	const sql = postgres({ ...options, max: 4, min: 2, idle_timeout: 0.2 });
-	const before = sql.stats.connections;
-	await sql`select 1`;
-	await delay(100);
-	const opened = sql.stats.connections;
-	await Promise.all([1, 2, 3, 4].map(() => sql`select pg_sleep(0.1)`));
-	const busy = sql.stats.connections;
-	await delay(800);
-	return ["0 2 4 2", [before, opened, busy, sql.stats.connections].join(" "), await sql.end()];
-});
+test(
+	"min keeps that many connections open once the pool is used",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 4, min: 2, idle_timeout: 0.2 });
+		const before = sql.stats.connections;
+		await sql`select 1`;
+		await delay(100);
+		const opened = sql.stats.connections;
+		await Promise.all([1, 2, 3, 4].map(() => sql`select pg_sleep(0.1)`));
+		const busy = sql.stats.connections;
+		await delay(800);
+		expect([before, opened, busy, sql.stats.connections].join(" ")).toBe("0 2 4 2");
+		await sql.end();
+	},
+);
 
-t("One query on a cold pool opens one connection", async () => {
+test("One query on a cold pool opens one connection", async () => {
 	const sql = postgres({ ...options, max: 4 });
 	await sql`select 1`;
 	await delay(100);
-	return [1, sql.stats.connections, await sql.end()];
+	expect(sql.stats.connections).toBe(1);
+	await sql.end();
 });
 
-t("A password from PGPASSFILE, as libpq reads it (#964)", async () => {
+test("A password from PGPASSFILE, as libpq reads it (#964)", async () => {
 	const lines = [
 		"# comment",
 		"otherhost:*:*:*:wrong",
 		"*:*:*:" + login_md5.user + ":" + login_md5.pass.replace(/:/g, "\\:"),
 	];
-	return [
-		"1",
+	expect(
 		await passfile(lines.join("\n"), 0o600, (sql) =>
 			sql`select 1 as x`.then((x) => String(x[0].x)),
 		),
-	];
+	).toBe("1");
 });
 
-t("A password file readable by others is ignored, as in libpq", async () => [
-	"28P01",
-	await passfile("*:*:*:" + login_md5.user + ":" + login_md5.pass, 0o644, (sql) =>
-		sql`select 1`.then(
-			() => "ran",
-			(e) => e.code,
+test("A password file readable by others is ignored, as in libpq", async () => {
+	expect(
+		await passfile("*:*:*:" + login_md5.user + ":" + login_md5.pass, 0o644, (sql) =>
+			sql`select 1`.then(
+				() => "ran",
+				(e) => e.code,
+			),
 		),
-	),
-]);
+	).toBe("28P01");
+});
 
 async function passfile(content, mode, fn) {
 	const fs = await import("fs"),
@@ -1591,9 +1602,9 @@ async function passfile(content, mode, fn) {
 	}
 }
 
-t(
+test(
 	"queue_timeout rejects a query that waits too long for a connection, without sending it",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, queue_timeout: 0.2 });
 		const reserved = await sql.reserve();
@@ -1605,17 +1616,16 @@ t(
 		const waited = Date.now() - start;
 		reserved.release();
 		const after = await sql`select 1 as x`;
-		return [
+		expect(code + " " + (waited >= 150 && waited < 500) + " " + after[0].x).toBe(
 			"QUEUE_TIMEOUT true 1",
-			code + " " + (waited >= 150 && waited < 500) + " " + after[0].x,
-			await sql.end(),
-		];
+		);
+		await sql.end();
 	},
 );
 
-t(
+test(
 	"queue_timeout applies to transactions and reserves waiting for a connection",
-	{ timeout: 10 },
+	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, queue_timeout: 0.2 });
 		const reserved = await sql.reserve();
@@ -1632,73 +1642,72 @@ t(
 			),
 		];
 		reserved.release();
-		return ["QUEUE_TIMEOUT QUEUE_TIMEOUT", codes.join(" "), await sql.end()];
+		expect(codes.join(" ")).toBe("QUEUE_TIMEOUT QUEUE_TIMEOUT");
+		await sql.end();
 	},
 );
 
-t("A query that waits less than queue_timeout runs", { timeout: 10 }, async () => {
+test("A query that waits less than queue_timeout runs", { timeout: 10_000 }, async () => {
 	const sql = postgres({ ...options, max: 1, queue_timeout: 1 });
 	const reserved = await sql.reserve();
 	const query = sql`select 1 as x`;
 	setTimeout(() => reserved.release(), 200);
-	return [1, (await query)[0].x, await sql.end()];
+	expect((await query)[0].x).toBe(1);
+	await sql.end();
 });
 
-t("An AbortSignal removes a waiting query and cancels a running one", { timeout: 10 }, async () => {
-	const sql = postgres({ ...options, max: 1 });
-	const reserved = await sql.reserve();
-	const waiting = sql`select 1`.signal(AbortSignal.timeout(100)).then(
-		() => "ran",
-		(e) => e.code,
-	);
-	await delay(150);
-	reserved.release();
-	const running = sql`select pg_sleep(2)`.signal(AbortSignal.timeout(200)).then(
-		() => "ran",
-		(e) => e.code,
-	);
-	const aborted = new AbortController();
-	aborted.abort();
-	const before = await sql`select 1`.signal(aborted.signal).then(
-		() => "ran",
-		(e) => e.code,
-	);
-	return [
-		"57014 57014 57014 1",
-		[await running, await waiting, before, (await sql`select 1 as x`)[0].x].join(" "),
-		await sql.end(),
-	];
-});
-
-t(
-	"A parameter the server reports after startup reaches onparameter and sql.parameters",
+test(
+	"An AbortSignal removes a waiting query and cancels a running one",
+	{ timeout: 10_000 },
 	async () => {
-		const seen = [],
-			sql = postgres({
-				...options,
-				onparameter: (k, v) => k === "application_name" && seen.push(v),
-			});
-		await sql`set application_name = 'renamed'`;
-		return [
-			"postgres.js,renamed renamed",
-			seen.join() + " " + sql.parameters.application_name,
-			await sql.end(),
-		];
+		const sql = postgres({ ...options, max: 1 });
+		const reserved = await sql.reserve();
+		const waiting = sql`select 1`.signal(AbortSignal.timeout(100)).then(
+			() => "ran",
+			(e) => e.code,
+		);
+		await delay(150);
+		reserved.release();
+		const running = sql`select pg_sleep(2)`.signal(AbortSignal.timeout(200)).then(
+			() => "ran",
+			(e) => e.code,
+		);
+		const aborted = new AbortController();
+		aborted.abort();
+		const before = await sql`select 1`.signal(aborted.signal).then(
+			() => "ran",
+			(e) => e.code,
+		);
+		expect([await running, await waiting, before, (await sql`select 1 as x`)[0].x].join(" ")).toBe(
+			"57014 57014 57014 1",
+		);
+		await sql.end();
 	},
 );
 
-t("An empty query gives an empty result, simple or prepared", async () => {
+test("A parameter the server reports after startup reaches onparameter and sql.parameters", async () => {
+	const seen = [],
+		sql = postgres({
+			...options,
+			onparameter: (k, v) => k === "application_name" && seen.push(v),
+		});
+	await sql`set application_name = 'renamed'`;
+	expect(seen.join() + " " + sql.parameters.application_name).toBe("postgres.js,renamed renamed");
+	await sql.end();
+});
+
+test("An empty query gives an empty result, simple or prepared", async () => {
 	const xs = [
 		await sql.unsafe(""),
 		await sql.unsafe("", [], { prepare: true }),
 		await sql.unsafe(" ; "),
 	];
-	return ["0:null,0:null,0:null", xs.map((x) => x.length + ":" + x.command).join()];
+	expect(xs.map((x) => x.length + ":" + x.command).join()).toBe("0:null,0:null,0:null");
 });
 
-t(
+test(
 	"A query is pipelined behind the work that should finish first, not behind a long query, unless the scheduler is off",
-	{ timeout: 20 },
+	{ timeout: 20_000 },
 	async () => {
 		const waited = async (scheduler) => {
 			const sql = postgres({ ...options, max: 2, idle_timeout: 0, scheduler }),
@@ -1719,62 +1728,55 @@ t(
 			return ms;
 		};
 		const [on, off] = [await waited(true), await waited(false)];
-		return ["true true", (on < 500) + " " + (off > 800)];
+		expect((on < 500) + " " + (off > 800)).toBe("true true");
 	},
 );
 
-t(
-	"An identifier that looks like many comments after start does not stall the event loop",
-	async () => {
-		const sql = postgres({ ...options, max: 2 }),
-			column = "start" + "/**/".repeat(40) + "x",
-			started = performance.now();
-		const code = await sql`select 1 as x order by ${sql(column)}`.then(
+test("An identifier that looks like many comments after start does not stall the event loop", async () => {
+	const sql = postgres({ ...options, max: 2 }),
+		column = "start" + "/**/".repeat(40) + "x",
+		started = performance.now();
+	const code = await sql`select 1 as x order by ${sql(column)}`.then(
+		() => "ran",
+		(e) => e.code,
+	);
+	expect(code + " " + (performance.now() - started < 1000)).toBe("42703 true");
+	await sql.end();
+});
+
+test("A NUL character in a startup parameter rejects instead of adding parameters (as another user)", async () => {
+	const codes = [];
+	const attempts = [
+		{ database: options.db + "\0user\0postgres" },
+		{ user: login.user + "\0database\0postgres" },
+		{ connection: { application_name: "x\0replication\0database" } },
+	];
+	for (const o of attempts) {
+		const sql = postgres({ ...options, ...o });
+		codes.push(
+			await sql`select current_user`.then(
+				(x) => x[0].current_user,
+				(e) => e.code,
+			),
+		);
+		await sql.end({ timeout: 0 });
+	}
+	expect(codes.join()).toBe("NUL_CHARACTER,NUL_CHARACTER,NUL_CHARACTER");
+});
+
+test("A NUL character in query text is rejected by the server and leaves the connection usable", async () => {
+	const sql = postgres({ ...options, max: 1 });
+	const codes = [
+		await sql`select 1 as ${sql("x\0y")}`.then(
 			() => "ran",
 			(e) => e.code,
-		);
-		return ["42703 true", code + " " + (performance.now() - started < 1000), await sql.end()];
-	},
-);
-
-t(
-	"A NUL character in a startup parameter rejects instead of adding parameters (as another user)",
-	async () => {
-		const codes = [];
-		const attempts = [
-			{ database: options.db + "\0user\0postgres" },
-			{ user: login.user + "\0database\0postgres" },
-			{ connection: { application_name: "x\0replication\0database" } },
-		];
-		for (const o of attempts) {
-			const sql = postgres({ ...options, ...o });
-			codes.push(
-				await sql`select current_user`.then(
-					(x) => x[0].current_user,
-					(e) => e.code,
-				),
-			);
-			await sql.end({ timeout: 0 });
-		}
-		return ["NUL_CHARACTER,NUL_CHARACTER,NUL_CHARACTER", codes.join()];
-	},
-);
-
-t(
-	"A NUL character in query text is rejected by the server and leaves the connection usable",
-	async () => {
-		const sql = postgres({ ...options, max: 1 });
-		const codes = [
-			await sql`select 1 as ${sql("x\0y")}`.then(
-				() => "ran",
-				(e) => e.code,
-			),
-			await sql.unsafe("select 1 \0").then(
-				() => "ran",
-				(e) => e.code,
-			),
-		];
-		const [{ x }] = await sql`select 1 as x`;
-		return ["08P01 08P01 1", codes.join(" ") + " " + x, await sql.end()];
-	},
-);
+		),
+		await sql.unsafe("select 1 \0").then(
+			() => "ran",
+			(e) => e.code,
+		),
+	];
+	const [{ x }] = await sql`select 1 as x`;
+	expect(codes.join(" ") + " " + x).toBe("08P01 08P01 1");
+	await sql.end();
+});

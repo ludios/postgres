@@ -1,115 +1,116 @@
 // Model-output: Claude Opus 5.5
 // @ts-nocheck
-import { t } from "./test.ts";
+import { expect, test } from "vitest";
 import { postgres, sql, options, login_md5, rel, idle_timeout, delay } from "./setup.ts";
 
-t("Undefined values throws", async () => {
+test("Undefined values throws", async () => {
 	let error;
 
 	await sql`
     select ${undefined} as x
   `.catch((x) => (error = x.code));
 
-	return ["UNDEFINED_VALUE", error];
+	expect(error).toBe("UNDEFINED_VALUE");
 });
 
-t("Throw syntax error", async () => ["42601", (await sql`wat 1`.catch((x) => x)).code]);
+test("Throw syntax error", async () => {
+	expect((await sql`wat 1`.catch((x) => x)).code).toBe("42601");
+});
 
-t("Proper handling of non object Errors", async () => {
+test("Proper handling of non object Errors", async () => {
 	const sql = postgres({
 		socket: () => {
 			throw "wat";
 		},
 	});
 
-	return ["wat", await sql`select 1 as x`.catch((e) => e.message)];
+	expect(await sql`select 1 as x`.catch((e) => e.message)).toBe("wat");
 });
 
-t("Proper handling of null Errors", async () => {
+test("Proper handling of null Errors", async () => {
 	const sql = postgres({
 		socket: () => {
 			throw null;
 		},
 	});
 
-	return ["null", await sql`select 1 as x`.catch((e) => e.message)];
+	expect(await sql`select 1 as x`.catch((e) => e.message)).toBe("null");
 });
 
-t("sql file throws", async () => [
-	"ENOENT",
-	await sql.file(rel("selectomondo.sql")).catch((x) => x.code),
-]);
+test("sql file throws", async () => {
+	expect(await sql.file(rel("selectomondo.sql")).catch((x) => x.code)).toBe("ENOENT");
+});
 
-t("Throws if more than 65534 parameters", async () => {
+test("Throws if more than 65534 parameters", async () => {
 	await sql`create table test (x int)`;
-	return [
-		"MAX_PARAMETERS_EXCEEDED",
+	expect(
 		await sql`insert into test ${sql([...Array(65535).keys()].map((x) => ({ x })))}`.catch(
 			(e) => e.code,
 		),
-		await sql`drop table test`,
-	];
+	).toBe("MAX_PARAMETERS_EXCEEDED");
+	await sql`drop table test`;
 });
 
-t("await sql() throws not tagged error", async () => {
+test("await sql() throws not tagged error", async () => {
 	let error;
 	try {
 		await sql("select 1");
 	} catch (e) {
 		error = e.code;
 	}
-	return ["NOT_TAGGED_CALL", error];
+	expect(error).toBe("NOT_TAGGED_CALL");
 });
 
-t("sql().then throws not tagged error", async () => {
+test("sql().then throws not tagged error", async () => {
 	let error;
 	try {
 		sql("select 1").then(() => {});
 	} catch (e) {
 		error = e.code;
 	}
-	return ["NOT_TAGGED_CALL", error];
+	expect(error).toBe("NOT_TAGGED_CALL");
 });
 
-t("sql().catch throws not tagged error", async () => {
+test("sql().catch throws not tagged error", async () => {
 	let error;
 	try {
 		sql("select 1").catch(() => {});
 	} catch (e) {
 		error = e.code;
 	}
-	return ["NOT_TAGGED_CALL", error];
+	expect(error).toBe("NOT_TAGGED_CALL");
 });
 
-t("sql().finally throws not tagged error", async () => {
+test("sql().finally throws not tagged error", async () => {
 	let error;
 	try {
 		sql("select 1").finally(() => {});
 	} catch (e) {
 		error = e.code;
 	}
-	return ["NOT_TAGGED_CALL", error];
+	expect(error).toBe("NOT_TAGGED_CALL");
 });
 
-t("little bobby tables", async () => {
+test("little bobby tables", async () => {
 	const name = "Robert'); DROP TABLE students;--";
 
 	await sql`create table students (name text, age int)`;
 	await sql`insert into students (name) values (${name})`;
 
-	return [name, (await sql`select name from students`)[0].name, await sql`drop table students`];
+	expect((await sql`select name from students`)[0].name).toBe(name);
+	await sql`drop table students`;
 });
 
-t("throws correct error when authentication fails", async () => {
+test("throws correct error when authentication fails", async () => {
 	const sql = postgres({
 		...options,
 		...login_md5,
 		pass: "wrong",
 	});
-	return ["28P01", await sql`select 1`.catch((e) => e.code)];
+	expect(await sql`select 1`.catch((e) => e.code)).toBe("28P01");
 });
 
-t("notice", async () => {
+test("notice", async () => {
 	let notice;
 	const log = console.log;
 	console.log = function (x) {
@@ -123,10 +124,10 @@ t("notice", async () => {
 
 	console.log = log;
 
-	return ["NOTICE", notice.severity];
+	expect(notice.severity).toBe("NOTICE");
 });
 
-t("notice hook", async () => {
+test("notice hook", async () => {
 	let notice;
 	const sql = postgres({
 		...options,
@@ -136,10 +137,10 @@ t("notice hook", async () => {
 	await sql`create table if not exists users()`;
 	await sql`create table if not exists users()`;
 
-	return ["NOTICE", notice.severity];
+	expect(notice.severity).toBe("NOTICE");
 });
 
-t("Debug", async () => {
+test("Debug", async () => {
 	let result;
 	const sql = postgres({
 		...options,
@@ -148,27 +149,29 @@ t("Debug", async () => {
 
 	await sql`select 1`;
 
-	return ["select 1", result];
+	expect(result).toBe("select 1");
 });
 
-t("Async stack trace", async () => {
+test("Async stack trace", async () => {
 	const sql = postgres({ ...options, debug: false });
 	// The query must be on the line after this one
 	const line = parseInt(new Error().stack.split("\n")[1].match(":([0-9]+):")[1]);
 	const error = await sql`error`.catch((x) => x);
-	return [line + 1, parseInt(error.stack.split("\n").pop().match(":([0-9]+):")[1])];
+	const expected = line + 1;
+	expect(parseInt(error.stack.split("\n").pop().match(":([0-9]+):")[1])).toBe(expected);
 });
 
-t("Debug has long async stack trace", async () => {
+test("Debug has long async stack trace", async () => {
 	const sql = postgres({ ...options, debug: true });
 
 	const inlines = typeof Bun !== "undefined";
-	return [
-		inlines ? "true" : "watyo",
+	const expected = inlines ? "true" : "watyo";
+	expect(
 		await yo().catch((x) =>
 			inlines ? String(x.stack.includes("errors.ts")) : x.stack.match(/wat|yo/g).join(""),
 		),
-	];
+	).toBe(expected);
+	return;
 
 	function yo() {
 		return wat();
@@ -179,60 +182,55 @@ t("Debug has long async stack trace", async () => {
 	}
 });
 
-t("Error contains query string", async () => [
-	"selec 1",
-	await sql`selec 1`.catch((err) => err.query),
-]);
+test("Error contains query string", async () => {
+	expect(await sql`selec 1`.catch((err) => err.query)).toBe("selec 1");
+});
 
-t("Error contains query serialized parameters", async () => [
-	1,
-	await sql`selec ${1}`.catch((err) => err.parameters[0]),
-]);
+test("Error contains query serialized parameters", async () => {
+	expect(await sql`selec ${1}`.catch((err) => err.parameters[0])).toBe(1);
+});
 
-t("Error contains query raw parameters", async () => [
-	1,
-	await sql`selec ${1}`.catch((err) => err.args[0]),
-]);
+test("Error contains query raw parameters", async () => {
+	expect(await sql`selec ${1}`.catch((err) => err.args[0])).toBe(1);
+});
 
-t("Query and parameters on errorare not enumerable if debug is not set", async () => {
+test("Query and parameters on errorare not enumerable if debug is not set", async () => {
 	const sql = postgres({ ...options, debug: false });
 
-	return [
-		false,
+	expect(
 		await sql`selec ${1}`.catch(
 			(err) => err.propertyIsEnumerable("parameters") || err.propertyIsEnumerable("query"),
 		),
-	];
+	).toBe(false);
 });
 
-t("Query and parameters are enumerable if debug is set", async () => {
+test("Query and parameters are enumerable if debug is set", async () => {
 	const sql = postgres({ ...options, debug: true });
 
-	return [
-		true,
+	expect(
 		await sql`selec ${1}`.catch(
 			(err) => err.propertyIsEnumerable("parameters") && err.propertyIsEnumerable("query"),
 		),
-	];
+	).toBe(true);
 });
 
-t("Postgres errors are of type PostgresError", async () => [
-	true,
-	(await sql`bad keyword`.catch((e) => e)) instanceof sql.PostgresError,
-]);
+test("Postgres errors are of type PostgresError", async () => {
+	expect((await sql`bad keyword`.catch((e) => e)) instanceof sql.PostgresError).toBe(true);
+});
 
-t("Catches query format errors", async () => [
-	"wat",
-	await sql
-		.unsafe({
-			toString: () => {
-				throw new Error("wat");
-			},
-		})
-		.catch((e) => e.message),
-]);
+test("Catches query format errors", async () => {
+	expect(
+		await sql
+			.unsafe({
+				toString: () => {
+					throw new Error("wat");
+				},
+			})
+			.catch((e) => e.message),
+	).toBe("wat");
+});
 
-t("A query that fails to encode leaves the connection usable", async () => {
+test("A query that fails to encode leaves the connection usable", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	const error = await sql
 		.unsafe({
@@ -247,10 +245,11 @@ t("A query that fails to encode leaves the connection usable", async () => {
 		},
 	}}::json`.catch((e) => e.message);
 	const [{ x }] = await sql`select 1 as x`;
-	return ["wat,json,1", [error, huge, x].join(), await sql.end()];
+	expect([error, huge, x].join()).toBe("wat,json,1");
+	await sql.end();
 });
 
-t("Catches type serialize errors", async () => {
+test("Catches type serialize errors", async () => {
 	const sql = postgres({
 		idle_timeout,
 		types: {
@@ -265,10 +264,10 @@ t("Catches type serialize errors", async () => {
 		},
 	});
 
-	return ["watSerialize", await sql`select ${"wat"}`.catch((e) => e.message)];
+	expect(await sql`select ${"wat"}`.catch((e) => e.message)).toBe("watSerialize");
 });
 
-t("Catches type parse errors", async () => {
+test("Catches type parse errors", async () => {
 	const sql = postgres({
 		idle_timeout,
 		types: {
@@ -283,24 +282,22 @@ t("Catches type parse errors", async () => {
 		},
 	});
 
-	return ["watParse", await sql`select 'wat'`.catch((e) => e.message)];
+	expect(await sql`select 'wat'`.catch((e) => e.message)).toBe("watParse");
 });
 
-t("Insert array with undefined throws", async () => {
+test("Insert array with undefined throws", async () => {
 	await sql`create table test (x int[])`;
-	return [
+	expect(await sql`insert into test ${sql({ x: [1, undefined, 3] })}`.catch((e) => e.code)).toBe(
 		"UNDEFINED_VALUE",
-		await sql`insert into test ${sql({ x: [1, undefined, 3] })}`.catch((e) => e.code),
-		await sql`drop table test`,
-	];
+	);
+	await sql`drop table test`;
 });
 
-t("A PostgresError has its fields and its message in JSON (#767)", async () => {
+test("A PostgresError has its fields and its message in JSON (#767)", async () => {
 	await sql`create table test (x int check (x > 0))`;
 	const error = await sql`insert into test values (-1)`.catch((e) => e);
 	const json = JSON.parse(JSON.stringify(error));
-	return [
-		"PostgresError 23514 test_x_check test true",
+	expect(
 		[
 			json.name,
 			json.code,
@@ -308,19 +305,21 @@ t("A PostgresError has its fields and its message in JSON (#767)", async () => {
 			json.table_name,
 			json.message.includes("check constraint"),
 		].join(" "),
-		await sql`drop table test`,
-	];
+	).toBe("PostgresError 23514 test_x_check test true");
+	await sql`drop table test`;
 });
 
-t("The cached origin of a query does not keep the closure that made it alive (#1274)", async () => {
+test("The cached origin of a query does not keep the closure that made it alive (#1274)", async ({
+	skip,
+}) => {
 	const v8 = await import("v8"),
 		vm = await import("vm");
 	let gc;
 	try {
 		v8.setFlagsFromString("--expose-gc");
 		gc = vm.runInNewContext("gc");
-	} catch (e) {
-		return [true, true];
+	} catch {
+		skip("this runtime cannot expose gc()");
 	}
 
 	const refs = [];
@@ -331,7 +330,7 @@ t("The cached origin of a query does not keep the closure that made it alive (#1
 		gc();
 	}
 
-	return [true, refs[0].deref() === undefined];
+	expect(refs[0].deref() === undefined).toBe(true);
 });
 
 function holding(refs) {
