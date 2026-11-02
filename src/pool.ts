@@ -532,6 +532,7 @@ export function Pool(options, types) {
 					? waiting.take().forEach((job) => reject(job, copy_error(typesError)))
 					: typesLoaded || [...connections].some((x) => !x.closed && (loadTypes(x), true));
 				drain();
+				connections.forEach((x) => idle(x));
 			});
 	}
 
@@ -617,20 +618,22 @@ export function Pool(options, types) {
 	}
 
 	/**
-	 * Settles connection `c` into idleness, if it has nothing in flight, no lease and is not
-	 * closing: publishes `idle` for it; with `unref_sockets`, lets its socket go (unless `c` is
-	 * loading types, or queries wait that `c` could not take); and with `idle_timeout`, starts
-	 * its idle timer, or, if that is already running, counts the timeout from now again.
-	 * @param c - a connection that just opened, finished the last query it had in flight, or was
-	 *   released, after the pool has given it whatever waiting work it could
+	 * Settles connection `c` into idleness, if it has nothing in flight, no lease, is not closing
+	 * and is not waiting for the pool's types to load: publishes `idle` for it; with
+	 * `unref_sockets`, lets its socket go (unless queries wait that `c` could not take); and with
+	 * `idle_timeout`, starts its idle timer, or, if that is already running, counts the timeout
+	 * from now again.
+	 * @param c - a connection that just opened, finished the last query it had in flight, was
+	 *   released, or stopped waiting for the types, after the pool has given it whatever waiting
+	 *   work it could
 	 */
 	function idle(c) {
-		if (c.inflight || c.lease || c.closing) {
+		if (c.inflight || c.lease || c.closing || c.loading) {
 			return;
 		}
 
 		event("idle", c);
-		if (options.unref_sockets && !c.loading && waiting.length === 0) {
+		if (options.unref_sockets && waiting.length === 0) {
 			c.unref();
 		}
 		if (!options.idle_timeout) {

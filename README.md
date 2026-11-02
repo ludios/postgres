@@ -1547,7 +1547,7 @@ A tracing channel publishes `start` and `end` around the sending of the query, `
 
 #### `postgres:pool` and `postgres:notice`
 
-Pool messages have an `event` (`open`, `idle`, `wait`, `lease`, `release` or `close`), the `connection`, `host`, `port` and `database`, and the pool's `stats` at that moment. `lease` and `release` also have the `kind` of lease and `lease` how many milliseconds it `waited`; `close` has the `error`. `idle` is published when a connection has nothing in flight, no lease and is not closing, once the pool has given it whatever waiting work it could: after it opens, after it finishes the last query it had in flight, and after its lease is released. Notices come as `{ notice, connection, host, port, database }`.
+Pool messages have an `event` (`open`, `idle`, `wait`, `lease`, `release` or `close`), the `connection`, `host`, `port` and `database`, and the pool's `stats` at that moment. `lease` and `release` also have the `kind` of lease and `lease` how many milliseconds it `waited`; `close` has the `error`. `idle` is published when a connection has nothing in flight, no lease, is not closing and is not waiting for the pool's types to load, once the pool has given it whatever waiting work it could: after it opens, after it finishes the last query it had in flight, and after its lease is released. Notices come as `{ notice, connection, host, port, database }`.
 
 #### OpenTelemetry
 
