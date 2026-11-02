@@ -302,10 +302,13 @@ test("Ensure reconnect after max_lifetime with transactions", { timeout: 5000 },
 		max: 1,
 	});
 
-	let x = 0;
-	while (x++ < 10) await sql.begin((sql) => sql`select 1 as x`);
+	const xs = [];
+	for (let i = 0; i < 10; i++) {
+		const [{ x }] = await sql.begin((sql) => sql`select 1 as x`);
+		xs.push(x);
+	}
 
-	expect(true).toBe(true);
+	expect(xs).toEqual(Array(10).fill(1));
 });
 
 test("Ensure transactions throw if connection is closed dwhile there is no query", async () => {
