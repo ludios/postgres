@@ -117,6 +117,18 @@ test("Include table oid and column number in column details", async () => {
 	]);
 });
 
+test("A large object's close() rejects after a failed operation aborted its transaction", async () => {
+	await using sql = postgres({ ...options, max: 1 });
+	const lo = await sql.largeObject();
+	const failed = await lo.seek(0, 99).catch((e) => e.code);
+	const closed = await lo.close().catch((e) => e.code);
+	// close() rejects with the error that aborted the transaction, which every later query of the
+	// transaction gets
+	expect([failed, closed]).toEqual(["22023", "22023"]);
+	// The pool has its only connection back: the transaction rolled back and the lease ended
+	expect((await sql`select 1 as x`)[0].x).toBe(1);
+});
+
 test("Large object", async () => {
 	const file = new URL(import.meta.url);
 	const md5 = crypto.createHash("md5").update(fs.readFileSync(file)).digest("hex");
