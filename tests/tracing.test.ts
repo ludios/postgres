@@ -196,21 +196,40 @@ test("Tracing: the pool publishes idle only for a connection with nothing in fli
 	const before_pipelining = messages.length;
 	// Both queries are in flight on the one connection, so the first to finish leaves it busy
 	await Promise.all([sql`select 1`, sql`select 2`]);
-	const idle_while_pipelining = messages.slice(before_pipelining).filter((x) => x.event === "idle").length;
-	const reserved = await sql.reserve();
-	await reserved`select 1`;
-	await reserved`select 2`;
-	reserved.release();
+	const pipelining = messages.slice(before_pipelining).map((x) => x.event);
+	// The first release hands the connection straight to the second lease
+	const before_reserving = messages.length,
+		reserves = [sql.reserve(), sql.reserve()];
+	for (const reserve of reserves) {
+		const reserved = await reserve;
+		await reserved`select 1`;
+		reserved.release();
+	}
+	const reserving = messages.slice(before_reserving).map((x) => x.event);
 	await sql.end();
 	stop();
-	const kinds = messages.map((x) => x.event),
-		leased = messages.slice(kinds.indexOf("lease"), kinds.indexOf("release"));
+	const kinds = messages.map((x) => x.event);
 	expect([
-		kinds[kinds.indexOf("open") + 1],
-		idle_while_pipelining,
-		leased.filter((x) => x.event === "idle").length,
+		kinds.indexOf("open") < kinds.indexOf("idle"),
+		pipelining,
+		reserving.filter((x) => x !== "wait"),
 		messages.filter((x) => x.event === "idle" && x.stats.idle !== 1).length,
-	]).toEqual(["idle", 1, 0, 0]);
+	]).toEqual([true, ["idle"], ["lease", "release", "lease", "release", "idle"], 0]);
+});
+
+test("Tracing: the pool publishes no idle for a connection that is closing", async () => {
+	const { messages, stop } = listen("postgres:pool");
+	const sql = postgres({ ...options, max: 1 });
+	await sql`select 1`;
+	const slow = sql`select pg_sleep(0.05)`.execute();
+	// execute() sends the query in a microtask, so wait for one: close() must find it in flight
+	await Promise.resolve();
+	const before_close = messages.length,
+		closed = sql.close();
+	await slow;
+	await closed;
+	stop();
+	expect(messages.slice(before_close).map((x) => x.event)).toEqual(["close"]);
 });
 
 test("Tracing: notices are published with their connection", async () => {

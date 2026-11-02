@@ -461,11 +461,18 @@ export function Pool(options, types) {
 		const c = Connection(ready, options, events) as Pooled;
 		c.index = ready.index || 0;
 		connections.add(c);
-		event("open", c);
 		lifetime(c);
-		typesLoaded || typesLoading ? (c.loading = !typesLoaded) : loadTypes(c);
-		c.loading || recovered();
+		event("open", c);
+		if (typesLoaded || typesLoading) {
+			c.loading = !typesLoaded;
+		} else {
+			loadTypes(c);
+		}
+		if (!c.loading) {
+			recovered();
+		}
 		drain();
+		idle(c);
 	}
 
 	function recovered() {
@@ -565,17 +572,26 @@ export function Pool(options, types) {
 				: job.reject(error);
 	}
 
+	/**
+	 * Starts connection `c`'s `max_lifetime` timer, if `max_lifetime` is set: when the timer
+	 * fires, `c` closes as soon as it has no lease and nothing in flight.
+	 * @param c - a connection that just opened
+	 */
 	function lifetime(c) {
 		const life =
 			typeof options.max_lifetime === "function" ? options.max_lifetime() : options.max_lifetime;
-		life &&
-			(c.lifeTimer = unref(
-				setTimeout(() => {
-					c.retiring = true;
-					c.inflight === 0 && !c.lease && c.close();
-				}, life * 1000),
-			));
-		idle(c);
+		if (!life) {
+			return;
+		}
+
+		c.lifeTimer = unref(
+			setTimeout(() => {
+				c.retiring = true;
+				if (c.inflight === 0 && !c.lease) {
+					c.close();
+				}
+			}, life * 1000),
+		);
 	}
 
 	/**
@@ -601,13 +617,15 @@ export function Pool(options, types) {
 	}
 
 	/**
-	 * Notes that connection `c` is ready for more work: if `c` has nothing in flight and no lease,
-	 * publishes `idle` for it and starts its idle timer (if `idle_timeout` is set and the timer is
-	 * not already running).
-	 * @param c - a connection that just opened, or just finished a query, or was just released
+	 * Settles connection `c` into idleness, if it has nothing in flight, no lease and is not
+	 * closing: publishes `idle` for it; with `unref_sockets`, lets its socket go (unless `c` is
+	 * loading types, or queries wait that `c` could not take); and with `idle_timeout`, starts
+	 * its idle timer, or, if that is already running, counts the timeout from now again.
+	 * @param c - a connection that just opened, finished the last query it had in flight, or was
+	 *   released, after the pool has given it whatever waiting work it could
 	 */
 	function idle(c) {
-		if (c.inflight || c.lease) {
+		if (c.inflight || c.lease || c.closing) {
 			return;
 		}
 
@@ -663,7 +681,6 @@ export function Pool(options, types) {
 			return c.close();
 		}
 
-		idle(c);
 		while (
 			waiting.length > connections.size &&
 			usable(c) &&
@@ -673,8 +690,13 @@ export function Pool(options, types) {
 			run(c, waiting.shift());
 		}
 
-		waiting.length && !c.lease && c.inflight < options.max_pipeline && drain();
-		ending && waiting.length === 0 && finishing();
+		if (waiting.length && !c.lease && c.inflight < options.max_pipeline) {
+			drain();
+		}
+		idle(c);
+		if (ending && waiting.length === 0) {
+			finishing();
+		}
 	}
 
 	/**
