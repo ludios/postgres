@@ -1,4 +1,5 @@
-import { t } from "../test.ts";
+// Model-output: Claude Opus 5.5
+import { expect, test } from "vitest";
 import * as p from "../../src/protocol.ts";
 
 const hex = (x) => Buffer.from(x).toString("hex");
@@ -18,25 +19,28 @@ const msg = (type, ...parts) => {
 	return Buffer.concat([Buffer.from(type), i32(body.length + 4), body]);
 };
 
-t("Sync, Flush, Terminate, CopyDone", async () => [
-	hex(Buffer.concat([msg("S"), msg("H"), msg("X"), msg("c")])),
-	hex(Buffer.concat([p.Sync(), p.Flush(), p.Terminate(), p.CopyDone()])),
-]);
+test("Sync, Flush, Terminate, CopyDone", async () => {
+	const expected = hex(Buffer.concat([msg("S"), msg("H"), msg("X"), msg("c")]));
+	expect(hex(Buffer.concat([p.Sync(), p.Flush(), p.Terminate(), p.CopyDone()]))).toBe(expected);
+});
 
-t("Query", async () => [hex(msg("Q", str("select 1"))), hex(p.Query("select 1"))]);
+test("Query", async () => {
+	const expected = hex(msg("Q", str("select 1")));
+	expect(hex(p.Query("select 1"))).toBe(expected);
+});
 
-t("Parse unnamed without types", async () => [
-	hex(msg("P", str(""), str("select 1"), i16(0))),
-	hex(p.Parse("", "select 1", [])),
-]);
+test("Parse unnamed without types", async () => {
+	const expected = hex(msg("P", str(""), str("select 1"), i16(0)));
+	expect(hex(p.Parse("", "select 1", []))).toBe(expected);
+});
 
-t("Parse named with types", async () => [
-	hex(msg("P", str("s1"), str("select $1, $2"), i16(2), i32(23), i32(0))),
-	hex(p.Parse("s1", "select $1, $2", [23, 0])),
-]);
+test("Parse named with types", async () => {
+	const expected = hex(msg("P", str("s1"), str("select $1, $2"), i16(2), i32(23), i32(0)));
+	expect(hex(p.Parse("s1", "select $1, $2", [23, 0]))).toBe(expected);
+});
 
-t("Bind with text values and null", async () => [
-	hex(
+test("Bind with text values and null", async () => {
+	const expected = hex(
 		msg(
 			"B",
 			str(""),
@@ -49,17 +53,19 @@ t("Bind with text values and null", async () => [
 			i32(0),
 			i16(0),
 		),
-	),
-	hex(p.Bind("", "s1", [Buffer.from("42"), null, Buffer.alloc(0)])),
-]);
+	);
+	expect(hex(p.Bind("", "s1", [Buffer.from("42"), null, Buffer.alloc(0)]))).toBe(expected);
+});
 
-t("Bind accepts strings and measures utf8 bytes", async () => [
-	hex(msg("B", str("c1"), str(""), i16(0), i16(1), i32(4), Buffer.from("æø"), i16(0))),
-	hex(p.Bind("c1", "", ["æø"])),
-]);
+test("Bind accepts strings and measures utf8 bytes", async () => {
+	const expected = hex(
+		msg("B", str("c1"), str(""), i16(0), i16(1), i32(4), Buffer.from("æø"), i16(0)),
+	);
+	expect(hex(p.Bind("c1", "", ["æø"]))).toBe(expected);
+});
 
-t("Bind with parameter and result formats", async () => [
-	hex(
+test("Bind with parameter and result formats", async () => {
+	const expected = hex(
 		msg(
 			"B",
 			str(""),
@@ -73,33 +79,35 @@ t("Bind with parameter and result formats", async () => [
 			i16(0),
 			i16(1),
 		),
-	),
-	hex(p.Bind("", "s2", [Buffer.from([1])], [1], [0, 1])),
-]);
+	);
+	expect(hex(p.Bind("", "s2", [Buffer.from([1])], [1], [0, 1]))).toBe(expected);
+});
 
-t("Describe statement and portal", async () => [
-	hex(Buffer.concat([msg("D", Buffer.from("S"), str("s1")), msg("D", Buffer.from("P"), str(""))])),
-	hex(Buffer.concat([p.Describe("S", "s1"), p.Describe("P", "")])),
-]);
+test("Describe statement and portal", async () => {
+	const expected = hex(
+		Buffer.concat([msg("D", Buffer.from("S"), str("s1")), msg("D", Buffer.from("P"), str(""))]),
+	);
+	expect(hex(Buffer.concat([p.Describe("S", "s1"), p.Describe("P", "")]))).toBe(expected);
+});
 
-t("Execute unnamed and named with a row limit", async () => [
-	hex(Buffer.concat([msg("E", str(""), i32(0)), msg("E", str("c1"), i32(100))])),
-	hex(Buffer.concat([p.Execute("", 0), p.Execute("c1", 100)])),
-]);
+test("Execute unnamed and named with a row limit", async () => {
+	const expected = hex(Buffer.concat([msg("E", str(""), i32(0)), msg("E", str("c1"), i32(100))]));
+	expect(hex(Buffer.concat([p.Execute("", 0), p.Execute("c1", 100)]))).toBe(expected);
+});
 
-t("Close portal and statement", async () => [
-	hex(
+test("Close portal and statement", async () => {
+	const expected = hex(
 		Buffer.concat([msg("C", Buffer.from("P"), str("c1")), msg("C", Buffer.from("S"), str("s1"))]),
-	),
-	hex(Buffer.concat([p.Close("P", "c1"), p.Close("S", "s1")])),
-]);
+	);
+	expect(hex(Buffer.concat([p.Close("P", "c1"), p.Close("S", "s1")]))).toBe(expected);
+});
 
-t("CopyData and CopyFail", async () => [
-	hex(Buffer.concat([msg("d", Buffer.from("1,a\n")), msg("f", str("stop"))])),
-	hex(Buffer.concat([p.CopyData(Buffer.from("1,a\n")), p.CopyFail("stop")])),
-]);
+test("CopyData and CopyFail", async () => {
+	const expected = hex(Buffer.concat([msg("d", Buffer.from("1,a\n")), msg("f", str("stop"))]));
+	expect(hex(Buffer.concat([p.CopyData(Buffer.from("1,a\n")), p.CopyFail("stop")]))).toBe(expected);
+});
 
-t("Startup has no type byte and ends with an empty name", async () => {
+test("Startup has no type byte and ends with an empty name", async () => {
 	const body = Buffer.concat([
 		i32(196608),
 		str("user"),
@@ -108,33 +116,35 @@ t("Startup has no type byte and ends with an empty name", async () => {
 		str("d"),
 		Buffer.from([0]),
 	]);
-	return [
-		hex(Buffer.concat([i32(body.length + 4), body])),
-		hex(p.Startup({ user: "u", database: "d" })),
-	];
+	const expected = hex(Buffer.concat([i32(body.length + 4), body]));
+	expect(hex(p.Startup({ user: "u", database: "d" }))).toBe(expected);
 });
 
-t("SSLRequest and CancelRequest", async () => [
-	hex(Buffer.concat([i32(8), i32(80877103), i32(16), i32(80877102), i32(1234), i32(-5)])),
-	hex(Buffer.concat([p.SSLRequest(), p.Cancel(1234, -5)])),
-]);
+test("SSLRequest and CancelRequest", async () => {
+	const expected = hex(
+		Buffer.concat([i32(8), i32(80877103), i32(16), i32(80877102), i32(1234), i32(-5)]),
+	);
+	expect(hex(Buffer.concat([p.SSLRequest(), p.Cancel(1234, -5)]))).toBe(expected);
+});
 
-t("Password, SASL initial response and SASL response", async () => [
-	hex(
+test("Password, SASL initial response and SASL response", async () => {
+	const expected = hex(
 		Buffer.concat([
 			msg("p", str("secret")),
 			msg("p", str("SCRAM-SHA-256"), i32(12), Buffer.from("n,,n=*,r=abc")),
 			msg("p", Buffer.from("c=biws,r=abc")),
 		]),
-	),
-	hex(
-		Buffer.concat([
-			p.Password("secret"),
-			p.SASL("SCRAM-SHA-256", "n,,n=*,r=abc"),
-			p.SASLResponse("c=biws,r=abc"),
-		]),
-	),
-]);
+	);
+	expect(
+		hex(
+			Buffer.concat([
+				p.Password("secret"),
+				p.SASL("SCRAM-SHA-256", "n,,n=*,r=abc"),
+				p.SASLResponse("c=biws,r=abc"),
+			]),
+		),
+	).toBe(expected);
+});
 
 const stream = Buffer.concat([
 	msg("1"),
@@ -153,80 +163,73 @@ function collect(chunks) {
 	return out.join();
 }
 
-t("Frames splits one chunk into messages with their full length", async () => [
-	"15,T27,D12,C14,Z6",
-	collect([stream]),
-]);
+test("Frames splits one chunk into messages with their full length", async () => {
+	expect(collect([stream])).toBe("15,T27,D12,C14,Z6");
+});
 
-t("Frames gives the same messages for every two-way split", async () => {
+test("Frames gives the same messages for every two-way split", async () => {
 	const expected = collect([stream]);
 	for (let i = 1; i < stream.length; i++) {
 		const got = collect([stream.subarray(0, i), stream.subarray(i)]);
-		if (got !== expected) return [expected, got + " (split at " + i + ")"];
+		expect(got, "split at " + i).toBe(expected);
 	}
-	return [expected, expected];
 });
 
-t("Frames handles one byte at a time", async () => [
-	collect([stream]),
-	collect([...stream].map((x) => Buffer.from([x]))),
-]);
+test("Frames handles one byte at a time", async () => {
+	const expected = collect([stream]);
+	expect(collect([...stream].map((x) => Buffer.from([x])))).toBe(expected);
+});
 
-t(
-	"Frames on a shared read buffer keeps what it has not framed when paused, and what comes while paused",
-	async () => {
-		const expected = collect([stream]),
-			shared = Buffer.alloc(stream.length),
-			out = [],
-			frames = p.Frames((type, buffer, start, end) => {
-				out.push(String.fromCharCode(type) + (end - start));
-				type === 84 && frames.pause();
-			}, true),
-			read = (from, to) => (
-				stream.copy(shared, 0, from, to),
-				frames.push(shared.subarray(0, to - from)),
-				shared.fill(0)
-			);
-		read(0, 20);
-		read(20, 40);
-		read(40, stream.length);
-		frames.resume();
-		return [expected, out.join()];
-	},
-);
+test("Frames on a shared read buffer keeps what it has not framed when paused, and what comes while paused", async () => {
+	const expected = collect([stream]),
+		shared = Buffer.alloc(stream.length),
+		out = [],
+		frames = p.Frames((type, buffer, start, end) => {
+			out.push(String.fromCharCode(type) + (end - start));
+			type === 84 && frames.pause();
+		}, true),
+		read = (from, to) => (
+			stream.copy(shared, 0, from, to),
+			frames.push(shared.subarray(0, to - from)),
+			shared.fill(0)
+		);
+	read(0, 20);
+	read(20, 40);
+	read(40, stream.length);
+	frames.resume();
+	expect(out.join()).toBe(expected);
+});
 
-t(
-	"Frames owning a shared read buffer hands over messages that stay intact after the buffer is reused",
-	async () => {
-		const shared = Buffer.alloc(stream.length),
-			kept = [],
-			frames = p.Frames((type, buffer, start, end) => {
-				frames.owns(buffer) && kept.push(buffer.subarray(start, end));
-				type === 49 && frames.own(true);
-			}, true),
-			read = (from, to) => (
-				stream.copy(shared, 0, from, to),
-				frames.push(shared.subarray(0, to - from)),
-				shared.fill(0)
-			);
-		read(0, 7);
-		read(7, 20);
-		read(20, stream.length);
-		frames.own(false);
-		return [hex(stream.subarray(5)), kept.map(hex).join("")];
-	},
-);
+test("Frames owning a shared read buffer hands over messages that stay intact after the buffer is reused", async () => {
+	const shared = Buffer.alloc(stream.length),
+		kept = [],
+		frames = p.Frames((type, buffer, start, end) => {
+			frames.owns(buffer) && kept.push(buffer.subarray(start, end));
+			type === 49 && frames.own(true);
+		}, true),
+		read = (from, to) => (
+			stream.copy(shared, 0, from, to),
+			frames.push(shared.subarray(0, to - from)),
+			shared.fill(0)
+		);
+	read(0, 7);
+	read(7, 20);
+	read(20, stream.length);
+	frames.own(false);
+	const expected = hex(stream.subarray(5));
+	expect(kept.map(hex).join("")).toBe(expected);
+});
 
-t("Frames hands over the whole message buffer", async () => {
+test("Frames hands over the whole message buffer", async () => {
 	let got;
 	p.Frames(
 		(type, buffer, start, end) =>
 			type === 67 && (got = buffer.toString("utf8", start + 5, end - 1)),
 	).push(stream);
-	return ["SELECT 1", got];
+	expect(got).toBe("SELECT 1");
 });
 
-t("Frames pauses mid-chunk and resumes without a new push", async () => {
+test("Frames pauses mid-chunk and resumes without a new push", async () => {
 	const out = [];
 	const frames = p.Frames((type) => {
 		out.push(String.fromCharCode(type));
@@ -235,12 +238,12 @@ t("Frames pauses mid-chunk and resumes without a new push", async () => {
 	frames.push(stream);
 	const paused = out.join("");
 	frames.resume();
-	return ["1T|1TDCZ", paused + "|" + out.join("")];
+	expect(paused + "|" + out.join("")).toBe("1T|1TDCZ");
 });
 
 const decode = (fn, x) => fn(x, 0, x.length);
 
-t("Decode ErrorResponse fields", async () => {
+test("Decode ErrorResponse fields", async () => {
 	const e = decode(
 		p.error,
 		msg(
@@ -254,13 +257,12 @@ t("Decode ErrorResponse fields", async () => {
 			Buffer.from([0]),
 		),
 	);
-	return [
+	expect([e.severity, e.code, e.message, e.position, e.routine].join("|")).toBe(
 		'ERROR|42601|syntax error at or near "selec"|1|scannerYYerror',
-		[e.severity, e.code, e.message, e.position, e.routine].join("|"),
-	];
+	);
 });
 
-t("Decode RowDescription", async () => {
+test("Decode RowDescription", async () => {
 	const columns = decode(
 		p.rowDescription,
 		msg(
@@ -282,42 +284,44 @@ t("Decode RowDescription", async () => {
 			i16(0),
 		),
 	);
-	return [
+	expect(columns.map((x) => [x.name, x.table, x.number, x.type].join(":")).join()).toBe(
 		"id:16384:1:23,name:16384:2:25",
-		columns.map((x) => [x.name, x.table, x.number, x.type].join(":")).join(),
-	];
+	);
 });
 
-t("Decode ParameterDescription", async () => [
-	"23,25,0",
-	decode(p.parameterDescription, msg("t", i16(3), i32(23), i32(25), i32(0))).join(),
-]);
+test("Decode ParameterDescription", async () => {
+	expect(decode(p.parameterDescription, msg("t", i16(3), i32(23), i32(25), i32(0))).join()).toBe(
+		"23,25,0",
+	);
+});
 
-t("Decode CommandComplete", async () => [
-	"INSERT:3|SELECT:5|BEGIN:null|CREATE TABLE:null|COPY:2",
-	["INSERT 0 3", "SELECT 5", "BEGIN", "CREATE TABLE", "COPY 2"]
-		.map((x) => decode(p.commandComplete, msg("C", str(x))))
-		.map((x) => x.command + ":" + x.count)
-		.join("|"),
-]);
+test("Decode CommandComplete", async () => {
+	expect(
+		["INSERT 0 3", "SELECT 5", "BEGIN", "CREATE TABLE", "COPY 2"]
+			.map((x) => decode(p.commandComplete, msg("C", str(x))))
+			.map((x) => x.command + ":" + x.count)
+			.join("|"),
+	).toBe("INSERT:3|SELECT:5|BEGIN:null|CREATE TABLE:null|COPY:2");
+});
 
-t("Decode ReadyForQuery status", async () => [
-	"ITE",
-	["I", "T", "E"].map((x) => decode(p.readyForQuery, msg("Z", Buffer.from(x)))).join(""),
-]);
+test("Decode ReadyForQuery status", async () => {
+	expect(
+		["I", "T", "E"].map((x) => decode(p.readyForQuery, msg("Z", Buffer.from(x)))).join(""),
+	).toBe("ITE");
+});
 
-t("Decode NotificationResponse", async () => {
+test("Decode NotificationResponse", async () => {
 	const x = decode(p.notification, msg("A", i32(42), str("chan"), str("hello")));
-	return ["42:chan:hello", [x.pid, x.channel, x.payload].join(":")];
+	expect([x.pid, x.channel, x.payload].join(":")).toBe("42:chan:hello");
 });
 
-t("Decode ParameterStatus and BackendKeyData", async () => {
+test("Decode ParameterStatus and BackendKeyData", async () => {
 	const [name, value] = decode(p.parameterStatus, msg("S", str("TimeZone"), str("UTC"))),
 		key = decode(p.backendKeyData, msg("K", i32(99), i32(-7)));
-	return ["TimeZone=UTC 99/-7", name + "=" + value + " " + key.pid + "/" + key.secret];
+	expect(name + "=" + value + " " + key.pid + "/" + key.secret).toBe("TimeZone=UTC 99/-7");
 });
 
-t("A message that fails to encode leaves nothing behind for the next one", async () => {
+test("A message that fails to encode leaves nothing behind for the next one", async () => {
 	const bad = {
 		toString() {
 			throw new Error("wat");
@@ -329,10 +333,11 @@ t("A message that fails to encode leaves nothing behind for the next one", async
 	} catch (e) {
 		error = e.message;
 	}
-	return ["wat " + p.Sync().toString("hex"), error + " " + p.Sync().toString("hex")];
+	const expected = "wat " + p.Sync().toString("hex");
+	expect(error + " " + p.Sync().toString("hex")).toBe(expected);
 });
 
-t("Column table oids, numbers and type oids are read unsigned, as in v3", async () => {
+test("Column table oids, numbers and type oids are read unsigned, as in v3", async () => {
 	const name = Buffer.from("a\0"),
 		body = Buffer.alloc(2 + name.length + 18);
 	body.writeUInt16BE(1, 0);
@@ -343,12 +348,12 @@ t("Column table oids, numbers and type oids are read unsigned, as in v3", async 
 	const x = Buffer.concat([Buffer.from("T"), Buffer.alloc(4), body]);
 	x.writeInt32BE(body.length + 4, 1);
 	const [c] = p.rowDescription(x, 0, x.length);
-	return ["4294967280 65535 2147483649", [c.table, c.number, c.type].join(" ")];
+	expect([c.table, c.number, c.type].join(" ")).toBe("4294967280 65535 2147483649");
 });
 
-t("A parameter type oid above 2^31 is written as its four bytes", async () => {
+test("A parameter type oid above 2^31 is written as its four bytes", async () => {
 	const w = p.Writer(64);
 	p.parse(w, "", "select $1", [0x80000001]);
 	const x = w.take();
-	return ["80000001", x.subarray(x.length - 4).toString("hex")];
+	expect(x.subarray(x.length - 4).toString("hex")).toBe("80000001");
 });

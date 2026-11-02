@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { EventEmitter } from "events";
-import { t } from "../test.ts";
+import { expect, test } from "vitest";
 import { Socket } from "../../src/socket.ts";
 
 function fake() {
@@ -14,13 +14,13 @@ function fake() {
 	return x;
 }
 
-t("Socket takes the user socket", async () => {
+test("Socket takes the user socket", async () => {
 	const raw = fake(),
 		socket = await Socket({ socket: () => raw });
-	return [true, socket.raw === raw];
+	expect(socket.raw === raw).toBe(true);
 });
 
-t("Socket passes data, drain and writes through", async () => {
+test("Socket passes data, drain and writes through", async () => {
 	const raw = fake(),
 		socket = await Socket({ socket: async () => raw }),
 		got = [];
@@ -29,10 +29,10 @@ t("Socket passes data, drain and writes through", async () => {
 	raw.emit("data", Buffer.from("a"));
 	raw.emit("drain");
 	socket.write(Buffer.from("b"));
-	return ["a,drain|b", got.join() + "|" + raw.written.join()];
+	expect(got.join() + "|" + raw.written.join()).toBe("a,drain|b");
 });
 
-t("Socket closes once with the error that came before", async () => {
+test("Socket closes once with the error that came before", async () => {
 	const raw = fake(),
 		socket = await Socket({ socket: () => raw }),
 		closes = [];
@@ -40,38 +40,38 @@ t("Socket closes once with the error that came before", async () => {
 	raw.emit("error", Object.assign(new Error("reset"), { code: "ECONNRESET" }));
 	raw.emit("close", true);
 	raw.emit("close", true);
-	return ["ECONNRESET", closes.join()];
+	expect(closes.join()).toBe("ECONNRESET");
 });
 
-t("Socket does not write after close", async () => {
+test("Socket does not write after close", async () => {
 	const raw = fake(),
 		socket = await Socket({ socket: () => raw });
 	raw.emit("close", false);
-	return [
+	expect([socket.write(Buffer.from("x")), raw.written.length, socket.closed].join()).toBe(
 		"false,0,true",
-		[socket.write(Buffer.from("x")), raw.written.length, socket.closed].join(),
-	];
+	);
 });
 
-t("Socket pause and resume reach the user socket", async () => {
+test("Socket pause and resume reach the user socket", async () => {
 	const raw = fake(),
 		socket = await Socket({ socket: () => raw });
 	socket.pause();
 	const paused = raw.paused;
 	socket.resume();
-	return ["true,false", paused + "," + raw.paused];
+	expect(paused + "," + raw.paused).toBe("true,false");
 });
 
-t("Socket rejects when the user socket fails", async () => [
-	"nope",
-	await Socket({
-		socket: () => {
-			throw new Error("nope");
-		},
-	}).catch((e) => e.message),
-]);
+test("Socket rejects when the user socket fails", async () => {
+	expect(
+		await Socket({
+			socket: () => {
+				throw new Error("nope");
+			},
+		}).catch((e) => e.message),
+	).toBe("nope");
+});
 
-t("Socket reads plain TCP through a shared buffer unless onread is false", async () => {
+test("Socket reads plain TCP through a shared buffer unless onread is false", async () => {
 	const net = await import("net"),
 		server = net.createServer((x) => x.end());
 	await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -81,5 +81,5 @@ t("Socket reads plain TCP through a shared buffer unless onread is false", async
 	shared.destroy();
 	stream.destroy();
 	server.close();
-	return ["true,false", [shared.shared, stream.shared].join()];
+	expect([shared.shared, stream.shared].join()).toBe("true,false");
 });

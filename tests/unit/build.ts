@@ -1,6 +1,7 @@
+// Model-output: Claude Opus 5.5
 // @ts-nocheck
 import util from "util";
-import { t } from "../test.ts";
+import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";
 import cases from "./build.cases.ts";
 
@@ -8,30 +9,33 @@ const sql = postgres({ host: "localhost", port: 1, max: 1 });
 const show = (q) => JSON.stringify([q.text, q.parameters]);
 
 cases.forEach(([name, fn, text, parameters]) =>
-	t(name, async () => [JSON.stringify([text, parameters]), show(fn(sql))]),
+	// oxlint-disable-next-line vitest/valid-title -- the rule wants a literal title, not `name`
+	test(name, async () => {
+		const expected = JSON.stringify([text, parameters]);
+		expect(show(fn(sql))).toBe(expected);
+	}),
 );
 
-t("Insert and update helpers with no columns throw (#644)", async () => [
-	"NO_COLUMNS NO_COLUMNS NO_COLUMNS",
-	[
-		() => sql`insert into x ${sql({})}`,
-		() => sql`insert into x ${sql({ a: 1 }, [])}`,
-		() => sql`update x set ${sql({})}`,
-	]
-		.map((fn) => {
-			try {
-				fn().text;
-			} catch (e) {
-				return e.code;
-			}
-		})
-		.join(" "),
-]);
+test("Insert and update helpers with no columns throw (#644)", async () => {
+	expect(
+		[
+			() => sql`insert into x ${sql({})}`,
+			() => sql`insert into x ${sql({ a: 1 }, [])}`,
+			() => sql`update x set ${sql({})}`,
+		]
+			.map((fn) => {
+				try {
+					fn().text;
+				} catch (e) {
+					return e.code;
+				}
+			})
+			.join(" "),
+	).toBe("NO_COLUMNS NO_COLUMNS NO_COLUMNS");
+});
 
-t(
-	"Undefined values in any row of a multi row insert throw, whatever the order (#889)",
-	async () => [
-		"UNDEFINED_VALUE UNDEFINED_VALUE",
+test("Undefined values in any row of a multi row insert throw, whatever the order (#889)", async () => {
+	expect(
 		[
 			() =>
 				sql`insert into x ${sql([
@@ -52,42 +56,42 @@ t(
 				}
 			})
 			.join(" "),
-	],
-);
+	).toBe("UNDEFINED_VALUE UNDEFINED_VALUE");
+});
 
-t("A join has the length of the items it kept", async () => [
-	"2 0",
-	sql`and`.join([sql`a`, false, sql`b`]).length + " " + sql`and`.join([]).length,
-]);
+test("A join has the length of the items it kept", async () => {
+	expect(sql`and`.join([sql`a`, false, sql`b`]).length + " " + sql`and`.join([]).length).toBe(
+		"2 0",
+	);
+});
 
-t("Transform column names in helpers", async () => {
+test("Transform column names in helpers", async () => {
 	const sql = postgres({ host: "localhost", port: 1, transform: postgres.camel });
-	return [
-		JSON.stringify(['insert into x ("foo_bar")values($1)', [1]]),
-		show(sql`insert into x ${sql({ fooBar: 1 })}`),
-	];
+	const expected = JSON.stringify(['insert into x ("foo_bar")values($1)', [1]]);
+	expect(show(sql`insert into x ${sql({ fooBar: 1 })}`)).toBe(expected);
 });
 
-t("Transform undefined to null", async () => {
+test("Transform undefined to null", async () => {
 	const sql = postgres({ host: "localhost", port: 1, transform: { undefined: null } });
-	return [JSON.stringify(["select $1", [null]]), show(sql`select ${undefined}`)];
+	const expected = JSON.stringify(["select $1", [null]]);
+	expect(show(sql`select ${undefined}`)).toBe(expected);
 });
 
-t("Inspect hides text and parameters without debug", async () => {
+test("Inspect hides text and parameters without debug", async () => {
 	const x = util.inspect(sql`select ${"secret"} as x`);
-	return [false, x.includes("secret") || x.includes("select $1")];
+	expect(x.includes("secret") || x.includes("select $1")).toBe(false);
 });
 
-t("Inspect shows text and parameters with debug", async () => {
+test("Inspect shows text and parameters with debug", async () => {
 	const sql = postgres({ host: "localhost", port: 1, debug: true });
 	const x = util.inspect(sql`select ${"secret"} as x`);
-	return [true, x.includes("secret") && x.includes("select $1 as x")];
+	expect(x.includes("secret") && x.includes("select $1 as x")).toBe(true);
 });
 
-t("Building does not run the query", async () => {
+test("Building does not run the query", async () => {
 	let ran = false;
 	const sql = postgres({ host: "localhost", port: 1, debug: () => (ran = true) });
 	sql`select 1`.text;
 	await new Promise((r) => setTimeout(r, 10));
-	return [false, ran];
+	expect(ran).toBe(false);
 });
