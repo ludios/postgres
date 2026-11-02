@@ -21,7 +21,7 @@
     "test:integration": "node tests/index.js",
     "test:simulate": "node tests/simulate.js",
     "coverage": "node tests/coverage.js",
-    "test:types": "cd types && npm install && npm test",
+    "test:types": "tsc -p types",
     "test:cf": "sh tests/cf/run.sh",
     "typecheck": "tsc",
     "lint": "eslint src tests"
