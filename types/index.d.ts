@@ -187,7 +187,8 @@ declare namespace postgres {
 		pass?: string | (() => string | Promise<string>) | undefined;
 
 		/**
-		 * TLS: false, a mode as in libpq's sslmode, or options for tls.connect.
+		 * TLS: false, a mode as in libpq's sslmode (but not 'verify-ca', which throws), or options for
+		 * tls.connect.
 		 * 'require', 'allow' and 'prefer' do not verify the certificate; Cloudflare Workers always do.
 		 * @default false
 		 */
@@ -353,7 +354,7 @@ declare namespace postgres {
 		database: string | null;
 		user: string | (() => string | Promise<string>);
 		pass: string | (() => string | Promise<string>);
-		ssl: SSL;
+		ssl: Exclude<SSL, "disable">;
 		sslnegotiation: "postgres" | "direct" | null;
 		channel_binding: "disable" | "prefer" | "require";
 		max: number;

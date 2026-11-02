@@ -794,16 +794,18 @@ const ssl_mode = on_off_or(
  * @param value  - the value of the option
  * @param source - where the value comes from (as for `seconds`)
  * @returns what `ssl_mode` returns for `value`
- * @throws for `verify-ca`, which libpq refuses with the system's certificate authorities, the only
- *         ones that a mode can use, and for any value that `ssl_mode` throws for
+ * @throws for `verify-ca`, which would check only that one of the certificate authorities that
+ *         the runtime trusts by default signed the certificate (libpq refuses `verify-ca` with
+ *         `sslrootcert=system` for this reason), and for any value that `ssl_mode` throws for
  */
 function ssl_option(value, source) {
 	if (value === "verify-ca") {
 		throw new Error(
 			source +
-				' is "verify-ca", which checks only that a certificate authority signed the certificate, ' +
-				"and the only ones that a mode can use are the system's, which sign a certificate for any " +
-				'host name that its requester controls. Use "verify-full", or ' +
+				' is "verify-ca", which would check only that a certificate authority signed the ' +
+				"certificate. A mode can check it only against the certificate authorities that the " +
+				"runtime trusts by default, and they sign a certificate for any host name that its " +
+				'requester controls. Use "verify-full", or ' +
 				"ssl: { ca, checkServerIdentity: () => undefined } with a certificate authority of your own",
 		);
 	}

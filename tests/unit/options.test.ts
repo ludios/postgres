@@ -207,7 +207,7 @@ test("ssl is true, false, TLS options or a mode, from options, the url and PGSSL
 	expect(read[6]).toBe(tls);
 });
 
-test("Another ssl throws, and so does verify-ca, which libpq refuses with the system's certificate authorities", async () => {
+test("Another ssl throws, and so does verify-ca, which libpq refuses with sslrootcert=system", async () => {
 	const must = (source, shown) =>
 		"The " +
 		source +
@@ -221,7 +221,9 @@ test("Another ssl throws, and so does verify-ca, which libpq refuses with the sy
 	]).toEqual([
 		must("url parameter ssl", '"foo"'),
 		must("option ssl", "1"),
-		expect.stringMatching(/^The url parameter sslmode is "verify-ca", which checks only that /),
+		expect.stringMatching(
+			/^The url parameter sslmode is "verify-ca", which would check only that /,
+		),
 	]);
 });
 
@@ -258,7 +260,9 @@ test("sslrootcert=system makes verify-full the ssl mode, and any other mode thro
 		must('"require"'),
 		must("false"),
 		must('"require"'),
-		expect.stringMatching(/^The url parameter sslmode is "verify-ca", which checks only that /),
+		expect.stringMatching(
+			/^The url parameter sslmode is "verify-ca", which would check only that /,
+		),
 	]);
 });
 

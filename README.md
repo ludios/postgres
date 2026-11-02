@@ -1104,7 +1104,7 @@ const sql = postgres('postgres://username:password@host:port/database', {
   database             : '',            // Name of database to connect to
   username             : '',            // Username of database user, or a function returning it
   password             : '',            // Password of database user, or a function returning it
-  ssl                  : false,         // true, prefer, require, verify-full, tls.connect options
+  ssl                  : false,         // true, 'allow', 'prefer', 'require', 'verify-full' or tls.connect options
   sslnegotiation       : null,          // 'direct' for TLS from the first byte (PostgreSQL 17+)
   channel_binding      : 'prefer',      // SCRAM-SHA-256-PLUS over TLS: 'disable', 'prefer' or 'require'
   max                  : 10,            // Max number of connections (3 on Cloudflare Workers)
@@ -1136,8 +1136,8 @@ const sql = postgres('postgres://username:password@host:port/database', {
     application_name   : 'postgres.js', // Default application_name
     ...                                 // Other connection parameters, see https://www.postgresql.org/docs/current/runtime-config-client.html
   },
-  target_session_attrs : null,          // Use 'read-write' with multiple hosts to
-                                        // ensure only connecting to primary
+  target_session_attrs : null,          // null or 'any' for any server; 'read-write' with multiple
+                                        // hosts to connect only to the primary
   fetch_types          : true,          // Fetches array types and other types it does not know
   publications         : 'alltables',   // Publications for sql.subscribe
   slot                 : null,          // A permanent replication slot for sql.subscribe
@@ -1192,7 +1192,7 @@ For more information regarding `ssl` with `postgres`, check out the [Node.js doc
 
 On Node.js an `ssl` object with a `ca` is made into one TLS context, which every connection made with that object shares, so a long `ca` list is parsed once rather than for each connection. Replacing one of its values, as with a renewed `cert`, makes a new context for the connections opened after that, but a change inside a value, such as a push onto the same `ca` array, is not seen. A `secureContext` given in the object is used as it is.
 
-The modes follow libpq's `sslmode`: `require`, `prefer` and `allow` encrypt without checking the certificate, and `verify-full` (or `sslrootcert=system` in the url) checks it against the system's certificate authorities. `sslrootcert=system` makes `verify-full` the mode when the url gives none, and, as in libpq, any other mode throws (`ssl: true`, which checks the certificate as `verify-full` does, is allowed too). `prefer` and `allow` fall back to an unencrypted connection when the server has no TLS. Cloudflare Workers always check the certificate. `verify-ca` throws, as libpq refuses it with the system's certificate authorities, the only ones that a mode can use: they sign a certificate for any host name that its requester controls. With a certificate authority of your own, pass `ssl: { ca, checkServerIdentity: () => undefined }` to check that it signed the certificate, but not the host name. Any other mode throws too.
+The modes follow libpq's `sslmode`: `require`, `prefer` and `allow` encrypt without checking the certificate, and `verify-full` (or `sslrootcert=system` in the url) checks it, and the host name, against the certificate authorities that the runtime trusts by default (on Node.js, its bundled list and any in `NODE_EXTRA_CA_CERTS`). `sslrootcert=system` makes `verify-full` the mode when the url gives none, and, as in libpq, any other mode throws (`ssl: true`, which checks the certificate as `verify-full` does, is allowed too). `prefer` and `allow` fall back to an unencrypted connection when the server has no TLS. Cloudflare Workers always check the certificate. `verify-ca` throws: it would check only that a certificate authority signed the certificate, and a mode can check it only against the certificate authorities that the runtime trusts by default, which sign a certificate for any host name that its requester controls. libpq refuses `verify-ca` with `sslrootcert=system` for the same reason. With a certificate authority of your own, pass `ssl: { ca, checkServerIdentity: () => undefined }` to check that it signed the certificate, but not the host name. Any other mode throws too.
 
 #### Direct TLS
 
