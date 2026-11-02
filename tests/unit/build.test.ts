@@ -5,13 +5,13 @@ import cases from "./build.cases.ts";
 import { snake_case } from "../helpers.ts";
 
 const sql = postgres({ host: "localhost", port: 1, max: 1 });
-const show = (q) => JSON.stringify([q.text, q.parameters]);
+/** @returns the text and the parameters of `q`, a query that is built but not run */
+const show = (q) => [q.text, q.parameters];
 
 cases.forEach(([name, fn, text, parameters]) =>
 	// oxlint-disable-next-line vitest/valid-title -- the rule wants a literal title, not `name`
 	test(name, async () => {
-		const expected = JSON.stringify([text, parameters]);
-		expect(show(fn(sql))).toBe(expected);
+		expect(show(fn(sql))).toEqual([text, parameters]);
 	}),
 );
 
@@ -60,14 +60,15 @@ test("A join has the length of the items it kept", async () => {
 
 test("Transform column names in helpers", async () => {
 	const sql = postgres({ host: "localhost", port: 1, transform: { column: { to: snake_case } } });
-	const expected = JSON.stringify(['insert into x ("foo_bar")values($1)', [1]]);
-	expect(show(sql`insert into x ${sql({ fooBar: 1 })}`)).toBe(expected);
+	expect(show(sql`insert into x ${sql({ fooBar: 1 })}`)).toEqual([
+		'insert into x ("foo_bar")values($1)',
+		[1],
+	]);
 });
 
 test("Transform undefined to null", async () => {
 	const sql = postgres({ host: "localhost", port: 1, transform: { undefined: null } });
-	const expected = JSON.stringify(["select $1", [null]]);
-	expect(show(sql`select ${undefined}`)).toBe(expected);
+	expect(show(sql`select ${undefined}`)).toEqual(["select $1", [null]]);
 });
 
 test("Inspect hides text and parameters without debug", async () => {

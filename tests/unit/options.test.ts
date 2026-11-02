@@ -1,23 +1,34 @@
 import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";
 
+/**
+ * @param url - the url to give postgres(), if any
+ * @param o - options to give postgres(), besides max: 1
+ * @returns the hosts, ports, user, pass, database and socket path (null if none) of the options that
+ * postgres() made
+ */
 const parsed = (url, o?) => {
 	const x = postgres(url, { max: 1, ...o }).options;
-	return JSON.stringify([x.host, x.port, x.user, x.pass, x.database, x.path || null]);
+	return [x.host, x.port, x.user, x.pass, x.database, x.path || null];
 };
 
 test("A bracketed IPv6 host in a url (#1232)", async () => {
-	const expected = JSON.stringify([["::1"], [5433], "u", "p", "db", null]);
-	expect(parsed("postgres://u:p@[::1]:5433/db")).toBe(expected);
+	expect(parsed("postgres://u:p@[::1]:5433/db")).toEqual([["::1"], [5433], "u", "p", "db", null]);
 });
 
 test("Several bracketed IPv6 hosts with ports in a url (#1232)", async () => {
-	const expected = JSON.stringify([["::1", "2001:db8::1"], [1, 5432], "u", "p", "db", null]);
-	expect(parsed("postgres://u:p@[::1]:1,[2001:db8::1]/db")).toBe(expected);
+	expect(parsed("postgres://u:p@[::1]:1,[2001:db8::1]/db")).toEqual([
+		["::1", "2001:db8::1"],
+		[1, 5432],
+		"u",
+		"p",
+		"db",
+		null,
+	]);
 });
 
 test("A percent-encoded socket directory as the host of a url (#1057)", async () => {
-	const expected = JSON.stringify([
+	expect(parsed("postgres://u@%2Fvar%2Frun%2Fpostgresql:5433/db")).toEqual([
 		["/var/run/postgresql"],
 		[5433],
 		"u",
@@ -25,11 +36,10 @@ test("A percent-encoded socket directory as the host of a url (#1057)", async ()
 		"db",
 		"/var/run/postgresql/.s.PGSQL.5433",
 	]);
-	expect(parsed("postgres://u@%2Fvar%2Frun%2Fpostgresql:5433/db")).toBe(expected);
 });
 
 test("A host in the query of a url, as libpq reads it (#984)", async () => {
-	const expected = JSON.stringify([
+	expect(parsed("postgres://u@localhost/db?host=/run/postgresql")).toEqual([
 		["/run/postgresql"],
 		[5432],
 		"u",
@@ -37,11 +47,10 @@ test("A host in the query of a url, as libpq reads it (#984)", async () => {
 		"db",
 		"/run/postgresql/.s.PGSQL.5432",
 	]);
-	expect(parsed("postgres://u@localhost/db?host=/run/postgresql")).toBe(expected);
 });
 
 test("A url with no host and a host in its query (#984)", async () => {
-	const expected = JSON.stringify([
+	expect(parsed("postgres:///db?host=/run/postgresql", { user: "u" })).toEqual([
 		["/run/postgresql"],
 		[5432],
 		"u",
@@ -49,27 +58,50 @@ test("A url with no host and a host in its query (#984)", async () => {
 		"db",
 		"/run/postgresql/.s.PGSQL.5432",
 	]);
-	expect(parsed("postgres:///db?host=/run/postgresql", { user: "u" })).toBe(expected);
 });
 
 test("A password with characters that are not percent-encoded is used as written (#735, #890)", async () => {
-	const expected = JSON.stringify([["h"], [5432], "u", "p@ss#w%rd\\x", "db", null]);
-	expect(parsed("postgres://u:p@ss#w%rd\\x@h/db")).toBe(expected);
+	expect(parsed("postgres://u:p@ss#w%rd\\x@h/db")).toEqual([
+		["h"],
+		[5432],
+		"u",
+		"p@ss#w%rd\\x",
+		"db",
+		null,
+	]);
 });
 
 test("A percent-encoded password is decoded (#735)", async () => {
-	const expected = JSON.stringify([["h"], [5432], "u", "p%ss#w@rd", "db", null]);
-	expect(parsed("postgres://u:p%25ss%23w%40rd@h/db")).toBe(expected);
+	expect(parsed("postgres://u:p%25ss%23w%40rd@h/db")).toEqual([
+		["h"],
+		[5432],
+		"u",
+		"p%ss#w@rd",
+		"db",
+		null,
+	]);
 });
 
 test("Hosts with ports in the host option, as in v3", async () => {
-	const expected = JSON.stringify([["a", "b"], [1, 2], "u", "", "db", null]);
-	expect(parsed(undefined, { host: "a:1,b:2", user: "u", database: "db" })).toBe(expected);
+	expect(parsed(undefined, { host: "a:1,b:2", user: "u", database: "db" })).toEqual([
+		["a", "b"],
+		[1, 2],
+		"u",
+		"",
+		"db",
+		null,
+	]);
 });
 
 test("A port option applies to every host", async () => {
-	const expected = JSON.stringify([["a", "b"], [7, 7], "u", "", "db", null]);
-	expect(parsed("postgres://u@a:1,b:2/db", { port: 7 })).toBe(expected);
+	expect(parsed("postgres://u@a:1,b:2/db", { port: 7 })).toEqual([
+		["a", "b"],
+		[7, 7],
+		"u",
+		"",
+		"db",
+		null,
+	]);
 });
 
 test("disable and false in the query of a url turn an option off", async () => {
