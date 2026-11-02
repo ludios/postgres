@@ -139,7 +139,7 @@ We're reworking all of it to follow the code conventions above and to test with 
 
 Renaming anything public (see `types/index.d.ts`) breaks users of the library; ask first.
 
-The tests not yet moved to vitest use upstream's harness in `tests/test.ts`: `t(name, fn)`, where `fn` returns `[expected, got]` and the test passes if `expected === got`.
+Vitest runs all the tests (see `vitest.config.ts`). The tests that are not yet rewritten to use vitest's `test()` and `expect()` call `t(name, fn)` from `tests/test.ts`, where `fn` returns `[expected, got]`, and the test passes if `expected === got`.
 
 # Before committing
 
@@ -147,10 +147,10 @@ These need no PostgreSQL server:
 
 	pnpm typecheck
 	pnpm lint --quiet  # only the errors; the existing code has about 1000 warnings
-	node tests/unit/index.ts
+	pnpm test:unit
 	node tests/simulate.ts
 
-The integration tests (`node tests/index.ts`) start their own two PostgreSQL servers with `pg_tmp`, from `ephemeralpg`.
+The integration tests (`pnpm test:integration`) start their own two PostgreSQL servers with `pg_tmp`, from `ephemeralpg`. To run only the tests whose names match a regular expression, add `-t REGEX`.
 
 # Committing
 

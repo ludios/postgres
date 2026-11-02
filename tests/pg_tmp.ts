@@ -16,10 +16,11 @@ const hba_file = fileURLToPath(new URL("pg_hba.conf", import.meta.url));
 
 /**
  * @param {NodeJS.ProcessEnv} env - an environment
- * @returns {NodeJS.ProcessEnv} `env` without the PG* variables, which would otherwise choose
- *   pg_tmp's port, or choose the user that pg_tmp's checks for a connected client log in as
+ * @returns {NodeJS.ProcessEnv} `env` without the PG* variables, which would otherwise choose the
+ *   server, the user, and other settings of PostgreSQL client programs (including pg_tmp's port, and
+ *   the user that pg_tmp's checks for a connected client log in as)
  */
-function without_pg_vars(env) {
+export function without_pg_vars(env) {
 	return Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith("PG")));
 }
 

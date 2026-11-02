@@ -2,14 +2,15 @@
 import { spawnSync } from "child_process";
 
 /**
- * Run a PostgreSQL client program on the server that the PG* variables point at.
+ * Run a PostgreSQL client program on the server that the PG* variables in `env` point at.
  *
  * @param {string} cmd - the program, e.g. "psql"
  * @param {string[]} args - its arguments
+ * @param {NodeJS.ProcessEnv} [env] - the environment to run the program in (default: this process's)
  * @throws {Error} if the program could not run, or did not exit with status 0
  */
-export function exec(cmd, args) {
-	const { error, status, stderr } = spawnSync(cmd, args, { stdio: "pipe", encoding: "utf8" });
+export function exec(cmd, args, env = process.env) {
+	const { error, status, stderr } = spawnSync(cmd, args, { stdio: "pipe", encoding: "utf8", env });
 	if (error) {
 		throw error;
 	}
@@ -20,9 +21,11 @@ export function exec(cmd, args) {
 
 /**
  * Turn on `ssl`, and create the roles and the database that the tests use, on the server that the
- * PG* variables point at (which must not have those roles and that database yet).
+ * PG* variables in `env` point at (which must not have those roles and that database yet).
+ *
+ * @param {NodeJS.ProcessEnv} env - the environment to run psql in
  */
-export function bootstrap() {
+export function bootstrap(env) {
 	const commands = [
 		"alter system set ssl=on",
 		"select pg_reload_conf()",
@@ -34,5 +37,9 @@ export function bootstrap() {
 		"create user postgres_js_test_scram with password 'postgres_js_test_scram'",
 		"create database postgres_js_test owner postgres_js_test",
 	];
-	exec("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", ...commands.flatMap((sql) => ["-c", sql])]);
+	exec(
+		"psql",
+		["-X", "-q", "-v", "ON_ERROR_STOP=1", ...commands.flatMap((sql) => ["-c", sql])],
+		env,
+	);
 }

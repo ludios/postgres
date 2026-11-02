@@ -23,9 +23,9 @@
     }
   },
   "scripts": {
-    "test": "node tests/unit/index.ts && node tests/index.ts && node tests/simulate.ts",
-    "test:unit": "node tests/unit/index.ts",
-    "test:integration": "node tests/index.ts",
+    "test": "vitest run && node tests/simulate.ts",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
     "test:simulate": "node tests/simulate.ts",
     "coverage": "node tests/coverage.ts",
     "prepare": "rm -rf dist && node node_modules/typescript/bin/tsc -p tsconfig.build.json",
@@ -49,6 +49,7 @@
     "oxlint": "^1.90.0",
     "oxlint-tsgolint": "^7.0.2005",
     "typescript": "7.0.2",
-    "typescript5": "npm:typescript@^5.9.3"
+    "typescript5": "npm:typescript@^5.9.3",
+    "vitest": "^5.0.5"
   }
 }

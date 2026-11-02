@@ -1,119 +1,29 @@
 // Model-output: Claude Opus 5.5
-// @ts-nocheck
-import util from "util";
+import { expect, test } from "vitest";
 
-let done = 0;
-let only = false;
-let ignored = 0;
-let skipped = 0;
-let current = null;
-let promise = Promise.resolve();
-const tests = {},
-	filter = (process.argv[2] || "").toLowerCase();
-
-export const nt = () => ignored++;
-export const ot = (...rest) => ((only = true), test(true, ...rest));
-export const t = (...rest) => test(false, ...rest);
-t.timeout = 5;
-t.before = null;
-t.ready = Promise.resolve();
-
-process.on("unhandledRejection", stray);
-process.on("uncaughtException", stray);
-
-async function test(o, name, options, fn) {
-	typeof options !== "object" && ((fn = options), (options = {}));
-	const at = new Error().stack
-			.split("\n")
-			.map((x) => x.match("/([^/]+\\.ts):([0-9]+):"))
-			.find((x) => x && x[1] !== "test.ts"),
-		line = at ? at[1] + ":" + at[2] : "?";
-
-	await 1;
-
-	if (only && !o) return;
-
-	if (filter && !name.toLowerCase().includes(filter)) return skipped++;
-
-	const x = (tests[line + " " + name] = { fn, line, name });
-	promise = promise
-		.then(async () => {
-			current = x;
-			return Promise.race([
-				new Promise(
-					(resolve, reject) =>
-						(x.timer = setTimeout(
-							() => reject("Timed out"),
-							(options.timeout || t.timeout) * 1000,
-						)),
-				),
-				new Promise(
-					(resolve, reject) => (
-						(x.stray = reject),
-						Promise.resolve().then(t.before).then(fn).then(resolve, reject)
-					),
-				),
-			]);
-		})
-		.then(async (result) => {
-			if (!Array.isArray(result)) throw new Error("Test should return result array");
-
-			const [expected, got] = await Promise.all(result);
-			if (expected !== got) throw new Error(util.inspect(expected) + " != " + util.inspect(got));
-
-			x.succeeded = true;
-			process.stdout.write("✅");
-		})
-		.catch((err) => {
-			x.failed = true;
-			x.error = err instanceof Error ? err : new Error(util.inspect(err));
-			process.stdout.write("⛔️");
-		})
-		.then(() => {
-			clearTimeout(x.timer);
-			current = null;
-			++done === Object.keys(tests).length &&
-				t.ready.then(() => done === Object.keys(tests).length && exit());
-		});
-}
+/** Runs a test, and returns (or resolves to) `[expected, got, ...rest]`; any element may be a promise */
+type TestFn = () => unknown[] | Promise<unknown[]>;
 
 /**
- * Fail the running test with `err`; or, outside a test, report `err` and make the run fail (for
- * example, when tests/setup.ts could not set up the servers, and no test runs).
+ * Register a vitest test that is written for upstream's harness. The test passes if `got` is
+ * `expected` (by `Object.is`, which differs from `===` only for NaN, and for 0 and -0), after every
+ * element of what the test returns has resolved; the elements after `got` are only awaited (e.g.
+ * to clean up).
  *
- * @param {unknown} err - an uncaught exception or an unhandled rejection
+ * @param name - the test's name
+ * @param options - `timeout`: the number of seconds that the test may take (default 5)
+ * @param fn - the test
  */
-function stray(err) {
-	if (current && !current.succeeded && !current.failed) {
-		current.stray(err);
-	} else {
-		console.error("\n⚠️", "Stray error outside a test", "\n", util.inspect(err));
-		process.exitCode = 1;
-	}
-}
-
-function exit() {
-	const failures = Object.values(tests).filter((x) => !x.succeeded);
-
-	console.log("");
-	failures.forEach((x) =>
-		console.error(
-			"⛔️",
-			x.name,
-			"at",
-			x.line,
-			x.failed ? "failed" : "never finished",
-			x.error ? "\n" + util.inspect(x.error) : "",
-		),
-	);
-
-	only || skipped
-		? console.error("⚠️", "Not all tests were run")
-		: ignored
-			? console.error("⚠️", ignored, "ignored test" + (ignored === 1 ? "" : "s"))
-			: failures.length
-				? console.error("⚠️", failures.length, "of", done, "failed")
-				: console.log("🎉");
-
-	!process.exitCode && (failures.length || only || ignored) && (process.exitCode = 1);
+export function t(name: string, fn: TestFn): void;
+export function t(name: string, options: { timeout?: number }, fn: TestFn): void;
+export function t(name: string, options_or_fn: { timeout?: number } | TestFn, fn?: TestFn): void {
+	const options = typeof options_or_fn === "function" ? {} : options_or_fn;
+	const run = typeof options_or_fn === "function" ? options_or_fn : fn;
+	// oxlint-disable-next-line vitest/valid-title -- the rule wants a literal title, not `name`
+	test(name, { timeout: (options.timeout || 5) * 1000 }, async () => {
+		const result = await run();
+		expect(Array.isArray(result), "a test should return [expected, got]").toBe(true);
+		const [expected, got] = await Promise.all(result);
+		expect(got).toBe(expected);
+	});
 }

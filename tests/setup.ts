@@ -1,30 +1,24 @@
 // Model-output: Claude Opus 5.5
 // @ts-nocheck
-import { bootstrap, exec } from "./bootstrap.ts";
-import { start_pg_tmp } from "./pg_tmp.ts";
-import { t } from "./test.ts";
+import { beforeEach, inject } from "vitest";
+import { exec } from "./bootstrap.ts";
 
-// The second server is for the tests that connect to several hosts
-const [first, second] = await Promise.all([start_pg_tmp(), start_pg_tmp()]);
-
-// Point the PG* variables at the first server's `postgres` superuser, replacing any that this
-// process was started with
+// Point the PG* variables at the `postgres` superuser of the server that tests/global_setup.ts
+// started for the tests, replacing any that this process was started with
+const pg_vars = inject("pg_vars");
 for (const name of Object.keys(process.env)) {
 	if (name.startsWith("PG")) {
 		delete process.env[name];
 	}
 }
-process.env.PGHOST = "localhost";
-process.env.PGPORT = String(first.port);
-process.env.PGUSER = "postgres";
-bootstrap();
+Object.assign(process.env, pg_vars);
 
 /** The port (on localhost) of the server that the tests use, which the PG* variables point at */
-export const pg_port = first.port;
+export const pg_port = +pg_vars.PGPORT;
 /** The port (on localhost) of a second server, for tests that connect to several hosts */
-export const second_pg_port = second.port;
+export const second_pg_port = inject("second_pg_port");
 /** The directory of the Unix socket of the server at `pg_port` */
-export const pg_socket_dir = first.socket_dir;
+export const pg_socket_dir = inject("pg_socket_dir");
 
 const postgres = (await import(process.env.POSTGRES_JS || "../src/index.ts")).default;
 
@@ -67,4 +61,6 @@ export const options = {
 export const sql = postgres(options);
 
 const reset = postgres({ ...options, onnotice: () => {} });
-t.before = () => reset`drop table if exists test cascade`.catch(() => {});
+// Before each test of the test file that imports this module (every test file gets its own instance
+// of this module), drop the table that many tests create
+beforeEach(() => reset`drop table if exists test cascade`.catch(() => {}));
