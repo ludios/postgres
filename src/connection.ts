@@ -195,9 +195,8 @@ export function Connection(ready, options, events) {
 	}
 
 	/**
-	 * Settles local exchange `x` once the code that wrote it has returned, and then tells the pool
-	 * that the connection is ready, because no ReadyForQuery comes for an exchange that wrote
-	 * nothing.
+	 * Settles local exchange `x` once the code that wrote it has returned, and then calls
+	 * notify_ready(), because no ReadyForQuery comes for an exchange that wrote nothing.
 	 *
 	 * @param x - a local exchange, with nothing in `sent` ahead of it
 	 */
@@ -207,7 +206,7 @@ export function Connection(ready, options, events) {
 			settling--;
 			settle(x);
 			if (!closed) {
-				events.onready(connection);
+				notify_ready();
 			}
 		});
 	}
@@ -611,7 +610,7 @@ export function Connection(ready, options, events) {
 			cancelling--;
 			if (cancelling === 0 && !closed) {
 				release();
-				events.onready(connection);
+				notify_ready();
 			}
 		};
 		cancelling++;
@@ -696,7 +695,19 @@ export function Connection(ready, options, events) {
 	}
 
 	function idle() {
-		return sent.length === 0 && pending.length === 0;
+		return sent.length === 0 && pending.length === 0 && settling === 0;
+	}
+
+	/**
+	 * Tells the pool that the connection may take queries again, after the end of an exchange or
+	 * of a cancel request's hold. If close() was called and nothing is left in flight, first sends
+	 * Terminate.
+	 */
+	function notify_ready() {
+		if (closing && !terminated && idle()) {
+			terminate();
+		}
+		events.onready(connection);
 	}
 
 	function terminate() {
@@ -1117,8 +1128,7 @@ export function Connection(ready, options, events) {
 		}
 		release();
 
-		closing && idle() && terminate();
-		events.onready(connection);
+		notify_ready();
 	}
 
 	function settle(x) {
