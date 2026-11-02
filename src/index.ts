@@ -369,7 +369,8 @@ function Postgres(a?, b?) {
 }
 
 function Listen(options) {
-	const channels = new Map();
+	const { setTimeout, clearTimeout } = options.timers,
+		channels = new Map();
 	let sql = null,
 		closing = null;
 
@@ -468,6 +469,22 @@ function Listen(options) {
 			}
 		}
 	}
+}
+
+/** The longest delay, in milliseconds (about 24.8 days), that `setTimeout` waits for. */
+const max_delay = 2 ** 31 - 1;
+
+/**
+ * Calls `fn` after `ms` milliseconds, or after `max_delay` if `ms` is longer. Node.js runs a
+ * timer whose delay is longer than `max_delay` after 1 ms instead, so a `max_lifetime` or an
+ * `idle_timeout` of 30 days would otherwise close a connection at once.
+ *
+ * @param fn - the function to call
+ * @param ms - the delay in milliseconds
+ * @returns the timer, for `clearTimeout`
+ */
+function capped_timeout(fn, ms) {
+	return setTimeout(fn, Math.min(ms, max_delay));
 }
 
 /** The options that are numbers, which `read_option` reads from a string such as `"30"`. */
@@ -609,7 +626,7 @@ function parseOptions(a, b) {
 		parameters: {},
 		shared: { retries: 0 },
 		timers: o.timers || {
-			setTimeout,
+			setTimeout: capped_timeout,
 			clearTimeout,
 			setImmediate,
 			clearImmediate,

@@ -473,6 +473,15 @@ test("max: undefined uses the default", async () => {
 	await sql.end();
 });
 
+test("A max_lifetime of 30 days, longer than setTimeout can wait, does not close the connection at once", async () => {
+	const sql = postgres({ ...options, max: 1, max_lifetime: 30 * 86400 });
+	const [{ pid: first }] = await sql`select pg_backend_pid() as pid`;
+	await delay(50);
+	const [{ pid: second }] = await sql`select pg_backend_pid() as pid`;
+	await sql.end();
+	expect(second).toBe(first);
+});
+
 test("onnotice: false silences notices", async () => {
 	const sql = postgres({ ...options, onnotice: false });
 	const log = console.log;

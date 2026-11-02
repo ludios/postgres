@@ -87,6 +87,7 @@ The open issues and pull requests were triaged into 33 correctness bugs, each wi
 - A failed connection attempt only rejects the waiting queries when no other attempt is under way and no connection can still serve them, so a connection that is still loading types is waited for.
 - A reserved connection released while its own queries are still in flight goes back to the pool only once they are answered and it is outside a transaction; otherwise it is closed.
 - `connect_timeout` destroys a TCP connection that is still being opened, so the process can exit.
+- A timeout longer than about 24.8 days, the longest delay that `setTimeout` can wait, is cut to that length. On Node.js, v3 let `setTimeout` fire such a timer after 1 ms, so that a `max_lifetime` or an `idle_timeout` of 30 days closed each connection at once.
 - A server that is ready before it has accepted the authentication is rejected with `AUTHENTICATION_INCOMPLETE`, so SCRAM cannot be skipped.
 - An `onnotice` that throws during startup no longer fails the connection.
 - `sql.subscribe` parses custom array types and domains like queries do.
