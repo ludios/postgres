@@ -1745,30 +1745,59 @@ test("An empty query gives an empty result, simple or prepared", async () => {
 	expect(xs.map((x) => [x.length, x.command])).toEqual(Array.from({ length: 3 }, () => [0, null]));
 });
 
+/**
+ * Measures how long a short query waits in a pool of two connections, while one connection runs a
+ * 1-second query and the other runs a 0.1-second query.
+ *
+ * @param scheduler - The pool's `scheduler` option.
+ * @param retried - Whether each connection, before the measurement, retries a 10-millisecond
+ *   prepared statement that the server forgot.
+ * @returns The number of milliseconds that the short query took.
+ */
+async function waited(scheduler, retried = false) {
+	const sql = postgres({ ...options, max: 2, idle_timeout: 0, scheduler }),
+		slow = () => sql`select pg_sleep(1) as slow`,
+		quick = () => sql`select pg_sleep(0.1) as quick`,
+		short = () => sql`select 1 as short`;
+	await Promise.all([slow(), slow()]);
+	await Promise.all([quick(), short()]);
+	if (retried) {
+		const reserved = await Promise.all([sql.reserve(), sql.reserve()]);
+		await Promise.all(
+			reserved.map(async (r) => {
+				const first = await r`select pg_sleep(0.01) as forgotten`;
+				await r`deallocate ${r(first.statement.name)}`;
+				await r`select pg_sleep(0.01) as forgotten`;
+				r.release();
+			}),
+		);
+	}
+	const s = slow().execute();
+	await delay(20);
+	const q = quick().execute();
+	await delay(20);
+	const start = Date.now();
+	await short();
+	const ms = Date.now() - start;
+	await Promise.all([s, q]);
+	await sql.end();
+	return ms;
+}
+
 test(
 	"A query is pipelined behind the work that should finish first, not behind a long query, unless the scheduler is off",
 	{ timeout: 20_000 },
 	async () => {
-		const waited = async (scheduler) => {
-			const sql = postgres({ ...options, max: 2, idle_timeout: 0, scheduler }),
-				slow = () => sql`select pg_sleep(1) as slow`,
-				quick = () => sql`select pg_sleep(0.1) as quick`,
-				short = () => sql`select 1 as short`;
-			await Promise.all([slow(), slow()]);
-			await Promise.all([quick(), short()]);
-			const s = slow().execute();
-			await delay(20);
-			const q = quick().execute();
-			await delay(20);
-			const start = Date.now();
-			await short();
-			const ms = Date.now() - start;
-			await Promise.all([s, q]);
-			await sql.end();
-			return ms;
-		};
 		const [on, off] = [await waited(true), await waited(false)];
 		expect([on < 500, off > 800]).toEqual([true, true]);
+	},
+);
+
+test(
+	"A query is pipelined behind the work that should finish first, even after each connection retried a statement",
+	{ timeout: 20_000 },
+	async () => {
+		expect(await waited(true, true)).toBeLessThan(500);
 	},
 );
 

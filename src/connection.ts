@@ -61,6 +61,7 @@ export function Connection(ready, options, events) {
 		traced = 0,
 		epoch = 0,
 		headSince = 0,
+		// How many exchanges in `sent` and `pending` have a `cost` of at least `notable`.
 		notables = 0;
 
 	const connection = {
@@ -1100,6 +1101,9 @@ export function Connection(ready, options, events) {
 		retry.previous = x.entry;
 		retry.trace = x.trace;
 		retry.cost = x.cost;
+		if (retry.cost >= notable) {
+			notables++;
+		}
 
 		if (sent.length) {
 			return queue(retry);
