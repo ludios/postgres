@@ -24,7 +24,6 @@ test("subscribe", async () => {
       name text
     )
   `;
-	await using _drop_table = defer(() => sql`drop table test`);
 
 	await sql`alter table test replica identity default`;
 	await sql`insert into test (name) values ('Murray')`;
@@ -79,7 +78,6 @@ test("subscribe with transform", async () => {
       name_in_camel text
     )
   `;
-	await using _drop_table = defer(() => sql`drop table test`);
 
 	await sql`insert into test (name_in_camel) values ('Murray')`;
 	await sql`update test set name_in_camel = 'Rothbard'`;
@@ -132,7 +130,6 @@ test("subscribe reconnects and calls onsubscribe", async () => {
       name text
     )
   `;
-	await using _drop_table = defer(() => sql`drop table test`);
 
 	await sql`insert into test (name) values ('Murray')`;
 	await until(() => result.length === 1, 5000, state);
@@ -162,16 +159,16 @@ const until = async (fn, ms = 5000, state?) => {
 
 /**
  * Creates the publication alltables and the table `test (id serial primary key, name text)`, after
- * dropping any that an earlier test left, along with its inactive postgresjs_* replication slots.
+ * dropping the publication and the inactive postgresjs_* replication slots that an earlier test
+ * may have left (tests/setup.ts drops the table `test` before each test).
  * @param slot - the name of the persistent replication slot that the pools from `replica()` use; if
  *   not given, they use temporary slots
  * @returns `sql`, a pool to change and check the table with; `replica()`, which returns a new pool
- *   for subscribing to alltables; and a disposer that drops the table, the publication and the slot
- *   `slot`, and then ends `sql`
+ *   for subscribing to alltables; and a disposer that drops the publication and the slot `slot`,
+ *   and then ends `sql`
  */
 async function replicating(slot?: string) {
 	const sql = postgres({ database: options.db, publications: "alltables", max: 1 });
-	await sql`drop table if exists test`;
 	await sql`drop publication if exists alltables`;
 	await sql`select pg_drop_replication_slot(slot_name) from pg_replication_slots where slot_name like 'postgresjs_%' and not active`;
 	await sql.unsafe("create publication alltables for all tables");
@@ -182,7 +179,6 @@ async function replicating(slot?: string) {
 		async [Symbol.asyncDispose]() {
 			// Ends `sql` even if a drop below throws
 			await using _end = sql;
-			await sql`drop table test`;
 			await sql`drop publication alltables`;
 			if (slot) {
 				await sql`select pg_drop_replication_slot(slot_name) from pg_replication_slots where slot_name = ${slot}`;
@@ -353,7 +349,6 @@ test("subscribe does not pile up listeners across reconnects (#1087)", async () 
 	);
 	await using _drop_publication = defer(() => sql`drop publication alltables`);
 	await sql`create table test (id serial primary key, name text)`;
-	await using _drop_table = defer(() => sql`drop table test`);
 
 	const warnings = [],
 		onwarning = (x) => warnings.push(x.name),
