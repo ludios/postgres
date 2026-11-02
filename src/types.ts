@@ -249,10 +249,14 @@ export function Types(options: Record<string, any> = {}) {
 		wanted.forEach((x) => {
 			const [schema, name] = x.includes(".") ? x.split(".") : [null, x],
 				row = rows.find((r) => r.name === name && (schema ? r.schema === schema : r.visible));
-			row
-				? (oids.set(x, row.oid),
-					row.array && !(row.array in elements) && (elements[row.array] = [row.oid, row.delimiter]))
-				: missing.push(x);
+			if (row) {
+				oids.set(x, row.oid);
+				if (row.array && !(row.array in elements)) {
+					elements[row.array] = [row.oid, row.delimiter];
+				}
+			} else {
+				missing.push(x);
+			}
 		});
 		if (missing.length) {
 			throw Errors.generic(
