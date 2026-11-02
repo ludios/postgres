@@ -1,6 +1,15 @@
 import net from "net";
 import { expect, onTestFinished, test } from "vitest";
-import { postgres, options, login, login_md5, login_scram, pg_port, port_of } from "./setup.ts";
+import {
+	postgres,
+	options,
+	login,
+	login_md5,
+	login_scram,
+	pg_port,
+	port_of,
+	defer,
+} from "./setup.ts";
 import { open } from "../src/startup.ts";
 import { Query, Frames } from "../src/protocol.ts";
 
@@ -71,16 +80,16 @@ test("Startup tries the next host", async () => {
 
 test("Startup rejects after connect_timeout", async () => {
 	const x = await server(() => {});
+	await using _close = defer(() => x.close());
 	const start = Date.now();
 	const code = await session({ port: [port_of(x)], connect_timeout: 0.2 }).catch((e) => e.code);
-	x.close();
 	expect([code, Date.now() - start < 1000]).toEqual(["CONNECT_TIMEOUT", true]);
 });
 
 test("Startup rejects on a clean close", async () => {
 	const x = await server((socket) => socket.end());
+	await using _close = defer(() => x.close());
 	const code = await session({ port: [port_of(x)] }).catch((e) => e.code);
-	x.close();
 	expect(code).toBe("CONNECTION_CLOSED");
 });
 
@@ -98,13 +107,13 @@ test("Cancel reaches the backend", async () => {
 	const ready = await open(base),
 		types = [],
 		frames = Frames((type) => types.push(String.fromCharCode(type)));
+	await using _end = defer(() => ready.socket.end());
 	ready.socket.ondata = (x) => frames.push(x);
 	ready.socket.resume();
 	ready.socket.write(Query("select pg_sleep(5)"));
 	await new Promise((r) => setTimeout(r, 100));
 	await ready.cancel();
 	await new Promise((r) => setTimeout(r, 100));
-	ready.socket.end();
 	expect(types).toEqual(["T", "E", "Z"]);
 });
 
@@ -166,15 +175,15 @@ test("Startup rejects a server that is ready before it accepted the authenticati
 			socket.write(message("R", Buffer.concat([int32(10), Buffer.from("SCRAM-SHA-256\0\0")])));
 		type === "p" && socket.write(ready);
 	});
+	await using _close = defer(() => x.close());
 	const code = await session({ port: [port_of(x)], user: "u", pass: "p" }).catch((e) => e.code);
-	x.close();
 	expect(code).toBe("AUTHENTICATION_INCOMPLETE");
 });
 
 test("Startup rejects a server that sends ReadyForQuery without any authentication", async () => {
 	const x = await fake((socket, type) => type === "startup" && socket.write(ready));
+	await using _close = defer(() => x.close());
 	const code = await session({ port: [port_of(x)] }).catch((e) => e.code);
-	x.close();
 	expect(code).toBe("AUTHENTICATION_INCOMPLETE");
 });
 
@@ -184,6 +193,7 @@ test("Startup with a throwing onnotice still connects", async () => {
 		(socket, type) =>
 			type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), notice, ready])),
 	);
+	await using _close = defer(() => x.close());
 	const status = await session({
 		port: [port_of(x)],
 		onnotice: () => {
@@ -193,7 +203,6 @@ test("Startup with a throwing onnotice still connects", async () => {
 		(x) => x.status,
 		(e) => e.message,
 	);
-	x.close();
 	expect(status).toBe("I");
 });
 
@@ -225,10 +234,10 @@ const refused = async (auth, options?) => {
 				message("R", Buffer.concat([int32(11), Buffer.from("r=other,s=c2FsdA==,i=4096")])),
 			);
 	});
+	await using _close = defer(() => x.close());
 	const code = await session({ port: [port_of(x)], user: "u", pass: "p", ...options }).catch(
 		(e) => e.code,
 	);
-	x.close();
 	return code;
 };
 
@@ -260,11 +269,11 @@ test("Startup asks the server for its state when it does not report it, for targ
 		type === "Q" &&
 			socket.write(Buffer.concat([row("on"), row("t"), message("Z", Buffer.from("I"))]));
 	});
+	await using _close = defer(() => x.close());
 	const { attributes } = await session({
 		port: [port_of(x)],
 		target_session_attrs: "standby",
 	});
-	x.close();
 	expect([attributes.readOnly, attributes.standby]).toEqual([true, true]);
 });
 
@@ -275,12 +284,14 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "pgpass-")),
 		file = path.join(dir, "pgpass"),
 		sent = [];
+	await using _rm = defer(() => fs.rmSync(dir, { recursive: true, force: true }));
 	const x = await fake((socket, type, body) => {
 		type === "startup" && socket.write(message("R", int32(3)));
 		type === "p" &&
 			(sent.push(body.toString("utf8", 0, body.length - 1)),
 			socket.write(Buffer.concat([message("R", int32(0)), ready])));
 	});
+	await using _close = defer(() => x.close());
 	const port = port_of(x),
 		login = (passfile) =>
 			session({
@@ -305,8 +316,6 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 	await login(dir);
 	await login(path.join(dir, "missing"));
 	await login(null);
-	x.close();
-	fs.rmSync(dir, { recursive: true, force: true });
 	expect(sent).toEqual(["a:b\\c:d", "", "", ""]);
 });
 
@@ -316,6 +325,7 @@ test("A message the client does not support rejects the query with MESSAGE_NOT_S
 		type === "Q" &&
 			socket.write(Buffer.concat([message("V", int32(0)), message("Z", Buffer.from("I"))]));
 	});
+	await using _close = defer(() => x.close());
 	const sql = postgres({
 		host: "localhost",
 		port: port_of(x),
@@ -323,9 +333,8 @@ test("A message the client does not support rejects the query with MESSAGE_NOT_S
 		fetch_types: false,
 		max: 1,
 	});
+	await using _end = defer(() => sql.end({ timeout: 0 }));
 	const error = await sql.unsafe("select 1").catch((e) => [e.code, e.name]);
-	await sql.end({ timeout: 0 });
-	x.close();
 	expect(error).toEqual(["MESSAGE_NOT_SUPPORTED", "FunctionCallResponse"]);
 });
 
@@ -368,8 +377,8 @@ test("A message with an invalid length during startup rejects with PROTOCOL_ERRO
 			(socket, type) =>
 				type === "startup" && socket.write(Buffer.concat([header("R", length), Buffer.alloc(8)])),
 		);
+		await using _close = defer(() => x.close());
 		codes.push(await session({ port: [port_of(x)] }).catch((e) => e.code));
-		x.close();
 	}
 	expect(codes).toEqual(["PROTOCOL_ERROR", "PROTOCOL_ERROR", "PROTOCOL_ERROR", "PROTOCOL_ERROR"]);
 });
@@ -379,6 +388,7 @@ test("A message with an invalid length after startup rejects the query and close
 		type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), ready]));
 		type === "Q" && socket.write(Buffer.concat([header("Z", -1), Buffer.alloc(8)]));
 	});
+	await using _close = defer(() => x.close());
 	const sql = postgres({
 		host: "localhost",
 		port: port_of(x),
@@ -386,9 +396,8 @@ test("A message with an invalid length after startup rejects the query and close
 		fetch_types: false,
 		max: 1,
 	});
+	await using _end = defer(() => sql.end({ timeout: 0 }));
 	const error = await sql.unsafe("select 1").catch((e) => e.code + " " + (e.cause && e.cause.code));
-	await sql.end({ timeout: 0 });
-	x.close();
 	expect(/PROTOCOL_ERROR/.test(error)).toBe(true);
 });
 
@@ -401,6 +410,7 @@ test("channel_binding: require sends no password when the server asks for cleart
 				socket.write(message("R", Buffer.concat([int32(kind), Buffer.alloc(kind === 5 ? 4 : 0)])));
 			type === "p" && received.push(kind);
 		});
+		await using _close = defer(() => x.close());
 		codes.push(
 			await session({
 				port: [port_of(x)],
@@ -409,7 +419,6 @@ test("channel_binding: require sends no password when the server asks for cleart
 				channel_binding: "require",
 			}).catch((e) => e.code),
 		);
-		x.close();
 	}
 	expect([codes, received]).toEqual([["CHANNEL_BINDING_REQUIRED", "CHANNEL_BINDING_REQUIRED"], []]);
 });
