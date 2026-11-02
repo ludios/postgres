@@ -30,7 +30,7 @@
     "coverage": "node tests/coverage.ts",
     "prepare": "rm -rf dist && node node_modules/typescript/bin/tsc -p tsconfig.build.json",
     "typecheck": "node node_modules/typescript/bin/tsc && node node_modules/typescript/bin/tsc -p types && node node_modules/typescript5/bin/tsc -p types",
-    "lint": "eslint src tests"
+    "lint": "oxlint"
   },
   "files": [
     "/dist/*.js",
@@ -46,6 +46,8 @@
   "packageManager": "pnpm@11.28.7",
   "devDependencies": {
     "@types/node": "^22.20.5",
+    "oxlint": "^1.90.0",
+    "oxlint-tsgolint": "^7.0.2005",
     "typescript": "7.0.2",
     "typescript5": "npm:typescript@^5.9.3"
   }
