@@ -12,8 +12,5 @@
 5339a819de5516afec224c5ef08537a43e75e1db
 # src/connection.ts: put curlies around every one-statement body
 27f3790bec8ab6c856e707d1bc5b8c9a9b5bffd4
-# tests/copy.test.ts: oxfmt wraps one test() call, and the revert unwraps it
-f1eec8ccb30e53b49903f1aa0f4f524c189a5a75
-3fb9349a9a20c5ff0475df9d4af0ffbebe640ca3
-# tests/: unwrap the test() calls that lost their { timeout } option
+# tests/: unwrap the test() calls that no longer pass an options object
 5e28a77b61e6516aa48310837a416ea9f028b450
