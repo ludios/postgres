@@ -20,13 +20,23 @@ const seconds = +process.argv[2] || +process.env.SOAK_SECONDS || 60,
 		connection: { application_name: app },
 	}),
 	admin = postgres({ ...options, max: 1 }),
-	pending = new Map(),
-	samples = [],
-	failures = [],
+	pending = new Map<number, { name: string; at: number }>(),
+	samples: Sample[] = [],
+	failures: string[] = [],
 	counts: Record<string, number> = {};
 
 let next = 0,
 	notified = 0;
+
+/** What sample() records every few seconds */
+type Sample = {
+	t: number;
+	heap: number;
+	handles: number;
+	connections: number;
+	pending: number;
+	oldest: number;
+};
 
 await sql`create table if not exists soak (id serial primary key, x int, s text)`;
 await sql`truncate soak`;
@@ -93,14 +103,14 @@ const expected = new Set([
 function operation() {
 	const id = next++,
 		names = Object.keys(kinds),
-		name = names[id % names.length],
+		name = names[id % names.length] as keyof typeof kinds,
 		at = Date.now();
 	pending.set(id, { name, at });
 	return Promise.resolve()
-		.then(kinds[name])
+		.then(() => (kinds[name] as () => unknown)())
 		.then(
 			() => (counts[name] = (counts[name] || 0) + 1),
-			(error) =>
+			(error: { code?: string; message: string }) =>
 				expected.has(error.code) ||
 				failures.push(name + ": " + (error.code || "") + " " + error.message),
 		)
@@ -187,7 +197,7 @@ await delay(100);
 
 const settled = samples.slice(Math.floor(samples.length / 5)),
 	fifth = Math.max(1, Math.floor(settled.length / 4)),
-	mean = (xs) => xs.reduce((a, b) => a + b.heap, 0) / xs.length,
+	mean = (xs: Sample[]) => xs.reduce((a, b) => a + b.heap, 0) / xs.length,
 	early = mean(settled.slice(0, fifth)),
 	late = mean(settled.slice(-fifth));
 if (settled.length >= 4 && late > early * 1.5 + 5) {

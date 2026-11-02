@@ -7,13 +7,13 @@ const here = path.dirname(new URL(import.meta.url).pathname),
 	find = "command -v pg_ctl || ls -d /usr/lib/postgresql/*/bin/pg_ctl | sort -V | tail -n 1",
 	bin = process.env.PG_BIN || path.dirname(spawnSync("sh", ["-c", find]).stdout.toString().trim()),
 	url = "postgres://postgres@localhost:5434,localhost:5435/postgres",
-	until = async (fn, ms = 100) => {
+	until = async (fn: () => unknown, ms = 100) => {
 		while (!fn()) {
 			await delay(ms);
 		}
 	},
-	ctl = (...args) => spawnSync(path.join(bin, "pg_ctl"), args, { encoding: "utf8" }),
-	failures = [],
+	ctl = (...args: string[]) => spawnSync(path.join(bin, "pg_ctl"), args, { encoding: "utf8" }),
+	failures: string[] = [],
 	expected = new Set([
 		"CONNECTION_CLOSED",
 		"CONNECTION_DESTROYED",
@@ -60,9 +60,9 @@ const state = { running: true };
 let id = 0,
 	written = 0,
 	lastPort: number | null = null,
-	failedAt = null,
-	resumedAt = null;
-const errors = {};
+	failedAt: number | null = null,
+	resumedAt: number | null = null;
+const errors: Record<string, number> = {};
 
 async function write() {
 	while (state.running) {

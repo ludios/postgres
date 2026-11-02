@@ -25,13 +25,13 @@ type Case = {
 	decode: (x: Buffer, start: number, end: number) => unknown;
 };
 
-const pad = (n, width) => String(n).padStart(width, "0");
+const pad = (n: number, width: number) => String(n).padStart(width, "0");
 
 /**
  * @param i - which value this is
  * @returns a pseudo-random integer from 0 up to 2^32, the same for the same `i` on every run
  */
-function noise(i) {
+function noise(i: number) {
 	let x = (i + 1) * 2654435761;
 	x ^= x >>> 15;
 	x = Math.imul(x, 2246822519);
@@ -43,7 +43,7 @@ function noise(i) {
  * @returns the text of a timestamp from 1970 to 2069 with microseconds, as PostgreSQL sends it
  *   with DateStyle ISO
  */
-function timestamp_text(i) {
+function timestamp_text(i: number) {
 	const t = new Date((noise(i) % 3_155_760_000) * 1000 + (noise(i + 1) % 1000)),
 		micros = pad(t.getUTCMilliseconds(), 3) + pad(noise(i + 2) % 1000, 3);
 	return (
@@ -59,7 +59,7 @@ function timestamp_text(i) {
  * @param n - an integer
  * @returns `n` as a signed 32-bit big-endian integer
  */
-function int32_bytes(n) {
+function int32_bytes(n: number) {
 	const x = Buffer.alloc(4);
 	x.writeInt32BE(n);
 	return x;
@@ -71,7 +71,7 @@ function int32_bytes(n) {
  * @param write - `(element) => Buffer` gives the binary format of an element
  * @returns the array in PostgreSQL's binary format
  */
-function binary_array(xs, element, write) {
+function binary_array<T>(xs: T[], element: number, write: (x: T) => Buffer) {
 	return Buffer.concat([
 		int32_bytes(1),
 		int32_bytes(0),
@@ -88,7 +88,7 @@ function binary_array(xs, element, write) {
  * @param text - `(i) => string` gives the text of the i-th value
  * @returns a case whose decoder reads the bytes of the text
  */
-function text_case(name, oid, text): Case {
+function text_case(name: string, oid: number, text: (i: number) => string): Case {
 	const texts = Array.from({ length: values }, (_, i) => text(i));
 	return {
 		name,
@@ -107,7 +107,7 @@ function text_case(name, oid, text): Case {
  * @param start - where the array starts in `x`
  * @returns the elements' text, or null for a NULL element
  */
-function int8_array(x, start) {
+function int8_array(x: Buffer, start: number) {
 	const xs = new Array(x.readInt32BE(start + 12));
 	for (let k = 0, at = start + 20; k < xs.length; k++) {
 		const length = x.readInt32BE(at),
@@ -133,7 +133,13 @@ function int8_array(x, start) {
  * @param write - `(element) => Buffer` gives the binary format of an element
  * @returns a case of arrays of 10 elements, whose decoder reads the binary format
  */
-function array_case(name, oid, element, random, write): Case {
+function array_case<T>(
+	name: string,
+	oid: number,
+	element: number,
+	random: (i: number) => T,
+	write: (x: T) => Buffer,
+): Case {
 	const arrays = Array.from({ length: values }, (_, i) =>
 		Array.from({ length: 10 }, (__, k) => random(i * 10 + k)),
 	);
@@ -154,8 +160,8 @@ function array_case(name, oid, element, random, write): Case {
  * @param write - `(x) => void` writes `x` into a Buffer of `n` bytes
  * @returns a function that gives the Buffer that `write` wrote
  */
-function fixed(n, write) {
-	return (x) => {
+function fixed<T>(n: number, write: (b: Buffer, x: T) => void) {
+	return (x: T) => {
 		const b = Buffer.alloc(n);
 		write(b, x);
 		return b;
@@ -184,7 +190,7 @@ function cases(): Case[] {
 			1005,
 			21,
 			(i) => (noise(i) % 65536) - 32768,
-			fixed(2, (b, x) => b.writeInt16BE(x)),
+			fixed(2, (b, x: number) => b.writeInt16BE(x)),
 		),
 		array_case("int4[10]", 1007, 23, (i) => noise(i) | 0, int32_bytes),
 		array_case(
@@ -192,21 +198,21 @@ function cases(): Case[] {
 			1016,
 			20,
 			(i) => BigInt(noise(i) % 100_000_000) * 1000n,
-			fixed(8, (b, x) => b.writeBigInt64BE(x)),
+			fixed(8, (b, x: bigint) => b.writeBigInt64BE(x)),
 		),
 		array_case(
 			"int8[10] any",
 			1016,
 			20,
 			(i) => BigInt.asIntN(64, (BigInt(noise(i)) << 32n) | BigInt(noise(i + 1))),
-			fixed(8, (b, x) => b.writeBigInt64BE(x)),
+			fixed(8, (b, x: bigint) => b.writeBigInt64BE(x)),
 		),
 		array_case(
 			"bool[10]",
 			1000,
 			16,
 			(i) => (noise(i) & 1) === 1,
-			fixed(1, (b, x) => b.writeUInt8(x ? 1 : 0)),
+			fixed(1, (b, x: boolean) => b.writeUInt8(x ? 1 : 0)),
 		),
 	];
 }
@@ -239,7 +245,7 @@ function time(read: (j: number) => number) {
  * @param x - a decoded value
  * @returns a number derived from `x`
  */
-function digest(x) {
+function digest(x: unknown) {
 	return x instanceof Date
 		? x.getTime() & 1
 		: Array.isArray(x) || Buffer.isBuffer(x)

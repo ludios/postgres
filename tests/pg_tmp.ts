@@ -17,7 +17,7 @@ const hba_file = fileURLToPath(new URL("pg_hba.conf", import.meta.url));
  * @param {string} s - any string
  * @returns {string} `s` quoted for the shell that pg_ctl starts the server with
  */
-function sh_quote(s) {
+function sh_quote(s: string) {
 	return "'" + s.replaceAll("'", "'\\''") + "'";
 }
 
@@ -28,7 +28,7 @@ function sh_quote(s) {
  * @param {NodeJS.ProcessEnv} env - the environment to run openssl in
  * @returns {Promise<{ cert: string, key: string }>} the paths of the certificate and of its private key
  */
-async function write_certificate(dir, env) {
+async function write_certificate(dir: string, env: NodeJS.ProcessEnv) {
 	const cert = path.join(dir, "server.crt");
 	const key = path.join(dir, "server.key");
 	const args = ["req", "-new", "-x509", "-nodes", "-days", "3650", "-subj", "/CN=localhost"];

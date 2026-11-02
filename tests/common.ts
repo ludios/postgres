@@ -40,13 +40,13 @@ export const postgres = new Proxy(library, {
  * @param {number} ms - milliseconds
  * @returns {Promise<void>} a promise that resolves after `ms` milliseconds
  */
-export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+export const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * @param {string} x - a path relative to the directory tests/
  * @returns {URL} the file: URL of that path
  */
-export const rel = (x) => new URL(x, import.meta.url);
+export const rel = (x: string) => new URL(x, import.meta.url);
 
 /** The `idle_timeout` (in seconds) of `options` */
 export const idle_timeout = 1;

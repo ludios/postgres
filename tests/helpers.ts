@@ -22,13 +22,13 @@ export function port_of(server: net.Server): number {
  * @param x - a name in snake_case
  * @returns `x` in camelCase; an underscore at the start of `x` stays, as in v3's postgres.toCamel
  */
-export const camel_case = (x) => x.replace(/(?!^)_(.)/g, (_, c) => c.toUpperCase());
+export const camel_case = (x: string) => x.replace(/(?!^)_(.)/g, (_, c: string) => c.toUpperCase());
 
 /**
  * @param x - a name in camelCase
  * @returns `x` in snake_case
  */
-export const snake_case = (x) => x.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());
+export const snake_case = (x: string) => x.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());
 
 /**
  * @param f - a function that the caller expects to throw synchronously (a promise that `f` returns

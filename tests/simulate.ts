@@ -2,6 +2,7 @@ import path from "path";
 import util from "util";
 import { Clock, Random } from "./sim/net.ts";
 import { Server } from "./sim/server.ts";
+import type { End } from "./sim/net.ts";
 import { replace_pg_vars } from "./pg_env.ts";
 
 // The pools read no PG* variable of the shell, such as a PGSSLMODE, with which every connection
@@ -65,15 +66,15 @@ console.log(
 );
 process.exitCode = failed ? 1 : 0;
 
-async function simulate(seed) {
+async function simulate(seed: number) {
 	const name = process.env.SCENARIO || Object.keys(scenarios)[seed % Object.keys(scenarios).length],
 		scenario = scenarios[name],
-		violations = [],
-		trace = [],
-		log = (x) => trace.push(String(clock.now).padStart(6) + " " + x),
+		violations: string[] = [],
+		trace: string[] = [],
+		log = (x: string) => trace.push(String(clock.now).padStart(6) + " " + x),
 		random = Random(seed),
 		clock = Clock((e) => violations.push("uncaught in a timer: " + ((e && e.stack) || e))),
-		clients = [],
+		clients: End[] = [],
 		config = {
 			max: random.pick([1, 2, 3, 5]),
 			prepare: random.chance(0.8),
@@ -84,9 +85,9 @@ async function simulate(seed) {
 			ops: random.int(5, 60),
 			max_pipeline: random.pick([0, 1, 2, 100]),
 		},
-		wire = single && process.env.WIRE && ((x) => log("wire " + x)),
+		wire = single && process.env.WIRE && ((x: string) => log("wire " + x)),
 		server = Server({ clock, random, delay: config.delay, split: config.split, log: wire }),
-		stray = (x) => violations.push("unhandled: " + ((x && x.stack) || x)),
+		stray = (x: any) => violations.push("unhandled: " + ((x && x.stack) || x)),
 		restore = globals && fakeGlobals(clock);
 
 	log("config " + JSON.stringify(config));
@@ -104,7 +105,7 @@ async function simulate(seed) {
 		fetch_types: false,
 		connect_timeout: 2,
 		idle_timeout: random.pick([0, 1]),
-		backoff: (n) => (0.5 + random.next() / 2) * Math.min(3 ** n / 100, 20),
+		backoff: (n: number) => (0.5 + random.next() / 2) * Math.min(3 ** n / 100, 20),
 		max_lifetime: random.pick([0, 2, 60 * 30]),
 		onnotice: () => {},
 		timers: clock.timers,
@@ -115,7 +116,7 @@ async function simulate(seed) {
 		},
 	});
 
-	const settled = [];
+	const settled: Settled[] = [];
 	let next = 1;
 
 	const kinds = scenario.kinds || [
@@ -148,7 +149,7 @@ async function simulate(seed) {
 		}
 		sql.end({ timeout: 1 }).then(
 			() => (ended = true),
-			(e) => violations.push("end() rejected: " + e.message),
+			(e: Error) => violations.push("end() rejected: " + e.message),
 		);
 		await clock.run(70000);
 	} catch (error) {
@@ -205,8 +206,9 @@ async function simulate(seed) {
 
 	return { violations, trace, scenario: name };
 
-	function expect(kind, id, scope, rows?) {
-		return (xs) => {
+	/** @returns a check of the rows of query `id` of `scope`: that they are its, and `rows` many */
+	function expect(kind: string, id: number, scope: number, rows?: number) {
+		return (xs: Row[]) => {
 			if (rows !== undefined && xs.length !== rows) {
 				violations.push(kind + " " + id + " got " + xs.length + " rows, expected " + rows);
 			}
@@ -241,12 +243,13 @@ async function simulate(seed) {
 		};
 	}
 
-	function settle(kind, id, promise) {
+	/** @returns the promise of operation `id`, which logs how it settles, with `done` set once it has */
+	function settle(kind: string, id: number, promise: unknown) {
 		log("start " + kind + " " + id);
-		const x = Promise.resolve(promise)
+		const x: Settled = Promise.resolve(promise)
 			.then(
 				() => log("done " + kind + " " + id),
-				(e) => {
+				(e: any) => {
 					log("fail " + kind + " " + id + " " + (e && (e.code || e.message)));
 					if (
 						!e ||
@@ -265,7 +268,7 @@ async function simulate(seed) {
 		return x;
 	}
 
-	function query(sql, kind, scope) {
+	function query(sql: any, kind: string, scope: number): Promise<unknown> {
 		const id = next++;
 		const k = random.int(1, 5);
 		if (kind === "rows") {
@@ -278,7 +281,7 @@ async function simulate(seed) {
 			const at = random.int(0, k - 1);
 			return sql`select ${id}::int as id, ${scope}::int as scope from rows(${k}::int) fail(${at}::int)`.then(
 				() => violations.push("query " + id + " should have failed"),
-				(e) => {
+				(e: any) => {
 					if (e.code !== "22012") {
 						throw e;
 					}
@@ -288,7 +291,7 @@ async function simulate(seed) {
 		if (kind === "syntax") {
 			return sql`selec ${id}::int as id, ${scope}::int as scope`.then(
 				() => violations.push("query " + id + " should have failed to parse"),
-				(e) => {
+				(e: any) => {
 					if (e.code !== "42601") {
 						throw e;
 					}
@@ -316,7 +319,7 @@ async function simulate(seed) {
 			const check = expect(kind, id, scope);
 			let n = 0;
 			return sql`select ${id}::int as id, ${scope}::int as scope from rows(${k}::int)`
-				.cursor(random.int(1, 3), (rows) => {
+				.cursor(random.int(1, 3), (rows: Row[]) => {
 					n += rows.length;
 					check(rows);
 					return (
@@ -334,7 +337,7 @@ async function simulate(seed) {
 		return sql`select ${id}::int as id, ${scope}::int as scope`.then(expect(kind, id, scope, 1));
 	}
 
-	function scoped(sql, scope) {
+	function scoped(sql: any, scope: number) {
 		const chosen = [...Array(random.int(1, 4))].map(() =>
 			random.pick(["query", "rows", "fail", "syntax", "sleep", "unsafe", "cursor"]),
 		);
@@ -343,11 +346,11 @@ async function simulate(seed) {
 			: chosen.reduce((p, k) => p.then(() => query(sql, k, scope)), Promise.resolve());
 	}
 
-	function operation(kind) {
+	function operation(kind: string) {
 		const scope = kind === "begin" ? 1000 + next++ : kind === "reserve" ? 2000 + next++ : 0;
 		if (kind === "begin") {
 			const ok = random.chance(0.8);
-			const transaction = sql.begin(async (tx) => {
+			const transaction = sql.begin(async (tx: any) => {
 				await query(tx, "query", scope);
 				await scoped(tx, scope);
 				if (!ok) {
@@ -370,7 +373,7 @@ async function simulate(seed) {
 								),
 							0,
 						),
-					(e) => {
+					(e: any) => {
 						const lost = /^(CONNECTION_|ECONNRESET)/.test(e.code);
 						if (!lost && server.outcomes.get(scope) === "commit") {
 							violations.push(
@@ -390,7 +393,7 @@ async function simulate(seed) {
 			return settle(
 				"reserve",
 				scope,
-				sql.reserve().then(async (reserved) => {
+				sql.reserve().then(async (reserved: any) => {
 					try {
 						await query(reserved, "query", scope);
 						await scoped(reserved, scope);
@@ -410,7 +413,7 @@ async function simulate(seed) {
 				"cursor",
 				id,
 				sql`select ${id}::int as id, ${0}::int as scope from rows(${k}::int)`
-					.cursor(random.int(1, 3), (rows) => {
+					.cursor(random.int(1, 3), (rows: Row[]) => {
 						n += rows.length;
 						return check(rows);
 					})
@@ -447,22 +450,30 @@ async function simulate(seed) {
 		} else if (kind === "reset") {
 			server.close(x, true);
 		} else {
-			server[kind](x);
+			server[kind as "stale" | "deallocate" | "retype" | "commitRollback"](x);
 		}
 	}
 }
 
-function fakeGlobals(clock) {
-	const saved = ["setTimeout", "clearTimeout", "setImmediate", "clearImmediate"].map((k) => [
-		k,
-		globalThis[k],
-	]);
+/** A row of the simulated server: the query's id and scope, and the shape it was read by */
+type Row = { id: number; scope: number; shape: number | string };
+
+/** The promise of an operation, with `done` once it has settled */
+type Settled = Promise<unknown> & { done?: boolean };
+
+/** Replaces the global timers with the clock's; @returns a function that puts them back */
+function fakeGlobals(clock: ReturnType<typeof Clock>) {
+	const real = globalThis as unknown as Record<string, unknown>,
+		faked = clock.timers as unknown as Record<string, unknown>,
+		saved = ["setTimeout", "clearTimeout", "setImmediate", "clearImmediate"].map(
+			(k) => [k, real[k]] as const,
+		);
 	// oxlint-disable-next-line typescript/unbound-method -- saved only to be put back
 	const now = performance.now;
-	saved.forEach(([k]) => (globalThis[k] = clock.timers[k]));
+	saved.forEach(([k]) => (real[k] = faked[k]));
 	performance.now = clock.timers.now;
 	return () => {
-		saved.forEach(([k, v]) => (globalThis[k] = v));
+		saved.forEach(([k, v]) => (real[k] = v));
 		performance.now = now;
 	};
 }

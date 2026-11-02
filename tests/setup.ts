@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import type Pg from "../types/index.js";
 import { once } from "events";
 import fs from "fs";
 import net from "net";
@@ -59,8 +60,16 @@ const db = await create_file_database();
 export const options = { ...common_options, db };
 
 const log = console.log;
-const notice = (x) =>
-	x && typeof x === "object" && "severity_local" in x && !/^(ERROR|FATAL|PANIC)$/.test(x.severity);
+// Whether `x`, an argument of console.log, is a notice that the library prints by default
+const notice = (x: unknown) => {
+	const n = x as Pg.Notice | null;
+	return (
+		!!n &&
+		typeof n === "object" &&
+		"severity_local" in n &&
+		!/^(ERROR|FATAL|PANIC)$/.test(n.severity)
+	);
+};
 console.log = (...xs) => (xs.length === 1 && notice(xs[0]) ? undefined : log(...xs));
 
 export const sql = postgres(options);

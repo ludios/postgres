@@ -1,6 +1,23 @@
 import { EventEmitter } from "events";
 
-export function Random(seed) {
+/** A fake net.Socket of Pipe(), with its peer and what the fake needs; `Record` for what the library adds */
+export type End = EventEmitter & Record<string, any>;
+
+/** A timer of Clock(): what its setTimeout() and setImmediate() give */
+export type Timer = {
+	ref: () => Timer;
+	unref: () => Timer;
+	hasRef: () => boolean;
+	[Symbol.toPrimitive]: () => number;
+	/** The order the timer was set in, which breaks ties of `at` */
+	seq: number;
+	/** When it fires, on the clock */
+	at: number;
+	fn: () => void;
+};
+
+/** @returns a deterministic source of pseudo-random numbers, from `seed` */
+export function Random(seed: number) {
 	let x = seed >>> 0;
 	const next = () => {
 		x = (x + 0x6d2b79f5) >>> 0;
@@ -11,9 +28,9 @@ export function Random(seed) {
 
 	return {
 		next,
-		int: (min, max) => min + Math.floor(next() * (max - min + 1)),
-		chance: (p) => next() < p,
-		pick: (xs) => xs[Math.floor(next() * xs.length)],
+		int: (min: number, max: number) => min + Math.floor(next() * (max - min + 1)),
+		chance: (p: number) => next() < p,
+		pick: <T>(xs: T[]) => xs[Math.floor(next() * xs.length)],
 	};
 }
 
@@ -22,31 +39,32 @@ export function Clock(
 		throw e;
 	},
 ) {
-	const timers = new Map(),
+	const timers = new Map<number, Timer>(),
 		realImmediate = setImmediate;
 	let now = 0,
 		seq = 0;
 
-	const add = (fn, ms, args) => {
-		const id = {
+	const add = (fn: (...args: any[]) => void, ms: number, args: unknown[]) => {
+		const id: Timer = {
 			ref: () => id,
 			unref: () => id,
 			hasRef: () => true,
 			[Symbol.toPrimitive]: () => id.seq,
 			seq: ++seq,
-			at: now + Math.max(0, +ms || 0),
+			at: now + Math.max(0, ms || 0),
 			fn: () => fn(...args),
 		};
 		timers.set(id.seq, id);
 		return id;
 	};
-	const clear = (id) => id && timers.delete(id.seq);
+	const clear = (id: Timer | null | undefined) => id && timers.delete(id.seq);
 
 	return {
 		timers: {
-			setTimeout: (fn, ms, ...args) => add(fn, ms, args),
+			setTimeout: (fn: (...args: any[]) => void, ms: number, ...args: unknown[]) =>
+				add(fn, ms, args),
 			clearTimeout: clear,
-			setImmediate: (fn, ...args) => add(fn, 0, args),
+			setImmediate: (fn: (...args: any[]) => void, ...args: unknown[]) => add(fn, 0, args),
 			clearImmediate: clear,
 			now: () => now,
 		},
@@ -70,7 +88,7 @@ export function Clock(
 					);
 				}
 
-				let next = null;
+				let next: Timer | null = null;
 				for (const x of timers.values()) {
 					if (!next || x.at < next.at || (x.at === next.at && x.seq < next.seq)) {
 						next = x;
@@ -95,7 +113,21 @@ export function Clock(
 	};
 }
 
-export function Pipe({ clock, random, delay = 0, split = 0 }) {
+/**
+ * @returns two connected fake sockets, `client` and `server`, whose data reaches the other end after
+ *   up to `delay` ms of the clock, split in two with probability `split`
+ */
+export function Pipe({
+	clock,
+	random,
+	delay = 0,
+	split = 0,
+}: {
+	clock: ReturnType<typeof Clock>;
+	random: ReturnType<typeof Random>;
+	delay?: number;
+	split?: number;
+}) {
 	const { setTimeout } = clock.timers;
 
 	const client = end(),
@@ -107,25 +139,25 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 
 	function end() {
 		// A fake net.Socket: the Object.assign below adds its properties.
-		const x: EventEmitter & Record<string, any> = new EventEmitter();
+		const x: End = new EventEmitter();
 		let last = 0,
 			paused = false,
-			held = [];
+			held: Buffer[] = [];
 
 		Object.assign(x, {
 			destroyed: false,
 			writable: true,
 			readable: true,
-			write(data, encoding, cb) {
+			write(data: Buffer | string, encoding?: unknown, cb?: () => void) {
 				if (typeof encoding === "function") {
-					cb = encoding;
+					cb = encoding as () => void;
 				}
 				if (x.destroyed || !x.writable) {
 					return false;
 				}
 
-				data = Buffer.from(data);
-				for (const part of chop(data)) {
+				const bytes = Buffer.from(data as string);
+				for (const part of chop(bytes)) {
 					send(part);
 				}
 				if (cb) {
@@ -133,7 +165,7 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 				}
 				return true;
 			},
-			end(data) {
+			end(data?: Buffer) {
 				if (x.destroyed || !x.writable) {
 					return x;
 				}
@@ -145,7 +177,7 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 				later(() => x.peer.closed(false));
 				return x;
 			},
-			destroy(error) {
+			destroy(error?: Error) {
 				if (x.destroyed) {
 					return x;
 				}
@@ -186,7 +218,7 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 			ref: () => x,
 			unref: () => x,
 			receive,
-			closed(reset) {
+			closed(reset: boolean) {
 				if (x.destroyed) {
 					return;
 				}
@@ -211,7 +243,7 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 
 		return x;
 
-		function receive(data) {
+		function receive(data: Buffer) {
 			if (x.destroyed) {
 				return;
 			}
@@ -222,7 +254,7 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 			}
 		}
 
-		function chop(data) {
+		function chop(data: Buffer) {
 			if (!split || !random.chance(split) || data.length < 2) {
 				return [data];
 			}
@@ -231,12 +263,12 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 			return [data.subarray(0, at), data.subarray(at)];
 		}
 
-		function later(fn) {
+		function later(fn: () => void) {
 			last = Math.max(last, clock.now + (delay ? random.int(0, delay) : 0));
 			setTimeout(fn, last - clock.now);
 		}
 
-		function send(data) {
+		function send(data: Buffer) {
 			later(() => x.peer.receive(data));
 		}
 	}

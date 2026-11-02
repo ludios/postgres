@@ -1,19 +1,65 @@
 import { Pipe } from "./net.ts";
+import type { Clock, Random, End } from "./net.ts";
+
+/** A prepared statement of a session */
+type Prepared = { text: string; ast: Ast; stale: boolean; shape: string };
+
+/** A portal of a session: its statement, parameter values, and how many rows it has given */
+type Portal = {
+	p: Prepared;
+	values: (string | null)[];
+	row: number;
+	ordered?: boolean;
+	slept?: boolean;
+};
+
+/** What parse() makes of a query text: a transaction control command, or a select of the test's grammar */
+type Ast =
+	| { control: string; params: number; select: false }
+	| {
+			control?: undefined;
+			select: true;
+			params: number;
+			id: string;
+			scope: string;
+			rows: string | null;
+			fail: string | null;
+			sleep: string | null;
+	  };
 
 const select =
 		/^select (\S+) as id, (\S+) as scope(?: from rows\((\S+)\))?(?: fail\((\S+)\))?(?: sleep\((\S+)\))?$/i,
 	control =
 		/^(begin|commit|end|rollback|savepoint \w+|release savepoint \w+|rollback to savepoint \w+)\b/i;
 
-export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
+export function Server({
+	clock,
+	random,
+	delay,
+	split,
+	hosts = 1,
+	log = null,
+}: {
+	clock: ReturnType<typeof Clock>;
+	random: ReturnType<typeof Random>;
+	delay: number;
+	split: number;
+	hosts?: number;
+	log?: ((line: string) => void) | null;
+}) {
 	const { setTimeout } = clock.timers,
 		sessions = new Set<ReturnType<typeof Session>>(),
-		violations = [],
-		attempts = [],
-		scopes = new Map(),
-		outcomes = new Map(),
-		stale = new Map(),
-		latest = new Map(),
+		violations: string[] = [],
+		// When each connection attempt that the startup mode refused came, on the clock
+		attempts: number[] = [],
+		// The session that each scope's queries reached
+		scopes = new Map<number, number>(),
+		// Whether each scope's transaction committed or rolled back
+		outcomes = new Map<number, string>(),
+		// The stale plans by query id: the session's status when the plan went stale, and the retries
+		stale = new Map<number, { status: string; retries: number }>(),
+		// The latest query id of each scope
+		latest = new Map<number, number>(),
 		startup = [...Array(hosts)].map(() => "ready");
 	let pids = 1000,
 		peak = 0;
@@ -28,15 +74,15 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			return peak;
 		},
 		socket,
-		kill: (x) => x.fatal("57P01", "terminating connection due to administrator command"),
-		close: (x, reset) => (reset ? x.end.destroy() : x.end.end()),
-		stale: (x) => x.prepared.forEach((p) => (p.stale = true)),
-		deallocate: (x) => {
+		kill: (x: Session) => x.fatal("57P01", "terminating connection due to administrator command"),
+		close: (x: Session, reset: boolean) => (reset ? x.end.destroy() : x.end.end()),
+		stale: (x: Session) => x.prepared.forEach((p) => (p.stale = true)),
+		deallocate: (x: Session) => {
 			x.prepared.forEach((p, name) => x.wiped.add(name));
 			x.prepared.clear();
 		},
-		retype: (x) => (x.shape = x.shape === "a" ? "b" : "a"),
-		commitRollback: (x) => (x.commitRollback = true),
+		retype: (x: Session) => (x.shape = x.shape === "a" ? "b" : "a"),
+		commitRollback: (x: Session) => (x.commitRollback = true),
 	};
 
 	function socket(host = 0) {
@@ -45,22 +91,26 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 		return client;
 	}
 
-	function violation(x) {
+	function violation(x: string) {
 		violations.push(x);
 	}
 
-	function Session(end, host) {
-		const prepared = new Map(),
-			portals = new Map(),
-			queue = [];
+	/** A session, on the server end of a Pipe: a connection as the server sees it */
+	type Session = ReturnType<typeof Session>;
+
+	function Session(end: End, host: number) {
+		const prepared = new Map<string, Prepared>(),
+			portals = new Map<string, Portal>(),
+			queue: Buffer[] = [];
 		let incoming = Buffer.alloc(0),
 			started = false,
 			busy = false,
 			discard = false,
 			status = "I",
 			txScope = 0,
-			txScopes = new Set(),
-			sleeping = null,
+			txScopes = new Set<number>(),
+			// The statement that sleeps, with how to cancel it
+			sleeping: { cancel: (cancelled?: boolean) => void } | null = null,
 			gone = false;
 
 		const x = {
@@ -78,7 +128,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			cancel: () => sleeping && sleeping.cancel(true),
 		};
 
-		end.on("data", (data) => {
+		end.on("data", (data: Buffer) => {
 			incoming = Buffer.concat([incoming, data]);
 			while (incoming.length >= (started ? 5 : 4)) {
 				const length = started ? incoming.readInt32BE(1) + 1 : incoming.readInt32BE(0);
@@ -110,7 +160,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 
 		return x;
 
-		function first(message) {
+		function first(message: Buffer) {
 			const code = message.readInt32BE(4);
 			if (code === 80877103) {
 				end.write("N");
@@ -166,7 +216,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			);
 		}
 
-		function fatal(code, message) {
+		function fatal(code: string, message: string) {
 			if (!gone) {
 				end.end(error("FATAL", code, message));
 			}
@@ -181,7 +231,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			}
 		}
 
-		function handle(m) {
+		function handle(m: Buffer) {
 			const type = String.fromCharCode(m[0]),
 				r = reader(m, 5);
 
@@ -249,7 +299,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			} else if (type === "D") {
 				const kind = r.byte(),
 					name = r.str();
-				const p = kind === "S" ? prepared.get(name) : portals.get(name) && portals.get(name).p;
+				const p = kind === "S" ? prepared.get(name) : portals.get(name)?.p;
 				if (!p) {
 					if (kind === "S" && name && !x.wiped.has(name)) {
 						violation('describe of statement "' + name + '" that session ' + x.id + " never had");
@@ -281,7 +331,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 					discard = false;
 					return reply(ready());
 				}
-				execute({ p: { text, ast, shape: x.shape }, values: [], row: 0 }, 0, true);
+				execute({ p: { text, ast, stale: false, shape: x.shape }, values: [], row: 0 }, 0, true);
 			} else if (type === "S") {
 				discard = false;
 				if (status === "I") {
@@ -302,9 +352,10 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			}
 		}
 
-		function execute(portal, limit, simple) {
+		function execute(portal: Portal, limit: number, simple: boolean) {
 			const { ast } = portal.p,
-				value = (v) => (v === null ? null : v[0] === "$" ? +portal.values[+v.slice(1) - 1] : +v),
+				value = (v: string | null) =>
+					v === null ? null : v[0] === "$" ? +portal.values[+v.slice(1) - 1] : +v,
 				done = () => {
 					if (simple) {
 						discard = false;
@@ -312,7 +363,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 					}
 				};
 
-			if (ast.control) {
+			if (!ast.select) {
 				transaction(ast.control);
 				return done();
 			}
@@ -348,9 +399,9 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 
 			if (ms && !portal.slept) {
 				busy = true;
-				let timer = null;
+				let timer: ReturnType<typeof setTimeout> | null = null;
 				sleeping = {
-					cancel: (cancelled) => {
+					cancel: (cancelled?: boolean) => {
 						clock.timers.clearTimeout(timer);
 						sleeping = null;
 						busy = false;
@@ -374,7 +425,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			if (simple) {
 				reply(columns(x.shape));
 			}
-			const out = [];
+			const out: Buffer[] = [];
 			while (portal.row < rows) {
 				if (portal.row === at) {
 					reply(Buffer.concat(out));
@@ -392,7 +443,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			done();
 		}
 
-		function check(id, scope) {
+		function check(id: number, scope: number) {
 			const retry = stale.get(id);
 			if (retry && ++retry.retries) {
 				if (retry.status !== "I") {
@@ -428,7 +479,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			}
 		}
 
-		function order(id, scope) {
+		function order(id: number, scope: number) {
 			if (!scope) {
 				return;
 			}
@@ -446,7 +497,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			latest.set(scope, Math.max(id, latest.get(scope) || 0));
 		}
 
-		function transaction(command) {
+		function transaction(command: string) {
 			const c = command.toLowerCase();
 			if (c === "begin") {
 				if (status === "I") {
@@ -487,14 +538,14 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			}
 		}
 
-		function bind(scope) {
+		function bind(scope: number) {
 			if (txScope === -1 && scope) {
 				txScope = scope;
 				txScopes.add(scope);
 			}
 		}
 
-		function fail(code, message) {
+		function fail(code: string, message: string) {
 			if (status === "T") {
 				status = "E";
 			}
@@ -502,7 +553,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			reply(error("ERROR", code, message));
 		}
 
-		function reply(bytes) {
+		function reply(bytes: Buffer) {
 			if (!gone) {
 				end.write(bytes);
 			}
@@ -512,7 +563,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			return msg("Z", Buffer.from(status));
 		}
 
-		function parse(text) {
+		function parse(text: string): Ast | null {
 			const c = text.trim().match(control);
 			if (c) {
 				return { control: c[1], params: 0, select: false };
@@ -524,12 +575,12 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			}
 
 			const [, id, scope, rows = null, failure = null, sleep = null] = m.map(
-				(group) => group && group.replace(/::int$/, ""),
+				(group: string | undefined) => group && group.replace(/::int$/, ""),
 			);
 			const params = Math.max(
 				0,
 				...[id, scope, rows, failure, sleep]
-					.filter((v) => v && v[0] === "$")
+					.filter((v): v is string => !!v && v[0] === "$")
 					.map((v) => +v.slice(1)),
 			);
 			return { select: true, params, id, scope, rows, fail: failure, sleep };
@@ -537,8 +588,8 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 	}
 }
 
-function columns(shape) {
-	const column = (name, type) =>
+function columns(shape: string) {
+	const column = (name: string, type: number) =>
 		Buffer.concat([str(name), i32(0), i16(0), i32(type), i16(4), i32(-1), i16(0)]);
 	return msg(
 		"T",
@@ -549,7 +600,7 @@ function columns(shape) {
 	);
 }
 
-function cell(x) {
+function cell(x: string | number | null | undefined) {
 	if (x === null || x === undefined) {
 		return [i32(-1)];
 	}
@@ -558,14 +609,14 @@ function cell(x) {
 	return [i32(b.length), b];
 }
 
-function error(severity, code, message) {
+function error(severity: string, code: string, message: string) {
 	return msg(
 		"E",
 		Buffer.from("S" + severity + "\0V" + severity + "\0C" + code + "\0M" + message + "\0\0"),
 	);
 }
 
-function reader(b, i) {
+function reader(b: Buffer, i: number) {
 	return {
 		byte: () => String.fromCharCode(b[i++]),
 		i16: () => {
@@ -596,20 +647,20 @@ function reader(b, i) {
 	};
 }
 
-function str(x) {
+function str(x: string) {
 	return Buffer.from(x + "\0");
 }
-function i16(x) {
+function i16(x: number) {
 	const b = Buffer.alloc(2);
 	b.writeInt16BE(x);
 	return b;
 }
-function i32(x) {
+function i32(x: number) {
 	const b = Buffer.alloc(4);
 	b.writeInt32BE(x);
 	return b;
 }
-function msg(type, ...parts) {
+function msg(type: string, ...parts: Buffer[]) {
 	const body = Buffer.concat(parts);
 	return Buffer.concat([Buffer.from(type), i32(body.length + 4), body]);
 }
