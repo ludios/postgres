@@ -9,6 +9,9 @@ import { promisify } from "util";
 
 const run = promisify(execFile);
 
+/** Seconds between pg_tmp's checks for a connected client (pg_tmp's -w) */
+const check_interval = 120;
+
 const hba_file = fileURLToPath(new URL("pg_hba.conf", import.meta.url));
 
 /**
@@ -50,10 +53,11 @@ async function write_certificate(dir, env) {
  * certificate (`ssl` itself stays off until ALTER SYSTEM turns it on), logical decoding, prepared
  * transactions, and a `postgres` superuser.
  *
- * pg_tmp checks every 60 seconds whether a client is connected, and the first check that finds no
- * client stops the server and deletes its directory. So the server is gone within about 60 seconds
- * after this process exits; but in a run of more than 60 seconds, a check can find no client during
- * a pause between tests, and stop the server before the run ends.
+ * pg_tmp checks every `check_interval` seconds whether a client is connected, and the first check
+ * that finds no client stops the server and deletes its directory. So the server is gone within
+ * about `check_interval` seconds after this process exits; but in a run of more than
+ * `check_interval` seconds, a check can find no client during a pause between tests, and stop the
+ * server before the run ends.
  *
  * @returns {Promise<{ port: number, socket_dir: string }>} the server's port (on localhost), and the
  *   directory of its Unix socket
@@ -76,7 +80,7 @@ export async function start_pg_tmp() {
 		const pg_options = Object.entries(settings)
 			.map(([name, value]) => "-c " + sh_quote(name + "=" + value))
 			.join(" ");
-		const args = ["-t", "-d", dir, "-o", pg_options];
+		const args = ["-t", "-d", dir, "-w", String(check_interval), "-o", pg_options];
 		url = (await run("pg_tmp", args, { env })).stdout;
 	} catch (e) {
 		// pg_tmp deletes `dir` itself only in some of the ways that it can fail
