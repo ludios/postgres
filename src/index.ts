@@ -32,6 +32,7 @@ export { PostgresError };
  *   a function (for each custom type) that makes a Parameter of that custom type
  */
 function typed_parameters(types: Record<string, PostgresType>) {
+	// oxlint-disable-next-line unicorn/consistent-function-scoping -- a new function for each pool, since properties are defined on it below
 	const typed = (value, type) => new Parameter(value, type);
 
 	// Defined, not assigned: assigning throws for `name` and `length` (read-only properties of
@@ -170,14 +171,6 @@ function Postgres(a?, b?) {
 				simple: "simple" in options ? options.simple : args.length === 0,
 			});
 		}
-	}
-
-	function json(x) {
-		return new Parameter(x, 3802);
-	}
-
-	function array() {
-		throw Errors.generic("ARRAY_REMOVED", "sql.array() is removed in v4, pass the array as it is");
 	}
 
 	async function reserve() {
@@ -384,21 +377,6 @@ function Postgres(a?, b?) {
 		}
 	}
 
-	function rolledBack() {
-		return Errors.generic(
-			"TRANSACTION_ROLLED_BACK",
-			"The query was not sent, the transaction was rolled back with sql.rollback()",
-		);
-	}
-
-	function normal(x) {
-		return (x || "")
-			.toLowerCase()
-			.replace(/[^a-z ]/g, "")
-			.replace(/\s+/g, " ")
-			.trim();
-	}
-
 	function control(lease, text) {
 		const q = new Query(
 			[text],
@@ -417,6 +395,29 @@ function Postgres(a?, b?) {
 	function close() {
 		return pool.close();
 	}
+}
+
+function json(x) {
+	return new Parameter(x, 3802);
+}
+
+function array() {
+	throw Errors.generic("ARRAY_REMOVED", "sql.array() is removed in v4, pass the array as it is");
+}
+
+function rolledBack() {
+	return Errors.generic(
+		"TRANSACTION_ROLLED_BACK",
+		"The query was not sent, the transaction was rolled back with sql.rollback()",
+	);
+}
+
+function normal(x) {
+	return (x || "")
+		.toLowerCase()
+		.replace(/[^a-z ]/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
 }
 
 /**

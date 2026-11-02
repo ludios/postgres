@@ -151,25 +151,6 @@ export function Connection(ready, options, events) {
 		return out.length ? socket.write(out.take()) : true;
 	}
 
-	/**
-	 * @returns whether nothing may be written behind exchange `x` yet. A COPY holds
-	 * the connection until its ReadyForQuery, so that no query waits behind a slow
-	 * reader of its stream, and so that cancelling it can't hit another query.
-	 */
-	function holds(x) {
-		return (
-			x.describing ||
-			(!!x.error && !x.done) ||
-			(x.flushing && !x.synced) ||
-			(x.streaming && !x.done) ||
-			(x.alone && !x.done)
-		);
-	}
-
-	function exclusive(x) {
-		return x.flushing || x.streaming || x.alone;
-	}
-
 	function refresh() {
 		if (blocker && !holds(blocker)) {
 			blocker = null;
@@ -345,13 +326,6 @@ export function Connection(ready, options, events) {
 		queue(x);
 	}
 
-	function cost(x) {
-		const { query } = x;
-		if (query.cost && !query.cursorFn && !query.streaming) {
-			x.cost = query.cost.est === undefined ? unknown : query.cost.est;
-		}
-	}
-
 	function timed(x) {
 		const t = timers.now();
 
@@ -488,14 +462,6 @@ export function Connection(ready, options, events) {
 		debug(x.statement.text, x.values, x.entry ? x.entry.oids : x.params || x.query.wire.built.oids);
 	}
 
-	function usable(entry, statement) {
-		return (
-			entry.oids !== null &&
-			(entry.state === "parsing" ||
-				(entry.state === "ready" && entry.version === statement.version))
-		);
-	}
-
 	function learned(entry, statement) {
 		const shape = entry.oids.join() + ":" + entry.columns.map((x) => x.type).join();
 		if (statement.shape !== shape) {
@@ -528,15 +494,6 @@ export function Connection(ready, options, events) {
 			}
 		}
 		return binary && { columns: binary, formats };
-	}
-
-	function inferred(built) {
-		for (let i = 0; i < built.oids.length; i++) {
-			if (!built.oids[i]) {
-				return true;
-			}
-		}
-		return false;
 	}
 
 	function serialize(oids, built, cache) {
@@ -600,19 +557,6 @@ export function Connection(ready, options, events) {
 			x.own = error;
 			sync(x, !!connection.lease);
 		}
-	}
-
-	function same(entry, params, columns) {
-		const a = entry.oids || [],
-			b = entry.columns;
-
-		return (
-			!!b &&
-			a.length === params.length &&
-			params.every((x, i) => x === a[i]) &&
-			b.length === columns.length &&
-			columns.every((x, i) => x.type === b[i].type)
-		);
 	}
 
 	function describe(statement, oids) {
@@ -1215,11 +1159,9 @@ export function Connection(ready, options, events) {
 	}
 
 	function unsafe(item) {
-		const error = () =>
-			Errors.generic("UNSAFE_TRANSACTION", "Only use sql.begin, sql.reserved or max: 1");
 		rolling = true;
-		item.own = error();
-		sent.forEach((x) => x.kind !== "local" && (x.own = error()));
+		item.own = unsafe_transaction();
+		sent.forEach((x) => x.kind !== "local" && (x.own = unsafe_transaction()));
 		pending.unshift(
 			Exchange("internal", null, null, (x) => {
 				p.query(out, "rollback");
@@ -1547,37 +1489,10 @@ export function Connection(ready, options, events) {
 		return null;
 	}
 
-	function outlived() {
-		return Errors.generic("UNSAFE_TRANSACTION", "The cursor outlived its transaction");
-	}
-
-	function finish(x) {
-		const { query } = x;
-
-		if (x.kind === "simple") {
-			if (x.result.command !== null) {
-				x.results.push(x.result);
-			}
-			const results = x.results;
-			query.resolve(results.length > 1 ? results : results[0] || x.result);
-			return;
-		}
-
-		query.resolve(x.result);
-	}
-
 	function NotificationResponse(x, start) {
 		const { pid, channel, payload } = p.notification(x, start);
 		if (events.onnotify) {
 			guard(events.onnotify, channel, payload, pid);
-		}
-	}
-
-	function guard(fn, ...xs) {
-		try {
-			fn(...xs);
-		} catch (error) {
-			noop(error);
 		}
 	}
 
@@ -1790,6 +1705,93 @@ export function Connection(ready, options, events) {
 			item.stream.push(null);
 		}
 		item.stream = null;
+	}
+}
+
+/** @returns the error for a query that left a transaction open on a pooled connection */
+function unsafe_transaction() {
+	return Errors.generic("UNSAFE_TRANSACTION", "Only use sql.begin, sql.reserved or max: 1");
+}
+
+/**
+ * @returns whether nothing may be written behind exchange `x` yet. A COPY holds
+ * the connection until its ReadyForQuery, so that no query waits behind a slow
+ * reader of its stream, and so that cancelling it can't hit another query.
+ */
+function holds(x) {
+	return (
+		x.describing ||
+		(!!x.error && !x.done) ||
+		(x.flushing && !x.synced) ||
+		(x.streaming && !x.done) ||
+		(x.alone && !x.done)
+	);
+}
+
+function exclusive(x) {
+	return x.flushing || x.streaming || x.alone;
+}
+
+function cost(x) {
+	const { query } = x;
+	if (query.cost && !query.cursorFn && !query.streaming) {
+		x.cost = query.cost.est === undefined ? unknown : query.cost.est;
+	}
+}
+
+function usable(entry, statement) {
+	return (
+		entry.oids !== null &&
+		(entry.state === "parsing" || (entry.state === "ready" && entry.version === statement.version))
+	);
+}
+
+function inferred(built) {
+	for (let i = 0; i < built.oids.length; i++) {
+		if (!built.oids[i]) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function same(entry, params, columns) {
+	const a = entry.oids || [],
+		b = entry.columns;
+
+	return (
+		!!b &&
+		a.length === params.length &&
+		params.every((x, i) => x === a[i]) &&
+		b.length === columns.length &&
+		columns.every((x, i) => x.type === b[i].type)
+	);
+}
+
+function outlived() {
+	return Errors.generic("UNSAFE_TRANSACTION", "The cursor outlived its transaction");
+}
+
+function finish(x) {
+	const { query } = x;
+
+	if (x.kind === "simple") {
+		if (x.result.command !== null) {
+			x.results.push(x.result);
+		}
+		const results = x.results;
+		query.resolve(results.length > 1 ? results : results[0] || x.result);
+		return;
+	}
+
+	query.resolve(x.result);
+}
+
+function guard(fn, ...xs) {
+	try {
+		fn(...xs);
+	} catch (error) {
+		noop(error);
 	}
 }
 

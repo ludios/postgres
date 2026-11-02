@@ -305,10 +305,6 @@ export function Pool(options, types) {
 		grow();
 	}
 
-	function plain(job) {
-		return !!job.q && !job.lease && !job.exclusive && !job.run;
-	}
-
 	function copying(job) {
 		if (!job.q || connections.size + opening < options.max || connections.size === 0) {
 			return false;
@@ -320,18 +316,6 @@ export function Pool(options, types) {
 			}
 		}
 		return true;
-	}
-
-	function usable(c) {
-		return (
-			!c.closed &&
-			!c.closing &&
-			!c.lease &&
-			!c.releasing &&
-			!c.retiring &&
-			!c.exclusive &&
-			!c.loading
-		);
 	}
 
 	/**
@@ -1011,10 +995,6 @@ export function Pool(options, types) {
 
 	type Lease = ReturnType<typeof grant>;
 
-	function ended(lease) {
-		return Errors.generic("UNSAFE_TRANSACTION", "The " + lease.kind + " has ended");
-	}
-
 	function cancel(q) {
 		const removed = waiting.remove((x) => {
 			if (x.q !== q) {
@@ -1119,6 +1099,20 @@ export function Pool(options, types) {
 			),
 		);
 	}
+}
+
+function plain(job) {
+	return !!job.q && !job.lease && !job.exclusive && !job.run;
+}
+
+function usable(c) {
+	return (
+		!c.closed && !c.closing && !c.lease && !c.releasing && !c.retiring && !c.exclusive && !c.loading
+	);
+}
+
+function ended(lease) {
+	return Errors.generic("UNSAFE_TRANSACTION", "The " + lease.kind + " has ended");
 }
 
 export function Queue() {

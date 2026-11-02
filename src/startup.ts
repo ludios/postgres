@@ -532,16 +532,16 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 		return null;
 	}
 
-	function unsupported(type) {
-		throw Errors.generic(
-			"AUTH_TYPE_NOT_IMPLEMENTED",
-			"Authentication type " + type + " is not supported",
-		);
-	}
-
 	function password() {
 		return Promise.resolve(typeof pass === "function" ? pass() : pass);
 	}
+}
+
+function unsupported(type) {
+	throw Errors.generic(
+		"AUTH_TYPE_NOT_IMPLEMENTED",
+		"Authentication type " + type + " is not supported",
+	);
 }
 
 function unbound(reason) {

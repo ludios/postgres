@@ -31,6 +31,14 @@
 
 	"overrides": [
 		{
+			// A test's helper may sit inside the test that uses it, even when it closes
+			// over nothing.
+			"files": ["tests/**"],
+			"rules": {
+				"unicorn/consistent-function-scoping": "off"
+			}
+		},
+		{
 			// The existing code breaks these rules, so they are warnings until the
 			// code is cleaned up. Delete a rule from this list once no code breaks
 			// it, so that it is an error again.
@@ -64,6 +72,10 @@
 		// A function returns a value on every path, or on none: `return f();` in
 		// a function that returns nothing hides that f()'s value is dropped.
 		"typescript/consistent-return": "error",
+		// https://oxc.rs/docs/guide/usage/linter/rules/unicorn/consistent-function-scoping.html
+		// A function that closes over nothing goes at module level, where it is
+		// plainly independent of the state of the function it was nested in.
+		"unicorn/consistent-function-scoping": "error",
 		// Also the sequences in parentheses, which is how oxfmt writes most of them.
 		"no-sequences": ["error", { "allowInParentheses": false }],
 		// https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-underscore-dangle.html

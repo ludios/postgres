@@ -356,28 +356,6 @@ export function Types(options: Record<string, any> = {}) {
 	/**
 	 * @param oid - the type of a column
 	 * @param parse - the parser that the column's values get, as text
-	 * @returns a function `(x, start, end) => value` that gives what `parse` would, but straight
-	 *   from the bytes of the text in `x`; or null, if only `parse` can read the values
-	 */
-	function decoder(oid, parse) {
-		if (parse === number && (oid === 21 || oid === 23 || oid === 26)) {
-			return integer;
-		}
-		if (parse === bool && oid === 16) {
-			return boolean;
-		}
-		if (parse === parseTimestamptz && oid === 1184) {
-			return timestamptz;
-		}
-		if (parse === parseDate && (oid === 1114 || oid === 1082)) {
-			return utc_time;
-		}
-		return null;
-	}
-
-	/**
-	 * @param oid - the type of a column
-	 * @param parse - the parser that the column's values get, as text
 	 * @returns a decoder `(x, start, end) => value` of the column's values in the binary format,
 	 *   which gives what `parse` gives for the text; or null, if the column is read as text: a type
 	 *   without such a decoder, or one whose parser, or whose elements' parser, is not the built-in
@@ -507,6 +485,28 @@ export function Types(options: Record<string, any> = {}) {
 			}),
 		);
 	}
+}
+
+/**
+ * @param oid - the type of a column
+ * @param parse - the parser that the column's values get, as text
+ * @returns a function `(x, start, end) => value` that gives what `parse` would, but straight
+ *   from the bytes of the text in `x`; or null, if only `parse` can read the values
+ */
+function decoder(oid, parse) {
+	if (parse === number && (oid === 21 || oid === 23 || oid === 26)) {
+		return integer;
+	}
+	if (parse === bool && oid === 16) {
+		return boolean;
+	}
+	if (parse === parseTimestamptz && oid === 1184) {
+		return timestamptz;
+	}
+	if (parse === parseDate && (oid === 1114 || oid === 1082)) {
+		return utc_time;
+	}
+	return null;
 }
 
 const identity = (x) => x;
