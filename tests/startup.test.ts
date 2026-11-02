@@ -304,8 +304,7 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 	await login(null);
 	x.close();
 	fs.rmSync(dir, { recursive: true, force: true });
-	const expected = JSON.stringify(["a:b\\c:d", "", "", ""]);
-	expect(JSON.stringify(sent)).toBe(expected);
+	expect(sent).toEqual(["a:b\\c:d", "", "", ""]);
 });
 
 test("A message the client does not support rejects the query with MESSAGE_NOT_SUPPORTED", async () => {

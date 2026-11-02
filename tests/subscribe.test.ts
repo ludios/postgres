@@ -445,11 +445,8 @@ test(
 		await until(() => result.length);
 		await unsubscribe();
 
-		const expected = JSON.stringify({ moods: queried.moods, p: queried.p });
 		try {
-			expect(JSON.stringify(result[0] && { moods: result[0].moods, p: result[0].p })).toBe(
-				expected,
-			);
+			expect([result[0]?.moods, result[0]?.p]).toEqual([queried.moods, queried.p]);
 		} finally {
 			await sql.unsafe(
 				"drop publication custom_types_pub; drop table test; drop type subscribe_mood; drop domain subscribe_positive",

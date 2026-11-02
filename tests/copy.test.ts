@@ -56,9 +56,10 @@ test("Copy from file", async () => {
 			.on("finish", r),
 	);
 
-	expect(JSON.stringify(await sql`select * from test`)).toBe(
-		'[{"x":1,"y":2,"z":3},{"x":4,"y":5,"z":6}]',
-	);
+	expect(await sql`select * from test`).toEqual([
+		{ x: 1, y: 2, z: 3 },
+		{ x: 4, y: 5, z: 6 },
+	]);
 	await sql`drop table test`;
 });
 

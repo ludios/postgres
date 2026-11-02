@@ -519,15 +519,20 @@ test("The same query in schemas of different shape gets the rows of its own sche
 			await sql`select set_config('search_path', ${schema}, true)`;
 			const [row] = await sql`select * from t where id = ${1}`;
 			await delay(hold);
-			return JSON.stringify(row);
+			return row;
 		});
 	const results = [];
-	for (let i = 0; i < 5; i++)
-		results.push(...(await Promise.all([tenant("tenant_a", 20), tenant("tenant_b", 10)])));
-	const counts = results.reduce((acc, x) => ((acc[x] = (acc[x] || 0) + 1), acc), {});
+	for (let i = 0; i < 5; i++) {
+		results.push(await Promise.all([tenant("tenant_a", 20), tenant("tenant_b", 10)]));
+	}
 	try {
-		expect(JSON.stringify(counts)).toBe(
-			'{"{\\"id\\":1,\\"val\\":42}":5,"{\\"id\\":1,\\"label\\":\\"hello\\"}":5}',
+		// toStrictEqual, because toEqual ignores a property whose value is undefined, such as a column
+		// of the other schema
+		expect(results).toStrictEqual(
+			Array.from({ length: 5 }, () => [
+				{ id: 1, val: 42 },
+				{ id: 1, label: "hello" },
+			]),
 		);
 	} finally {
 		await sql.unsafe("drop schema tenant_a cascade; drop schema tenant_b cascade");

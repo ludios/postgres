@@ -534,7 +534,7 @@ test("An array in a values list is written as an array for a cast (#741)", async
 test("An object in a values list is written as json for a cast (#872, #765)", async () => {
 	const [{ j }] =
 		await sql`select (v.j)::jsonb as j from (values ${sql([[1, { a: 1, b: [true, null] }]])}) as v(id, j)`;
-	expect(JSON.stringify(j)).toBe('{"a":1,"b":[true,null]}');
+	expect(j).toEqual({ a: 1, b: [true, null] });
 });
 
 test("infer: false writes a boolean array to a jsonb parameter and a bigint to numeric (#931, #874)", async () => {
