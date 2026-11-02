@@ -659,7 +659,9 @@ export function Connection(ready, options, events) {
 
 		if (i !== -1) {
 			const [x] = pending.splice(i, 1);
-			x === fence && (fence = null);
+			if (x === fence) {
+				fence = null;
+			}
 			settleError(x, Errors.canceled());
 			release();
 			return Promise.resolve();
@@ -751,7 +753,9 @@ export function Connection(ready, options, events) {
 			if (x.cancel) {
 				x.cancel.resolve();
 			}
-			x.stream && x.stream.destroy(closed);
+			if (x.stream) {
+				x.stream.destroy(closed);
+			}
 			if (x.own) {
 				settle(x);
 				return;
@@ -1202,7 +1206,6 @@ export function Connection(ready, options, events) {
 	function retryable(x) {
 		return (
 			!x.retried &&
-			!x.cancel &&
 			!x.stopped &&
 			!x.query.cancelled &&
 			!x.query.cursorFn &&
@@ -1570,8 +1573,9 @@ function Exchange(kind, query, lease, write) {
 		error: null,
 		own: null,
 		cancel: null,
-		// Whether a cancel request has been sent for this exchange, and the one in flight
+		// Whether a cancel request has been sent for this exchange
 		stopped: false,
+		// The promise of this exchange's cancel request while that request is in flight; otherwise null
 		stopping: null,
 		stream: null,
 		// "in", "out" or "both", once the server has started a COPY FROM, TO or BOTH
