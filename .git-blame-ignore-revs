@@ -5,3 +5,10 @@
 6e4c55c2b9f155a05880c1ed03438fee4646cd9a
 # Format types/ with oxfmt too: tabs and semicolons in every .ts file
 04910db48e9a666c5a9b8a280b57fc9027663add
+# Put curlies around every one-statement body (5339a81 and 27f3790 say
+# "Like 02e5b6b", which is a mistake for this commit, 239d7b7)
+239d7b78bf7daf5ec70cb18598b282a701b6703d
+# src/pool.ts: put curlies around every one-statement body
+5339a819de5516afec224c5ef08537a43e75e1db
+# src/connection.ts: put curlies around every one-statement body
+27f3790bec8ab6c856e707d1bc5b8c9a9b5bffd4
