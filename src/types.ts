@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import { Errors } from "./errors.ts";
 
 const number = (x) => +x,
@@ -276,6 +277,10 @@ const identity = (x) => x;
 identity.identity = true;
 
 export class Parameter {
+	declare value: any;
+	/** The type's OID, or its name until the name is resolved. */
+	declare type: number | string;
+
 	constructor(value, type) {
 		this.value = value;
 		this.type = type;

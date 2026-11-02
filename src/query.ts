@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import util from "util";
 import { build, isQuery, Join, joinStrings } from "./build.ts";
 import { ours } from "./errors.ts";
@@ -8,7 +9,39 @@ const origins = new WeakMap();
 
 export const CLOSE = {};
 
-export class Query extends Promise {
+export class Query extends Promise<any> {
+	/** Settles this Query's promise; `resolve` and `reject` wrap these. */
+	declare fulfil: (x: any) => void;
+	declare fail: (error: any) => void;
+	/** Whether `strings` came from a tagged template (and has `.raw`). */
+	declare tagged: boolean;
+	declare strings: TemplateStringsArray | string[];
+	declare args: any[];
+	/** Called with this Query when it runs; it may carry `debug`, `options`, and `cancel`. */
+	declare handler: any;
+	declare options: any;
+	/** The backend state of the connection that ran this Query. */
+	declare state: any;
+	/** The connection's pipeline item that ran this Query. */
+	declare source: any;
+	declare active: boolean;
+	declare executed: boolean;
+	declare settled: boolean;
+	/** What `build()` returned, cached. */
+	declare built: any;
+	/** The diagnostics_channel context, while tracing this Query. */
+	declare trace: any;
+	/** Removes the abort listener that `signal()` added. */
+	declare aborts: (() => void) | null;
+	declare originError: Error | null;
+	declare streaming: boolean;
+	declare cursorRows: number;
+	declare cursorFn: (rows: any) => any;
+	declare onlyDescribe: boolean;
+	declare forEachFn: (row: any, result: any) => any;
+	/** `true` for `.raw()`, `"values"` for `.values()`. */
+	declare isRaw: boolean | "values";
+
 	constructor(strings, args, handler, options = {}) {
 		let resolve, reject;
 

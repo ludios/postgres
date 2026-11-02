@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import { Errors } from "./errors.ts";
 import { Parameter, infer } from "./types.ts";
 
@@ -16,6 +17,9 @@ class NotTagged {
 }
 
 export class Identifier extends NotTagged {
+	/** The identifier, escaped and quoted. */
+	declare value: string;
+
 	constructor(value) {
 		super();
 		this.value = escapeIdentifier(value);
@@ -23,6 +27,9 @@ export class Identifier extends NotTagged {
 }
 
 export class Join {
+	declare separator: any;
+	declare items: any[];
+
 	constructor(separator, items) {
 		this.separator = separator;
 		this.items = items;
@@ -32,6 +39,9 @@ export class Join {
 export const joinStrings = Object.assign(["", ""], { raw: ["", ""] });
 
 export class Builder extends NotTagged {
+	declare first: any;
+	declare rest: any[];
+
 	constructor(first, rest) {
 		super();
 		this.first = first;

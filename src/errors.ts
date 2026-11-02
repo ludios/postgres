@@ -1,4 +1,29 @@
+// Model-output: Claude Opus 5.5
 export class PostgresError extends Error {
+	// The fields of the ErrorResponse that PostgreSQL sent, then `query`, `parameters`,
+	// and `types`, which this library adds.
+	declare severity_local: string;
+	declare severity: string;
+	declare code: string;
+	declare position: string;
+	declare file: string;
+	declare line: string;
+	declare routine: string;
+	declare detail?: string;
+	declare hint?: string;
+	declare internal_position?: string;
+	declare internal_query?: string;
+	declare where?: string;
+	declare schema_name?: string;
+	declare table_name?: string;
+	declare column_name?: string;
+	declare data?: string;
+	declare data_type_name?: string;
+	declare constraint_name?: string;
+	declare query: string;
+	declare parameters: any[];
+	declare types?: number[];
+
 	constructor(x) {
 		super(typeof x === "string" ? x : x && x.message);
 		this.name = this.constructor.name;
