@@ -1525,9 +1525,11 @@ test("unref_sockets lets the process exit after a query fails before it is sent"
 	expect([out, exited]).toEqual(["TypeError", true]);
 }, 20_000);
 
-test("sql and reserved connections are async disposable", async () => {
+test("sql and reserved connections are async disposable, and disposing sql waits for its queries", async () => {
 	// The library's own pool, whose disposal the `postgres` of tests/common.ts replaces
 	const sql = library(options);
+	// For when a step below throws before the pool is disposed
+	await using _end = defer(() => sql.end({ timeout: 0 }));
 	const reserved = await sql.reserve();
 	await reserved`select 1`;
 	await reserved[Symbol.asyncDispose]();
@@ -1535,14 +1537,19 @@ test("sql and reserved connections are async disposable", async () => {
 		() => "ran",
 		(e) => e.code,
 	);
+	const running = sql`select pg_sleep(0.1), 1 as x`.then(
+		([x]) => x.x,
+		(e) => e.code,
+	);
 	await sql[Symbol.asyncDispose]();
 	expect([
 		released,
+		await running,
 		await sql`select 1`.then(
 			() => "ran",
 			(e) => e.code,
 		),
-	]).toEqual(["UNSAFE_TRANSACTION", "CONNECTION_ENDED"]);
+	]).toEqual(["UNSAFE_TRANSACTION", 1, "CONNECTION_ENDED"]);
 });
 
 function listening(server) {
