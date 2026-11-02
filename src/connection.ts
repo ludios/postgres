@@ -100,7 +100,7 @@ export function Connection(ready, options, events) {
 		},
 	};
 
-	(globalThis as any).__raws = [...((globalThis as any).__raws || []), socket.raw];
+	(globalThis as any).__raws = [...((globalThis as any).__raws || []), Object.assign(socket.raw, { __pid: ready.backend && ready.backend.pid, __port: socket.raw.localPort })];
 	socket.ondata = (x) => frames.push(x);
 	socket.ondrain = ondrain;
 	socket.onclose = onclose;
@@ -133,12 +133,17 @@ export function Connection(ready, options, events) {
 		return out.length ? socket.write(out.take()) : true;
 	}
 
+	/**
+	 * @returns whether nothing may be written behind exchange `x` yet. A COPY holds
+	 * the connection until its ReadyForQuery, so that no query waits behind a slow
+	 * reader of its stream, and so that cancelling it can't hit another query.
+	 */
 	function holds(x) {
 		return (
 			x.describing ||
 			(!!x.error && !x.done) ||
 			(x.flushing && !x.synced) ||
-			(x.streaming && x.open) ||
+			(x.streaming && !x.done) ||
 			(x.alone && !x.done)
 		);
 	}

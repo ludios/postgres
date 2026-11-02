@@ -335,3 +335,21 @@ test(
 		expect(x).toBe(1);
 	},
 );
+
+test("A query is not queued behind a copy to stdout that nobody reads", { timeout: 10_000 }, async () => {
+	const sql = postgres({ ...options, max: 2 });
+	try {
+		const reserved = await sql.reserve(),
+			readable =
+				await sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`.readable(),
+			query = sql`select 1 as x`.execute();
+		// Until the release, the COPY's connection is the only one the pool may use
+		await delay(50);
+		reserved.release();
+		const [{ x }] = await query;
+		readable.destroy();
+		expect(x).toBe(1);
+	} finally {
+		await sql.end({ timeout: 0 });
+	}
+});
