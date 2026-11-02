@@ -141,7 +141,7 @@ export class Query extends Promise<any> {
 		try {
 			x = this.build();
 		} catch (error) {
-			return "Query { " + error.message + " }";
+			return "Query { " + (error instanceof Error ? error.message : util.inspect(error)) + " }";
 		}
 		return "Query " + inspect({ text: x.text, parameters: x.values }, options);
 	}

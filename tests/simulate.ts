@@ -1,4 +1,5 @@
 import path from "path";
+import util from "util";
 import { Clock, Random } from "./sim/net.ts";
 import { Server } from "./sim/server.ts";
 import { replace_pg_vars } from "./pg_env.ts";
@@ -156,7 +157,7 @@ async function simulate(seed) {
 		if (restore) {
 			restore();
 		}
-		violations.push(error.message);
+		violations.push(error instanceof Error ? error.message : util.inspect(error));
 		return { violations, trace, scenario: name };
 	}
 

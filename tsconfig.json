@@ -15,6 +15,8 @@
 		"allowImportingTsExtensions": true,
 		"erasableSyntaxOnly": true,
 		"verbatimModuleSyntax": true,
+		// The parts of `strict` that the code satisfies so far.
+		"useUnknownInCatchVariables": true,
 		// Loose for now, so that adding type annotations to the files that were
 		// converted from .js needs few code changes.
 		"strict": false

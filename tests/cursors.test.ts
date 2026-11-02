@@ -512,7 +512,7 @@ test("Aborting a cursor in a transaction stops it with 57014, which rejects the 
 test("Aborting a cursor used as an async iterator stops it with 57014", async () => {
 	const controller = new AbortController();
 	let batches = 0,
-		outcome = "done";
+		thrown;
 	try {
 		for await (const rows of sql`select generate_series(1, 10) as x`
 			.signal(controller.signal)
@@ -521,9 +521,9 @@ test("Aborting a cursor used as an async iterator stops it with 57014", async ()
 			controller.abort();
 		}
 	} catch (e) {
-		outcome = e.code;
+		thrown = e;
 	}
-	expect([outcome, batches]).toEqual(["57014", 1]);
+	expect([thrown, batches]).toEqual([expect.objectContaining({ code: "57014" }), 1]);
 });
 
 test("A cursor waits for the callback of its last batch, and rejects if it does", async () => {

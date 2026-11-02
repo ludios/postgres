@@ -68,9 +68,9 @@ test("await sql() throws not tagged error", async () => {
 	try {
 		await sql("select 1");
 	} catch (e) {
-		error = e.code;
+		error = e;
 	}
-	expect(error).toBe("NOT_TAGGED_CALL");
+	expect(error).toMatchObject({ code: "NOT_TAGGED_CALL" });
 });
 
 test("sql().then throws not tagged error", async () => {

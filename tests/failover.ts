@@ -76,13 +76,13 @@ async function write() {
 				resumedAt = Date.now();
 			}
 		} catch (error) {
-			const code = error.code || error.message;
+			const { message, code = message } = error as { code?: string; message: string };
 			errors[code] = (errors[code] || 0) + 1;
 			if (code === "25006") {
-				failures.push("a write reached a read-only server: " + error.message);
+				failures.push("a write reached a read-only server: " + message);
 			}
 			if (!expected.has(code) && code !== "25006") {
-				failures.push("unexpected error: " + code + " " + error.message);
+				failures.push("unexpected error: " + code + " " + message);
 			}
 			await delay(50);
 		}
