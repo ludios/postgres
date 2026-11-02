@@ -3,14 +3,6 @@
 import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";
 
-// Options that are not given default to the PG* variables (as in libpq), so remove any that this
-// process was started with, which would replace the defaults that these tests expect
-for (const name of Object.keys(process.env)) {
-	if (name.startsWith("PG")) {
-		delete process.env[name];
-	}
-}
-
 const parsed = (url, o) => {
 	const x = postgres(url, { max: 1, ...o }).options;
 	return JSON.stringify([x.host, x.port, x.user, x.pass, x.database, x.path || null]);
@@ -114,18 +106,19 @@ test("sql.array() is removed, and says so", async () => {
 });
 
 test("channel_binding from options, the url and PGCHANNELBINDING, as libpq reads it", async () => {
-	const before = process.env.PGCHANNELBINDING;
 	process.env.PGCHANNELBINDING = "disable";
-	const read = [
-		postgres({ max: 1 }).options.channel_binding,
-		postgres("postgres://u@h/db?channel_binding=require", { max: 1 }).options.channel_binding,
-		postgres({ max: 1, channel_binding: "prefer" }).options.channel_binding,
-		postgres("postgres://u@h/db?channel_binding=require", { max: 1 }).options.connection
-			.channel_binding,
-	];
-	before === undefined
-		? delete process.env.PGCHANNELBINDING
-		: (process.env.PGCHANNELBINDING = before);
+	let read;
+	try {
+		read = [
+			postgres({ max: 1 }).options.channel_binding,
+			postgres("postgres://u@h/db?channel_binding=require", { max: 1 }).options.channel_binding,
+			postgres({ max: 1, channel_binding: "prefer" }).options.channel_binding,
+			postgres("postgres://u@h/db?channel_binding=require", { max: 1 }).options.connection
+				.channel_binding,
+		];
+	} finally {
+		delete process.env.PGCHANNELBINDING;
+	}
 	const invalid = (() => {
 		try {
 			postgres({ channel_binding: "yes" });

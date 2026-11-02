@@ -17,7 +17,8 @@ export default defineConfig({
 				test: {
 					name: "unit",
 					include: ["tests/unit/*.ts"],
-					exclude: ["tests/unit/build.cases.ts"],
+					exclude: ["tests/unit/build.cases.ts", "tests/unit/setup.ts"],
+					setupFiles: ["tests/unit/setup.ts"],
 				},
 			},
 			{
