@@ -363,8 +363,7 @@ test("Canceling a copy from stdin that waits for data fails its writable with 57
 			[{ n }] = await sql`select count(*)::int as n from test`;
 		expect([error.code, n]).toEqual(["57014", 0]);
 	} finally {
-		await sql`drop table if exists test`;
-		await sql.end();
+		await sql.end({ timeout: 0 });
 	}
 });
 
@@ -517,7 +516,6 @@ test("Canceling a copy from stdin before it starts fails its query with 57014", 
 		reserved.release();
 		expect(error.code).toBe("57014");
 	} finally {
-		await sql`drop table if exists test`;
 		await sql.end({ timeout: 0 });
 	}
 });
