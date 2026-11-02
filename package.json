@@ -3,13 +3,13 @@
   "version": "4.0.0",
   "description": "Fastest full featured PostgreSQL client for Node.js, Bun and Cloudflare Workers",
   "type": "module",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "types": "types/index.d.ts",
   "exports": {
     ".": {
       "types": "./types/index.d.ts",
-      "workerd": "./src/cf.js",
-      "default": "./src/index.js"
+      "workerd": "./dist/cf.js",
+      "default": "./dist/index.js"
     }
   },
   "engines": {
@@ -22,11 +22,12 @@
     "test:simulate": "node tests/simulate.js",
     "coverage": "node tests/coverage.js",
     "test:cf": "sh tests/cf/run.sh",
+    "prepare": "tsc -p tsconfig.build.json",
     "typecheck": "tsc && tsc -p types && node node_modules/typescript5/bin/tsc -p types",
     "lint": "eslint src tests"
   },
   "files": [
-    "/src/*.js",
+    "/dist/*.js",
     "/types/index.d.ts"
   ],
   "author": "Rasmus Porsager <rasmus@porsager.com> (https://www.porsager.com)",

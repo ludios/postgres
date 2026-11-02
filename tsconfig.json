@@ -1,14 +1,17 @@
 // Model-output: Claude Opus 5.5
 {
 	"compilerOptions": {
-		// Typecheck only; Node runs the .ts files itself by stripping the types.
+		// Typecheck only. The tests run the .ts files directly with Node, which
+		// strips the types; tsconfig.build.json emits JavaScript for publishing.
 		"noEmit": true,
 		// Node 22 is the oldest Node that this package supports.
 		"target": "es2024",
 		"lib": ["es2024"],
 		"module": "nodenext",
 		"types": ["node"],
-		// Allow only the TypeScript syntax that Node's type stripping can run.
+		// So that Node's type stripping can run the code: imports name the .ts
+		// file, type-only imports use `import type`, and the only TypeScript
+		// syntax allowed is syntax that Node can erase.
 		"allowImportingTsExtensions": true,
 		"erasableSyntaxOnly": true,
 		"verbatimModuleSyntax": true,
