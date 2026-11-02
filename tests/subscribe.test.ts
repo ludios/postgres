@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
-import { postgres, delay, camel_case, snake_case } from "./setup.ts";
+import { postgres, options, delay, camel_case, snake_case } from "./setup.ts";
 
 test("subscribe", { timeout: 10_000 }, async () => {
 	const sql = postgres({
-		database: "postgres_js_test",
+		database: options.db,
 		publications: "alltables",
 	});
 
@@ -62,7 +62,7 @@ test("subscribe with transform", { timeout: 10_000 }, async () => {
 				to: snake_case,
 			},
 		},
-		database: "postgres_js_test",
+		database: options.db,
 		publications: "alltables",
 	});
 
@@ -112,7 +112,7 @@ test("subscribe with transform", { timeout: 10_000 }, async () => {
 
 test("subscribe reconnects and calls onsubscribe", { timeout: 10_000 }, async () => {
 	const sql = postgres({
-		database: "postgres_js_test",
+		database: options.db,
 		publications: "alltables",
 		fetch_types: false,
 	});
@@ -173,7 +173,7 @@ const until = async (fn, ms = 5000, state?) => {
 };
 
 async function replicating(name?) {
-	const sql = postgres({ database: "postgres_js_test", publications: "alltables", max: 1 });
+	const sql = postgres({ database: options.db, publications: "alltables", max: 1 });
 	await sql`drop table if exists test`;
 	await sql`drop publication if exists alltables`;
 	await sql`select pg_drop_replication_slot(slot_name) from pg_replication_slots where slot_name like 'postgresjs_%' and not active`;
@@ -189,8 +189,7 @@ async function replicating(name?) {
 			}
 			await sql.end();
 		},
-		replica: () =>
-			postgres({ database: "postgres_js_test", publications: "alltables", slot: name }),
+		replica: () => postgres({ database: options.db, publications: "alltables", slot: name }),
 	};
 }
 
@@ -323,7 +322,7 @@ test(
 	async () => {
 		const { sql, done } = await replicating(),
 			seen = [],
-			sub = postgres({ database: "postgres_js_test", publications: "alltables" });
+			sub = postgres({ database: options.db, publications: "alltables" });
 
 		await sub.subscribe("*:test", (row, info) => seen.push(info));
 		await sql`insert into test (name) values ('a')`;
@@ -396,7 +395,7 @@ test(
 			}
 		};
 		const sql = postgres({
-			database: "postgres_js_test",
+			database: options.db,
 			publications: "alltables",
 			fetch_types: false,
 		});
@@ -444,7 +443,7 @@ test(
 	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({
-			database: "postgres_js_test",
+			database: options.db,
 			publications: "custom_types_pub",
 		});
 
@@ -477,7 +476,7 @@ test(
 );
 
 test("subscribe without publications rejects each time it is called", async () => {
-	const sql = postgres({ database: "postgres_js_test", publications: "" });
+	const sql = postgres({ database: options.db, publications: "" });
 	const errors = await Promise.all(
 		[1, 2].map(() => sql.subscribe("*", () => {}).catch((e) => e.message)),
 	);
@@ -490,7 +489,7 @@ test(
 	{ timeout: 10_000 },
 	async () => {
 		const { sql, done } = await replicating(),
-			sub = postgres({ database: "postgres_js_test", publications: "alltables" }),
+			sub = postgres({ database: options.db, publications: "alltables" }),
 			seen = [];
 
 		const a = await sub.subscribe("insert:test", (row) => seen.push("a" + row.id));
@@ -529,7 +528,7 @@ async function failing(onerror) {
 		subscribes = 0;
 
 	const sub = postgres({
-		database: "postgres_js_test",
+		database: options.db,
 		publications: "alltables",
 		user: () => {
 			if (fail) {
@@ -588,7 +587,7 @@ test(
 		const { sql, done } = await replicating(),
 			seen = [],
 			sub = postgres({
-				database: "postgres_js_test",
+				database: options.db,
 				publications: "alltables",
 				timers: {
 					...sql.options.timers,
@@ -621,7 +620,7 @@ test(
 			seen = [],
 			errors = [],
 			sub = postgres({
-				database: "postgres_js_test",
+				database: options.db,
 				publications: "alltables",
 				transform: {
 					value: { from: (x, column) => (column.name === "name" && x ? x.toUpperCase() : x) },
@@ -655,7 +654,7 @@ test(
 	{ timeout: 10_000 },
 	async () => {
 		const { sql, done } = await replicating(),
-			sub = postgres({ database: "postgres_js_test", publications: "alltables" }),
+			sub = postgres({ database: options.db, publications: "alltables" }),
 			seen = [];
 
 		await sql`alter table test add column "__proto__" json`;

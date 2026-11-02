@@ -1,13 +1,13 @@
 import net from "net";
 import { expect, onTestFinished, test } from "vitest";
-import { postgres, login, login_md5, login_scram, pg_port, port_of } from "./setup.ts";
+import { postgres, options, login, login_md5, login_scram, pg_port, port_of } from "./setup.ts";
 import { open } from "../src/startup.ts";
 import { Query, Frames } from "../src/protocol.ts";
 
 const base = {
 	host: ["localhost"],
 	port: [pg_port],
-	database: "postgres_js_test",
+	database: options.db,
 	connect_timeout: 3,
 	timers: { setTimeout, clearTimeout },
 	...login,

@@ -19,8 +19,9 @@ function exec(cmd, args, env = process.env) {
 }
 
 /**
- * Turn on `ssl`, and create the roles and the database that the tests use, on the server that the
- * PG* variables in `env` point at (which must not have those roles and that database yet).
+ * Turn on `ssl`, and create the roles that the tests use and the database that `options` of
+ * tests/common.ts connects to, on the server that the PG* variables in `env` point at (which must
+ * not have those roles and that database yet).
  *
  * @param {NodeJS.ProcessEnv} env - the environment to run psql in
  */

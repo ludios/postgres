@@ -1,5 +1,6 @@
-import { beforeEach, inject } from "vitest";
-import { options, postgres } from "./common.ts";
+import path from "path";
+import { beforeEach, expect, inject } from "vitest";
+import { login, options as common_options, postgres } from "./common.ts";
 import { replace_pg_vars } from "./pg_env.ts";
 
 // Point the PG* variables at the `postgres` superuser of the server that tests/global_setup.ts
@@ -20,6 +21,36 @@ export const second_pg_port = inject("second_pg_port");
 export const pg_socket_dir = inject("pg_socket_dir");
 
 export * from "./common.ts";
+
+/**
+ * Create the database of the test file that is importing this module (unless the database exists
+ * from an earlier run of that file, in watch mode), so that each file's tables are its own.
+ *
+ * @returns the name of the database, e.g. "postgres_js_test_queries" for tests/queries.test.ts
+ */
+async function create_file_database(): Promise<string> {
+	const test_path = expect.getState().testPath;
+	if (!test_path?.endsWith(".test.ts")) {
+		throw new Error("tests/setup.ts must be imported by a *.test.ts file, not by " + test_path);
+	}
+	const db = "postgres_js_test_" + path.basename(test_path, ".test.ts");
+	const admin = postgres({ db: "postgres", max: 1 });
+	try {
+		const [{ exists }] = await admin`select exists (select from pg_database where datname = ${db})`;
+		if (!exists) {
+			await admin`create database ${admin(db)} owner ${admin(login.user)}`;
+		}
+	} finally {
+		await admin.end();
+	}
+	return db;
+}
+
+/**
+ * The `options` of tests/common.ts, but connecting to the database of the test file that imports
+ * this module, which no other test file uses
+ */
+export const options = { ...common_options, db: await create_file_database() };
 
 const log = console.log;
 const notice = (x) =>

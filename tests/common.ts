@@ -1,5 +1,5 @@
-// What the integration tests and tests/soak.ts share: the library that they test, and how they
-// connect to the database that tests/bootstrap.ts creates. Nothing here needs vitest or a server.
+// What the integration tests and tests/soak.ts share: the library that they test, and the roles and
+// the options that they connect with. Nothing here needs vitest or a server.
 export * from "./helpers.ts";
 
 /** The library that the tests test: src/, or the module that POSTGRES_JS names (e.g. dist/index.js) */

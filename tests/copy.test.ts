@@ -125,7 +125,7 @@ test("Copy from settles instead of hanging when the server rejects the data", as
 
 	const [{ count }] = await sql`
     select count(*)::int as count from pg_stat_activity
-    where state = 'idle in transaction (aborted)'
+    where datname = current_database() and state = 'idle in transaction (aborted)'
   `;
 
 	expect([error.code, count]).toEqual(["22P04", 0]);
