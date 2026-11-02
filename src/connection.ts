@@ -22,7 +22,6 @@ let ids = 1,
 export function Connection(ready, options, events) {
 	const { socket } = ready,
 		timers = options.timers,
-		defer = timers.nextTick || ((fn: () => void) => process.nextTick(fn)),
 		{ transform } = options,
 		sent = [],
 		pending = [],
@@ -136,7 +135,7 @@ export function Connection(ready, options, events) {
 
 		if (!flushing) {
 			flushing = true;
-			defer(flush);
+			process.nextTick(flush);
 		}
 		return true;
 	}
