@@ -313,8 +313,8 @@ test("Canceling a copy to stdout whose readable was destroyed in a transaction s
 test("A query is not queued behind a copy to stdout that nobody reads", async () => {
 	const sql = postgres({ ...options, max: 2 });
 	await using _end = defer(() => sql.end({ timeout: 0 }));
-	const reserved = await sql.reserve(),
-		readable =
+	using reserved = await sql.reserve();
+	const readable =
 			await sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`.readable(),
 		query = sql`select 1 as x`.execute();
 	// Until the release, the COPY's connection is the only one the pool may use

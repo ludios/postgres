@@ -210,7 +210,7 @@ test("Pipelined queries that a connection close rejects each get their own error
 
 test("Queries on a reserved connection that has closed each get their own error", async () => {
 	await using sql = postgres({ ...options, max: 1 });
-	const reserved = await sql.reserve();
+	using reserved = await sql.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	await terminate(pid);
 	// A query on the reserved connection fails once the client has seen the connection close (or
