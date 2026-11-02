@@ -1572,6 +1572,27 @@ test(
 	},
 );
 
+test(
+	"unref_sockets lets the process exit after a query fails before it is sent",
+	{ timeout: 20_000 },
+	async () => {
+		// JSON.stringify throws on a BigInt, so the query fails while the connection writes it, and
+		// the server never gets the query
+		const script = [
+			"const postgres = (await import(" +
+				JSON.stringify(new URL("../src/index.ts", import.meta.url).href) +
+				")).default",
+			"const sql = postgres(" +
+				JSON.stringify({ ...options, max: 1, idle_timeout: 60, unref_sockets: true }) +
+				")",
+			"await sql`select 1`",
+			"console.log(await sql`select ${sql.json({ x: 1n })}`.catch((e) => e.constructor.name))",
+		].join("\n");
+		const { out, exited } = await exits(script);
+		expect([out, exited]).toEqual(["TypeError", true]);
+	},
+);
+
 test("sql and reserved connections are async disposable", async () => {
 	const sql = postgres(options);
 	const reserved = await sql.reserve();

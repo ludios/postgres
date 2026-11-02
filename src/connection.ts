@@ -39,6 +39,8 @@ export function Connection(ready, options, events) {
 		rolling = false,
 		// How many CancelRequests are in flight; until there are none, nothing more is written.
 		cancelling = 0,
+		// How many local exchanges wait for settle_soon() to settle them; they count as in flight.
+		settling = 0,
 		fence = null,
 		drained = null,
 		status = ready.status,
@@ -74,7 +76,7 @@ export function Connection(ready, options, events) {
 			return status;
 		},
 		get inflight() {
-			return sent.length + pending.length;
+			return sent.length + pending.length + settling;
 		},
 		get exclusive() {
 			return (!!blocker && exclusive(blocker)) || cancelling > 0;
@@ -197,9 +199,27 @@ export function Connection(ready, options, events) {
 		schedule();
 	}
 
+	/**
+	 * Settles local exchange `x` once the code that wrote it has returned, and then tells the pool
+	 * that the connection is ready, because no ReadyForQuery comes for an exchange that wrote
+	 * nothing.
+	 *
+	 * @param x - a local exchange, with nothing in `sent` ahead of it
+	 */
+	function settle_soon(x) {
+		settling++;
+		queueMicrotask(() => {
+			settling--;
+			settle(x);
+			if (!closed) {
+				events.onready(connection);
+			}
+		});
+	}
+
 	function write(x) {
 		if (x.kind === "local" && sent.length === 0) {
-			return queueMicrotask(() => settle(x));
+			return settle_soon(x);
 		}
 
 		const mark = out.length;
@@ -220,7 +240,7 @@ export function Connection(ready, options, events) {
 				x.kind = "local";
 				x.cost >= notable && notables--;
 				x.cost = undefined;
-				return sent.length === 0 ? queueMicrotask(() => settle(x)) : sent.push(x);
+				return sent.length === 0 ? settle_soon(x) : sent.push(x);
 			}
 
 			x.kind = "simple";
