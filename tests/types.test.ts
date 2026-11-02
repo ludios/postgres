@@ -633,11 +633,13 @@ test(
 );
 
 test("Custom types by name need fetch_types", async () => {
-	const create = () =>
-		postgres({
-			...options,
-			fetch_types: false,
-			types: { x: { to: "x", from: ["x"], serialize: String, parse: String } },
-		});
-	expect(thrown(create).code).toBe("TYPE_NOT_FOUND");
+	expect(
+		thrown(() =>
+			postgres({
+				...options,
+				fetch_types: false,
+				types: { x: { to: "x", from: ["x"], serialize: String, parse: String } },
+			}),
+		).code,
+	).toBe("TYPE_NOT_FOUND");
 });
