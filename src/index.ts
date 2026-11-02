@@ -15,6 +15,41 @@ import { channels, active, start, finish, userName } from "./diagnostics.ts";
 import type postgres from "../types/index.js";
 import type { open } from "./startup.ts";
 import type { RawSocket } from "./socket.ts";
+import type { Lease } from "./pool.ts";
+import type { Failure } from "./errors.ts";
+
+/** A host of the url or the options, with its port if the text gave one */
+type Target = [host: string, port: number | null];
+
+/** The callback of a transaction or a savepoint, called with the transaction's `sql` */
+type Body = (sql: any) => unknown;
+
+/**
+ * A channel that the pool listens on: its `listeners`; its `state`, the connection's `{ pid, secret }`,
+ * which is one object for the channel's lifetime, so that a listener sees reconnects in it; `result`,
+ * the promise of the latest LISTEN; `listening`, whether that LISTEN succeeded, and onclose() has not
+ * seen the listener connection close since; `retries`, how many of the LISTENs that relisten() sent
+ * have failed in a row; and `timer`, the timer of the next retry of a failed LISTEN, if one is pending.
+ */
+type Channel = {
+	listeners: Set<Listener>;
+	state: { pid?: number; secret?: number };
+	result: Promise<unknown> | null;
+	listening: boolean;
+	retries: number;
+	timer: ReturnType<Timers["setTimeout"]> | null;
+};
+
+/** A listener of a channel: `fn` gets each notification's payload; `onlisten` is called once listening */
+type Listener = { fn: (payload: string) => void; onlisten?: () => void };
+
+/** An entry of `option_rules`: see there */
+type Rule = {
+	default: unknown;
+	variable?: string;
+	parameter?: string;
+	read?: (value: unknown, source: string) => unknown;
+};
 
 export default Object.assign(Postgres, {
 	PostgresError,
@@ -37,7 +72,7 @@ export { PostgresError };
  */
 function typed_parameters(types: Record<string, PostgresType>) {
 	// oxlint-disable-next-line unicorn/consistent-function-scoping -- a new function for each pool, since properties are defined on it below
-	const typed = (value, type) => new Parameter(value, type);
+	const typed = (value: unknown, type: number | string) => new Parameter(value, type);
 
 	// Defined, not assigned: assigning throws for `name` and `length` (read-only properties of
 	// every function; `name` is also a PostgreSQL type) and for `arguments` and `caller` (whose
@@ -45,7 +80,7 @@ function typed_parameters(types: Record<string, PostgresType>) {
 	// prototype of `typed`.
 	Object.entries(types).forEach(([name, type]) =>
 		Object.defineProperty(typed, name, {
-			value: (x) => new Parameter(x, type.to),
+			value: (x: unknown) => new Parameter(x, type.to),
 			writable: true,
 			enumerable: true,
 			configurable: true,
@@ -54,11 +89,13 @@ function typed_parameters(types: Record<string, PostgresType>) {
 	return typed;
 }
 
-function Postgres(a?, b?) {
+function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 	const options = parse_options(a, b),
 		types = options.shared_types || Types(options),
 		pool = Pool(options, types),
-		subscribe = options.no_subscribe || Subscribe(Postgres, { ...options, shared_types: types }),
+		subscribe = options.no_subscribe
+			? null
+			: Subscribe(Postgres, { ...options, shared_types: types }),
 		listener = Listen(options);
 
 	if (types.named && options.fetch_types === false) {
@@ -100,7 +137,7 @@ function Postgres(a?, b?) {
 
 	return sql;
 
-	function handler(q) {
+	function handler(q: Query) {
 		pool.query(q);
 	}
 
@@ -131,9 +168,9 @@ function Postgres(a?, b?) {
 		function sql(strings: TemplateStringsArray, ...args: any[]): Query;
 		function sql(identifier: string): Identifier;
 		function sql(first: any, ...rest: any[]): Builder;
-		function sql(strings, ...args) {
-			return strings && Array.isArray(strings.raw)
-				? new Query(strings, args, handle)
+		function sql(strings: unknown, ...args: unknown[]) {
+			return strings && Array.isArray((strings as TemplateStringsArray).raw)
+				? new Query(strings as TemplateStringsArray, args, handle)
 				: typeof strings === "string" && !args.length
 					? new Identifier(
 							options.transform.column.to ? options.transform.column.to(strings) : strings,
@@ -141,7 +178,7 @@ function Postgres(a?, b?) {
 					: new Builder(strings, args);
 		}
 
-		function unsafe(string, args = [], query_options: QueryOptions = {}) {
+		function unsafe(string: string, args: unknown[] = [], query_options: QueryOptions = {}) {
 			if (arguments.length === 2 && !Array.isArray(args)) {
 				query_options = args;
 				args = [];
@@ -153,11 +190,12 @@ function Postgres(a?, b?) {
 			});
 		}
 
-		async function notify(channel, payload) {
+		async function notify(channel: string, payload: string) {
+			// oxlint-disable-next-line typescript/no-unnecessary-type-conversion -- a JavaScript caller may pass a number, which pg_notify(text, text) would refuse
 			return await sql`select pg_notify(${channel}, ${"" + payload})`;
 		}
 
-		function file(path, args = [], query_options: QueryOptions = {}) {
+		function file(path: string, args: unknown[] = [], query_options: QueryOptions = {}) {
 			if (arguments.length === 2 && !Array.isArray(args)) {
 				query_options = args;
 				args = [];
@@ -182,7 +220,7 @@ function Postgres(a?, b?) {
 
 	async function reserve() {
 		const lease = await pool.acquire("reserve"),
-			reserved = Sql(Object.assign((q) => lease.send(q), { cancel: pool.cancel }));
+			reserved = Sql(Object.assign((q: Query) => lease.send(q), { cancel: pool.cancel }));
 
 		reserved.release = () => lease.release();
 		if (Symbol.dispose) {
@@ -194,11 +232,8 @@ function Postgres(a?, b?) {
 		return reserved;
 	}
 
-	function begin(mode, fn) {
-		if (!fn) {
-			fn = mode;
-			mode = "";
-		}
+	function begin(first: string | Body, second?: Body) {
+		const [mode, fn] = second ? [first as string, second] : ["", first as Body];
 		if (!active(channels.transaction)) {
 			return transaction(mode, fn, null);
 		}
@@ -226,11 +261,11 @@ function Postgres(a?, b?) {
 		);
 	}
 
-	async function transaction(mode, fn, context) {
+	async function transaction(mode: string, fn: Body, context: postgres.TransactionTrace | null) {
 		const lease = await pool.acquire("transaction");
 
 		let savepoints = 0,
-			prepare = null;
+			prepare: string | null = null;
 
 		if (context) {
 			Object.assign(context, {
@@ -249,11 +284,15 @@ function Postgres(a?, b?) {
 			lease.release();
 		}
 
-		async function scope(body, name?, inside?, above = () => false) {
-			let uncaught,
-				result,
-				rolled = null,
-				after = null;
+		/**
+		 * Runs `body` in the transaction, or in a savepoint named `name`; `inside` says whether a
+		 * nested begin() is the caller, and `above` whether an outer savepoint was rolled back
+		 */
+		async function scope(body: Body, name?: string | null, inside?: boolean, above = () => false) {
+			let uncaught: unknown,
+				result: unknown,
+				rolled: Promise<void> | null = null,
+				after: Failure | null = null;
 
 			if (above()) {
 				throw rolledBack();
@@ -262,7 +301,7 @@ function Postgres(a?, b?) {
 			const stopped = () => !!rolled || above(),
 				scoped = Sql(
 					Object.assign(
-						(q) => {
+						(q: Query) => {
 							if (stopped()) {
 								q.reject(after || (after = rolledBack()));
 								return;
@@ -281,7 +320,7 @@ function Postgres(a?, b?) {
 				(rolled = control(lease, name ? "rollback to " + identifier(name) : "rollback").then(
 					() => {},
 				));
-			scoped.prepare = (x) => {
+			scoped.prepare = (x: string) => {
 				if (inside) {
 					throw Errors.generic(
 						"NESTED_TRANSACTION_MODE",
@@ -353,23 +392,21 @@ function Postgres(a?, b?) {
 
 			return result;
 
-			function savepoint(label, callback?) {
-				if (label && Array.isArray(label.raw)) {
-					return savepoint((sp) => sp.apply(sp, arguments));
+			function savepoint(label: unknown, callback?: Body) {
+				if (label && Array.isArray((label as TemplateStringsArray).raw)) {
+					return savepoint((sp: any) => sp.apply(sp, arguments));
 				}
 
 				if (arguments.length === 1) {
-					callback = label;
+					callback = label as Body;
 					label = null;
 				}
-				return scope(callback, "s" + savepoints++ + (label ? "_" + label : ""), false, stopped);
+				const suffix = label ? "_" + (label as string) : "";
+				return scope(callback, "s" + savepoints++ + suffix, false, stopped);
 			}
 
-			async function nested(inner, callback) {
-				if (!callback) {
-					callback = inner;
-					inner = "";
-				}
+			async function nested(first: string | Body, second?: Body) {
+				const [inner, callback] = second ? [first as string, second] : ["", first as Body];
 
 				if (normal(inner) && normal(inner) !== normal(mode)) {
 					throw Errors.generic(
@@ -383,18 +420,21 @@ function Postgres(a?, b?) {
 		}
 	}
 
-	function control(lease, text) {
+	function control(lease: Lease, text: string) {
 		const q = new Query(
 			[text],
 			[],
-			Object.assign((query) => lease.send(query), { options, cancel: pool.cancel }),
+			Object.assign((query: Query) => lease.send(query), { options, cancel: pool.cancel }),
 			{ simple: true },
 		);
 		return q.execute();
 	}
 
-	async function end(end_options?) {
-		await Promise.all([listener.end(), subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : null]);
+	async function end(end_options?: { timeout?: number | null }) {
+		await Promise.all([
+			listener.end(),
+			subscribe && subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : null,
+		]);
 		return pool.end(end_options);
 	}
 
@@ -403,7 +443,7 @@ function Postgres(a?, b?) {
 	}
 }
 
-function json(x) {
+function json(x: unknown) {
 	return new Parameter(x, 3802);
 }
 
@@ -418,7 +458,7 @@ function rolledBack() {
 	);
 }
 
-function normal(x) {
+function normal(x: string | undefined) {
 	return (x || "")
 		.toLowerCase()
 		.replace(/[^a-z ]/g, "")
@@ -430,24 +470,18 @@ function normal(x) {
  * @param x - a name, such as a channel's
  * @returns `x` quoted as an SQL identifier
  */
-function identifier(x) {
+function identifier(x: string) {
 	return '"' + x.replace(/"/g, '""') + '"';
 }
 
-function Listen(options) {
+function Listen(options: Options) {
 	const { setTimeout, clearTimeout } = options.timers,
-		/**
-		 * Channel name → channel: its `listeners` (each a `{ fn, onlisten }`); its `state`, the
-		 * connection's `{ pid, secret }`, which is one object for the channel's lifetime, so that a
-		 * listener sees reconnects in it; `result`, the promise of the latest LISTEN; `listening`,
-		 * whether that LISTEN succeeded, and onclose() has not seen the listener connection close
-		 * since; `retries`, how many of the LISTENs that relisten() sent have failed in a row; and
-		 * `timer`, the timer of the next retry of a failed LISTEN, if one is pending.
-		 */
-		channel_by_name = new Map();
-	let sql = null,
+		// Channel name → channel
+		channel_by_name = new Map<string, Channel>();
+	// The listener connection: a pool of one connection, opened when a channel is listened on
+	let sql: any = null,
 		// The promise that end() returns (null until end() is called)
-		closing = null;
+		closing: Promise<unknown> | null = null;
 
 	return {
 		listen,
@@ -488,7 +522,7 @@ function Listen(options) {
 						}
 					});
 				},
-				onnotify(channel, payload) {
+				onnotify(channel: string, payload: string) {
 					if (channel_by_name.has(channel)) {
 						[...channel_by_name.get(channel).listeners].forEach((l) => l.fn(payload));
 					}
@@ -505,7 +539,7 @@ function Listen(options) {
 	 * @param name - the channel's name
 	 * @returns the LISTEN's result, once `channel` has recorded the success (also `channel.result`)
 	 */
-	function send_listen(channel, name) {
+	function send_listen(channel: Channel, name: string) {
 		const x = connection();
 		channel.listening = false;
 		channel.result = x`listen ${x.unsafe(identifier(name))}`.then((result) => {
@@ -522,7 +556,7 @@ function Listen(options) {
 	 * @param channel - the channel
 	 * @param name - the channel's name
 	 */
-	function relisten(channel, name) {
+	function relisten(channel: Channel, name: string) {
 		// A listener that joins while this LISTEN is in flight gets its onlisten call from listen()
 		const listeners = [...channel.listeners];
 		channel.timer = null;
@@ -549,10 +583,11 @@ function Listen(options) {
 				}
 
 				channel.retries++;
+				// backoff is false when it is turned off: no wait then
 				const delay_seconds =
 					typeof options.backoff === "function"
 						? options.backoff(channel.retries)
-						: options.backoff;
+						: Number(options.backoff);
 				channel.timer = setTimeout(() => {
 					if (!closing && channel_by_name.get(name) === channel) {
 						relisten(channel, name);
@@ -570,7 +605,7 @@ function Listen(options) {
 	 * @param failed - whether the channel's latest LISTEN failed, so that the server has nothing to
 	 *   UNLISTEN, and a retry of the LISTEN may be pending
 	 */
-	async function retire(channel, name, failed) {
+	async function retire(channel: Channel, name: string, failed: boolean) {
 		if (channel_by_name.get(name) === channel) {
 			channel_by_name.delete(name);
 		}
@@ -602,7 +637,7 @@ function Listen(options) {
 	 *   and rejects with the error.
 	 * @returns the channel's `state` (see `channel_by_name`) and `unlisten()`, which removes this listener
 	 */
-	async function listen(name, fn, onlisten) {
+	async function listen(name: string, fn: Listener["fn"], onlisten?: Listener["onlisten"]) {
 		if (closing) {
 			throw Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]);
 		}
@@ -611,7 +646,7 @@ function Listen(options) {
 		let channel = channel_by_name.get(name);
 		if (!channel) {
 			channel = {
-				listeners: new Set(),
+				listeners: new Set<Listener>(),
 				state: {},
 				result: null,
 				listening: false,
@@ -619,7 +654,7 @@ function Listen(options) {
 				timer: null,
 			};
 			// Not stored if the LISTEN cannot be sent, which connection() may throw for
-			send_listen(channel, name);
+			void send_listen(channel, name);
 			channel_by_name.set(name, channel);
 		} else if (channel.timer !== null) {
 			// The channel's latest LISTEN failed, and the channel waits to send it again. Sending it
@@ -690,7 +725,8 @@ function default_timers() {
  * @returns `value` as an error shows it: text in double quotes, and anything else as `String()`
  *          writes it
  */
-function shown(value) {
+function shown(value: unknown) {
+	// oxlint-disable-next-line typescript/no-base-to-string -- an option's value may be anything; String() shows it as the errors always have
 	return typeof value === "string" ? JSON.stringify(value) : String(value);
 }
 
@@ -701,7 +737,7 @@ function shown(value) {
  * @returns `false` if `value` is the text `disable` or `false`, which turn an option off;
  *          otherwise `value`
  */
-function off(value) {
+function off(value: unknown) {
 	return value === "disable" || value === "false" ? false : value;
 }
 
@@ -710,7 +746,7 @@ function off(value) {
  * @returns `true` for the text `true`; `false` for `null`, which turns an option off, as it turns
  *          off an option that is a number of seconds; otherwise what `off` returns for `value`
  */
-function on_or_off(value) {
+function on_or_off(value: unknown) {
 	if (value === null) {
 		return false;
 	}
@@ -722,7 +758,7 @@ function on_or_off(value) {
  * @returns `value` if it is a number; the number that `value` writes if it is the text of a
  *          non-negative decimal number, with or without whitespace around it; otherwise NaN
  */
-function number(value) {
+function number(value: unknown) {
 	if (typeof value === "number") {
 		return value;
 	}
@@ -741,7 +777,7 @@ function number(value) {
  * @throws if `value` is a number that is NaN, negative or infinite, or text that is not a
  *         non-negative decimal number
  */
-function seconds(value, source) {
+function seconds(value: unknown, source: string) {
 	const x = off(value);
 	if (typeof x !== "string" && typeof x !== "number") {
 		return x;
@@ -759,8 +795,8 @@ function seconds(value, source) {
  *          and where it comes from (as `seconds` does), returns the option's integer, and throws if
  *          the value is neither an integer of at least `least` nor the text of one
  */
-function integer(least) {
-	return (value, source) => {
+function integer(least: number) {
+	return (value: unknown, source: string) => {
 		const n = number(value);
 		if (!Number.isInteger(n) || n < least) {
 			throw new Error(
@@ -776,8 +812,8 @@ function integer(least) {
  * @returns a reader that takes the value of the option and where it comes from (as `seconds`
  *          does), returns the value if it is one of `allowed`, and throws otherwise
  */
-function one_of(...allowed) {
-	return (value, source) => {
+function one_of(...allowed: unknown[]) {
+	return (value: unknown, source: string) => {
 		if (!allowed.includes(value)) {
 			throw new Error(
 				source + " must be one of " + allowed.map(shown).join(", ") + ", but it is " + shown(value),
@@ -796,8 +832,8 @@ function one_of(...allowed) {
  *          value if `other` accepts it, and otherwise `true` or `false` as `on_or_off` reads it,
  *          and throws for any other value
  */
-function on_off_or(other, described) {
-	return (value, source) => {
+function on_off_or(other: (value: unknown) => boolean, described: string) {
+	return (value: unknown, source: string) => {
 		if (other(value)) {
 			return value;
 		}
@@ -826,7 +862,7 @@ const ssl_modes = ["allow", "prefer", "require", "verify-full"];
 
 /** Reads any ssl except `verify-ca`: on or off, as `boolean` does, TLS options, or one of `ssl_modes` */
 const ssl_mode = on_off_or(
-	(value) => (value !== null && typeof value === "object") || ssl_modes.includes(value),
+	(value) => (value !== null && typeof value === "object") || ssl_modes.includes(value as string),
 	"true, false, an object of TLS options, or one of " +
 		["disable", ...ssl_modes].map(shown).join(", "),
 );
@@ -841,7 +877,7 @@ const ssl_mode = on_off_or(
  *         the runtime trusts by default signed the certificate (libpq refuses `verify-ca` with
  *         `sslrootcert=system` for this reason), and for any value that `ssl_mode` throws for
  */
-function ssl_option(value, source) {
+function ssl_option(value: unknown, source: string) {
 	if (value === "verify-ca") {
 		throw new Error(
 			source +
@@ -874,7 +910,7 @@ const session_attrs = one_of(
  * @returns `value`, or `null` for `any`, as `null` already means that any server will do
  * @throws if `value` is not one of the kinds that `session_attrs` allows
  */
-function target_session_attrs(value, source) {
+function target_session_attrs(value: unknown, source: string) {
 	const x = session_attrs(value, source);
 	return x === "any" ? null : x;
 }
@@ -884,7 +920,7 @@ function target_session_attrs(value, source) {
  * @returns the number of seconds to wait before the next try: 3^retries / 100, but at most 20,
  *          times a random factor from 0.5 to 1
  */
-function backoff(retries) {
+function backoff(retries: number) {
 	return (0.5 + Math.random() / 2) * Math.min(3 ** retries / 100, 20);
 }
 
@@ -901,16 +937,8 @@ function max_lifetime() {
  * option has one. An option without a reader, such as the name of a replication slot, is used as
  * it is given.
  */
-const option_rules: Record<
-	string,
-	{
-		default: unknown;
-		variable?: string;
-		parameter?: string;
-		read?: (value: unknown, source: string) => unknown;
-	}
-> = {
-	max: { default: globalThis.Cloudflare ? 3 : 10, read: integer(1) },
+const option_rules: Record<string, Rule> = {
+	max: { default: (globalThis as { Cloudflare?: unknown }).Cloudflare ? 3 : 10, read: integer(1) },
 	min: { default: 0, read: integer(0) },
 	max_pipeline: { default: 100, read: integer(0) },
 	idle_timeout: { default: null, read: seconds },
@@ -966,10 +994,16 @@ const client_parameters = new Set([
  *          `rule.default` if no place sets the option
  * @throws whatever `rule.read` throws for a value that the option may not have
  */
-function read_option(k, rule, o, query, env) {
+function read_option(
+	k: string,
+	rule: Rule,
+	o: Record<string, any>,
+	query: Record<string, string>,
+	env: NodeJS.ProcessEnv,
+) {
 	const variable = rule.variable || "PG" + k.toUpperCase(),
 		parameter = Object.hasOwn(query, k) ? k : rule.parameter;
-	let value, source;
+	let value: unknown, source: string;
 	if (o[k] !== undefined) {
 		value = o[k];
 		source = "The option " + k;
@@ -1028,9 +1062,9 @@ export type Options = postgres.ParsedOptions<Record<string, any>> & {
 	resolve: ReturnType<typeof Types>["resolve"];
 };
 
-function parse_options(a, b) {
-	if (a && a.shared) {
-		return a;
+function parse_options(a?: string | Record<string, any>, b?: Record<string, any>): Options {
+	if (a && typeof a === "object" && a.shared) {
+		return a as Options;
 	}
 
 	const env = process.env,
@@ -1150,30 +1184,24 @@ function parse_options(a, b) {
 	if (options.max === 1) {
 		options.scheduler = false;
 	}
-	return options;
+	return options as Options;
 }
 
-function parseTransform(x) {
-	return {
-		undefined: x.undefined,
-		column: {
-			from: typeof x.column === "function" ? x.column : x.column && x.column.from,
-			to: x.column && x.column.to,
-		},
-		value: {
-			from: typeof x.value === "function" ? x.value : x.value && x.value.from,
-			to: x.value && x.value.to,
-		},
-		row: {
-			from: typeof x.row === "function" ? x.row : x.row && x.row.from,
-			to: x.row && x.row.to,
-		},
-	};
+/** A transform's `from` and `to` */
+type Pair = { from?: (...args: any[]) => any; to?: (...args: any[]) => any };
+
+function parseTransform(x: NonNullable<postgres.Options["transform"]>) {
+	return { undefined: x.undefined, column: pair(x.column), value: pair(x.value), row: pair(x.row) };
 }
 
-function parseUrl(url) {
+/** @returns the `from` and `to` of transform `x`, which a user gives as an object, or as a function: its `from` */
+function pair(x: ((...args: any[]) => any) | Pair | undefined): Pair {
+	return typeof x === "function" ? { from: x } : { from: x && x.from, to: x && x.to };
+}
+
+function parseUrl(url: unknown) {
 	if (!url || typeof url !== "string") {
-		return { url: { searchParams: new Map() }, targets: [] as string[] };
+		return { url: { searchParams: new Map() }, targets: [] as Target[] };
 	}
 
 	const rest = url.slice(url.indexOf("://") + 3),
@@ -1195,7 +1223,7 @@ function parseUrl(url) {
 	};
 }
 
-function decode(x) {
+function decode(x: string) {
 	try {
 		return decodeURIComponent(x);
 	} catch {
@@ -1203,34 +1231,39 @@ function decode(x) {
 	}
 }
 
-function hosts(o, query, url, env) {
+function hosts(
+	o: Record<string, any>,
+	query: Record<string, string>,
+	url: ReturnType<typeof parseUrl>,
+	env: NodeJS.ProcessEnv,
+): Target[] {
 	const given = o.hostname || o.host || query.host;
 	if (given) {
-		return Array.isArray(given) ? given.map((x) => [x, null]) : split(given);
+		return Array.isArray(given) ? given.map((x: string): Target => [x, null]) : split(given);
 	}
 
 	if (url.targets.some(([x]) => x)) {
 		return url.targets;
 	}
 
-	return split(env.PGHOST || "localhost").map(([x, p], i) => [
+	return split(env.PGHOST || "localhost").map(([x, p], i): Target => [
 		x,
 		p || (url.targets[i] && url.targets[i][1]) || null,
 	]);
 }
 
-function split(x, decoded = (s) => s) {
+function split(x: string, decoded = (s: string) => s) {
 	return x
 		.split(",")
 		.filter(Boolean)
-		.map((item) => {
+		.map((item): Target => {
 			const m = item.match(/^\[([^\]]*)\](?::(\d*))?$/) ||
 				item.match(/^([^:]*)(?::(\d*))?$/) || [item, item];
 			return [decoded(m[1]), m[2] ? +m[2] : null];
 		});
 }
 
-function passfile(env) {
+function passfile(env: NodeJS.ProcessEnv) {
 	try {
 		return (
 			env.PGPASSFILE ||
@@ -1251,8 +1284,9 @@ function osUsername() {
 	}
 }
 
-function view(known, get) {
+/** @returns `known` seen through `get`: reading an oid gives what get() gives for it */
+function view<T extends object>(known: T, get: (oid: number) => unknown) {
 	return new Proxy(known, {
-		get: (x, oid) => (typeof oid === "symbol" ? x[oid] : get(+oid)),
+		get: (x, oid) => (typeof oid === "symbol" ? Reflect.get(x, oid) : get(+oid)),
 	});
 }

@@ -2,6 +2,8 @@ import crypto from "crypto";
 import fs from "fs";
 import * as p from "./protocol.ts";
 import { Socket, secured, secureOptions } from "./socket.ts";
+import type { RawSocket } from "./socket.ts";
+import type { Options } from "./index.ts";
 import { Errors } from "./errors.ts";
 import {
 	channels,
@@ -19,11 +21,14 @@ const R = 82,
 	D = 68,
 	Z = 90;
 
+/** A socket as socket.ts wraps it */
+type Connected = Awaited<ReturnType<typeof Socket>>;
+
 /** Lets the pool stop the attempts of `open`, and destroy the sockets that they opened. */
-export type Signal = { aborted: boolean; sockets: Set<Awaited<ReturnType<typeof Socket>>> };
+export type Signal = { aborted: boolean; sockets: Set<Connected> };
 
 export async function open(
-	options,
+	options: Options,
 	signal: Signal = { aborted: false, sockets: new Set() },
 	first = 0,
 ) {
@@ -31,7 +36,7 @@ export async function open(
 		wanted = options.target_session_attrs,
 		passes = wanted === "prefer-standby" ? ["standby", "any"] : [wanted || "any"];
 
-	let last;
+	let last: Error | undefined;
 
 	for (const want of passes) {
 		for (let n = 0; n < hosts.length; n++) {
@@ -39,8 +44,8 @@ export async function open(
 				host = hosts[i],
 				port = options.port[i] || options.port[0],
 				[failed, error, ready] = await traced(options, host, port, signal).then(
-					(x) => [false, null, x],
-					(x) => [true, x],
+					(x): [false, null, Ready] => [false, null, x],
+					(x: Error): [true, Error, null] => [true, x, null],
 				);
 			if (!failed && fits(want, ready.attributes)) {
 				ready.index = i;
@@ -59,7 +64,7 @@ export async function open(
 	throw last;
 }
 
-function traced(options, host, port, signal) {
+function traced(options: Options, host: string | null, port: number, signal: Signal) {
 	if (!active(channels.connect)) {
 		return attempt(options, host, port, signal);
 	}
@@ -94,7 +99,7 @@ function traced(options, host, port, signal) {
 	);
 }
 
-function fits(want, { readOnly, standby }) {
+function fits(want: string | null, { readOnly, standby }: Ready["attributes"]) {
 	return (
 		want === "any" ||
 		(want === "read-write" && !readOnly) ||
@@ -115,7 +120,7 @@ export type Ready = {
 	/** The transaction status of ReadyForQuery: "I", "T" or "E" */
 	status: string;
 	attributes: { readOnly: boolean; standby: boolean };
-	host: string;
+	host: string | null;
 	port: number;
 	/** The index of the host (in `options.host`) that the connection went to; open() sets it */
 	index?: number;
@@ -123,17 +128,17 @@ export type Ready = {
 	cancel: () => ReturnType<typeof cancel>;
 };
 
-function attempt(options, host, port, signal) {
+function attempt(options: Options, host: string | null, port: number, signal: Signal) {
 	const { setTimeout, clearTimeout } = options.timers,
-		fail = (code) => Errors.connection(code, options, host, port);
+		fail = (code: string) => Errors.connection(code, options, host, port);
 
 	return new Promise<Ready>((resolve, reject) => {
 		const timer =
 			options.connect_timeout &&
 			setTimeout(() => done(true, fail("CONNECT_TIMEOUT")), options.connect_timeout * 1000);
 
-		let socket = null,
-			raw = null,
+		let socket: Connected | null = null,
+			raw: RawSocket | null = null,
 			settled = false;
 
 		session().then(
@@ -141,7 +146,7 @@ function attempt(options, host, port, signal) {
 			(e) => done(true, e),
 		);
 
-		function done(failed, error, ready?) {
+		function done(failed: boolean, error: Error | null, ready?: Ready) {
 			if (settled) {
 				return;
 			}
@@ -175,7 +180,8 @@ function attempt(options, host, port, signal) {
 			socket = await Socket(options, host, port, (x) => (raw = x));
 			if (settled || signal.aborted) {
 				socket.destroy();
-				return done(true, fail("CONNECTION_DESTROYED"));
+				done(true, fail("CONNECTION_DESTROYED"));
+				return undefined;
 			}
 
 			signal.sockets.add(socket);
@@ -194,8 +200,8 @@ function attempt(options, host, port, signal) {
 			return startup(user, options.database || user);
 		}
 
-		function startup(user, database) {
-			return new Promise((succeed, refuse) => {
+		function startup(user: string, database: string) {
+			return new Promise<Ready>((succeed, refuse) => {
 				const stored = () =>
 						pgpass(options.passfile, options.path ? "localhost" : host, port, database, user) || "",
 					auth = Auth({
@@ -204,22 +210,22 @@ function attempt(options, host, port, signal) {
 						binding: options.channel_binding,
 						socket,
 					}),
-					parameters = {},
+					parameters: Record<string, string> = {},
 					backend: { pid: number | null; secret: number | null } = { pid: null, secret: null },
 					frames = p.Frames(frame, false, (error) => {
 						refuse(error);
 						socket.destroy();
 					}),
-					rows = [];
+					rows: string[] = [];
 
 				let probing = false,
-					status = null,
-					authing = Promise.resolve();
+					status: string | null = null,
+					authing: Promise<unknown> = Promise.resolve();
 
 				socket.ondata = (x) => frames.push(x);
 				socket.write(p.Startup({ user, database, client_encoding: "UTF8", ...options.connection }));
 
-				function frame(type, x, start, end) {
+				function frame(type: number, x: Buffer, start: number, end: number) {
 					try {
 						if (type === R) {
 							authenticate(Buffer.from(x.subarray(start, end)));
@@ -242,7 +248,7 @@ function attempt(options, host, port, signal) {
 					}
 				}
 
-				function notice(x) {
+				function notice(x: Record<string, string>) {
 					try {
 						if (options.onnotice) {
 							options.onnotice(x);
@@ -255,7 +261,7 @@ function attempt(options, host, port, signal) {
 					}
 				}
 
-				function authenticate(x) {
+				function authenticate(x: Buffer) {
 					authing = authing.then(() => auth(x)).then((reply) => reply && socket.write(reply));
 					authing.catch((error) => {
 						refuse(error);
@@ -263,14 +269,14 @@ function attempt(options, host, port, signal) {
 					});
 				}
 
-				function once_authenticated(x, rest) {
+				function once_authenticated(x: string, rest: Buffer) {
 					authing.then(
 						() => ready(x, rest),
 						() => {},
 					);
 				}
 
-				function ready(x, rest) {
+				function ready(x: string, rest: Buffer) {
 					if (!auth.authenticated) {
 						refuse(
 							Errors.generic(
@@ -316,7 +322,7 @@ function attempt(options, host, port, signal) {
 	});
 }
 
-async function negotiate(socket, options) {
+async function negotiate(socket: Connected, options: Options) {
 	if (!secured(options) || socket.negotiated) {
 		return;
 	}
@@ -329,7 +335,7 @@ async function negotiate(socket, options) {
 		return;
 	}
 
-	const answer = new Promise((r) => (socket.ondata = (x) => r(x[0])));
+	const answer = new Promise<number>((r) => (socket.ondata = (x: Buffer) => r(x[0])));
 	socket.write(p.SSLRequest());
 
 	if ((await answer) === S) {
@@ -353,11 +359,16 @@ async function negotiate(socket, options) {
  *   after `connect_timeout` seconds, when the CancelRequest may still reach the
  *   server
  */
-function cancel(options, host, port, { pid, secret }) {
+function cancel(
+	options: Options,
+	host: string | null,
+	port: number,
+	{ pid, secret }: { pid: number | null; secret: number | null },
+) {
 	const { setTimeout, clearTimeout } = options.timers;
 
 	return new Promise<void>((resolve, reject) => {
-		let socket = null,
+		let socket: Connected | null = null,
 			settled = false;
 		const timer =
 			options.connect_timeout &&
@@ -387,7 +398,7 @@ function cancel(options, host, port, { pid, secret }) {
 			});
 		}
 
-		function settle(error) {
+		function settle(error: Error | null) {
 			if (settled) {
 				return;
 			}
@@ -407,11 +418,22 @@ function cancel(options, host, port, { pid, secret }) {
 	});
 }
 
-const salted = new Map();
+/** The salted passwords of SCRAM, by the hash of the password, the salt and the iterations */
+const salted = new Map<string, Buffer>();
 
-function Auth({ user, pass, binding = "prefer", socket }) {
-	let nonce,
-		signature,
+function Auth({
+	user,
+	pass,
+	binding = "prefer",
+	socket,
+}: {
+	user: string;
+	pass: Options["pass"];
+	binding: Options["channel_binding"];
+	socket: Connected;
+}) {
+	let nonce: string | undefined,
+		signature: string | undefined,
 		verified = true,
 		bound: Buffer | false = false,
 		header = "n,,";
@@ -419,7 +441,7 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 	respond.authenticated = false;
 	return respond;
 
-	async function respond(x) {
+	async function respond(x: Buffer) {
 		const type = x.readInt32BE(5);
 		if ((type === 3 || type === 5) && binding === "require") {
 			throw unbound(
@@ -447,7 +469,7 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 								: unsupported(type);
 	}
 
-	function start(x) {
+	function start(x: Buffer) {
 		const offered = x.toString("utf8", 9).split("\0"),
 			certificate = binding !== "disable" && socket && socket.certificate && socket.certificate(),
 			hash = certificate && endpoint(certificate),
@@ -475,11 +497,11 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 		return p.SASL(plus ? "SCRAM-SHA-256-PLUS" : "SCRAM-SHA-256", header + "n=*,r=" + nonce);
 	}
 
-	function proceed(x, password_text) {
+	function proceed(x: Buffer, password_text: string) {
 		const res = x
 				.toString("utf8", 9)
 				.split(",")
-				.reduce((acc, attr) => {
+				.reduce<Record<string, string>>((acc, attr) => {
 					acc[attr[0]] = attr.slice(2);
 					return acc;
 				}, {}),
@@ -532,7 +554,7 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 		);
 	}
 
-	function finish(x) {
+	function finish(x: Buffer): null {
 		if (!signature || x.toString("utf8", 9).split("\0", 1)[0].slice(2) !== signature) {
 			throw Errors.generic(
 				"SASL_SIGNATURE_MISMATCH",
@@ -544,7 +566,7 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 		return null;
 	}
 
-	function ok() {
+	function ok(): null {
 		if (!verified) {
 			throw Errors.generic(
 				"SASL_SIGNATURE_MISMATCH",
@@ -565,18 +587,19 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 	}
 }
 
-function unsupported(type) {
+function unsupported(type: number) {
 	throw Errors.generic(
 		"AUTH_TYPE_NOT_IMPLEMENTED",
 		"Authentication type " + type + " is not supported",
 	);
 }
 
-function unbound(reason) {
+function unbound(reason: string) {
 	return Errors.generic("CHANNEL_BINDING_REQUIRED", "channel_binding is require, but " + reason);
 }
 
-const signatures = {
+/** The hash of a certificate's signature algorithm, by the algorithm's OID (as hex) */
+const signatures: Record<string, string> = {
 	"2a864886f70d010104": "sha256",
 	"2a864886f70d010105": "sha256",
 	"2a864886f70d01010e": "sha224",
@@ -592,7 +615,8 @@ const signatures = {
 	"608648016503040302": "sha256",
 };
 
-const digests = {
+/** The hash of a digest algorithm, by the algorithm's OID (as hex), for RSA-PSS signatures */
+const digests: Record<string, string> = {
 	"2b0e03021a": "sha256",
 	"608648016503040201": "sha256",
 	"608648016503040202": "sha384",
@@ -600,7 +624,7 @@ const digests = {
 	"608648016503040204": "sha224",
 };
 
-function endpoint(certificate) {
+function endpoint(certificate: Buffer) {
 	try {
 		const x = Buffer.from(certificate),
 			algorithm = signature_algorithm(x);
@@ -610,7 +634,7 @@ function endpoint(certificate) {
 	}
 }
 
-function signature_algorithm(x) {
+function signature_algorithm(x: Buffer) {
 	const certificate = der(x, 0),
 		tbs = der(x, certificate.body),
 		algorithm = der(x, tbs.end),
@@ -618,7 +642,7 @@ function signature_algorithm(x) {
 		name = x[oid.start] === 0x06 && x.toString("hex", oid.body, oid.end);
 
 	if (name !== "2a864886f70d01010a") {
-		return signatures[name];
+		return name ? signatures[name] : undefined;
 	}
 
 	if (oid.end >= algorithm.end) {
@@ -636,7 +660,7 @@ function signature_algorithm(x) {
 	return digests[x.toString("hex", hash.body, hash.end)];
 }
 
-function der(x, start) {
+function der(x: Buffer, start: number) {
 	let length = x[start + 1],
 		body = start + 2;
 
@@ -656,19 +680,19 @@ function der(x, start) {
 	return { start, body, end: body + length };
 }
 
-function md5(x) {
+function md5(x: crypto.BinaryLike) {
 	return crypto.createHash("md5").update(x).digest("hex");
 }
 
-function hmac(key, x) {
+function hmac(key: crypto.BinaryLike, x: crypto.BinaryLike) {
 	return crypto.createHmac("sha256", key).update(x).digest();
 }
 
-function sha256(x) {
+function sha256(x: crypto.BinaryLike) {
 	return crypto.createHash("sha256").update(x).digest();
 }
 
-function xor(a, b) {
+function xor(a: Buffer, b: Buffer) {
 	const x = Buffer.allocUnsafe(a.length);
 	for (let i = 0; i < a.length; i++) {
 		x[i] = a[i] ^ b[i];
@@ -676,12 +700,18 @@ function xor(a, b) {
 	return x;
 }
 
-function pgpass(file, host, port, database, user) {
+function pgpass(
+	file: string | undefined,
+	host: string | null,
+	port: number,
+	database: string,
+	user: string,
+) {
 	if (!file) {
 		return null;
 	}
 
-	let text;
+	let text: string;
 	try {
 		const stat = fs.statSync(file);
 		if (!stat.isFile() || (process.platform !== "win32" && stat.mode & 0o077)) {
@@ -701,8 +731,8 @@ function pgpass(file, host, port, database, user) {
 	return null;
 }
 
-function split(line) {
-	const fields = [];
+function split(line: string) {
+	const fields: string[] = [];
 	let field = "";
 	for (let i = 0; i < line.length; i++) {
 		const c = line[i];

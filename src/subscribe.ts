@@ -1,15 +1,54 @@
 import { own } from "./connection.ts";
 import type postgres from "../types/index.js";
+import type { Duplex } from "stream";
+import type { Options, Timers } from "./index.ts";
+import type { Failure } from "./errors.ts";
+
+/** A subscriber of an event: `fn` gets each change; `onsubscribe` is called once the stream is up */
+type Subscriber = {
+	fn: (row: postgres.Row | null, info: postgres.ReplicationEvent, event: string) => unknown;
+	onsubscribe: () => void;
+	onerror?: (error: Error) => void;
+};
+
+/** A Begin message, as parse() reports it */
+type Begin = { lsn: bigint; time: Date; xid: number };
+
+/** A Commit message, as parse() reports it */
+type Commit = { lsn: bigint; end: bigint };
+
+/**
+ * A change of a row, as parse() reports it: a public ReplicationEvent, before message() adds the
+ * transaction's `lsn`, `time` and `xid`
+ */
+type Change = {
+	command: "insert" | "update" | "delete" | "truncate";
+	relation: postgres.RelationInfo;
+	key?: boolean;
+	old?: postgres.Row | null;
+	cascade?: boolean;
+	restartIdentity?: boolean;
+} & Partial<postgres.TransactionInfo>;
+
+/** Gets each message that parse() reads: a Begin, a Commit, or a change of a row */
+type Message = {
+	(kind: "begin", x: Begin): unknown;
+	(kind: "commit", x: Commit): unknown;
+	(kind: "change", row: postgres.Row | null, info: Change): unknown;
+};
 
 const noop = (..._: any[]) => {},
 	statusInterval = 10000,
 	epoch = BigInt(Date.UTC(2000, 0, 1)) * 1000n;
 
-const lsnToString = (x) =>
+const lsnToString = (x: bigint) =>
 	(x >> 32n).toString(16).toUpperCase() + "/" + (x & 0xffffffffn).toString(16).toUpperCase();
 
-export default function Subscribe(postgres, options) {
-	const subscribers = new Map(),
+export default function Subscribe(
+	postgres: (options: Record<string, any>) => any,
+	options: Options,
+) {
+	const subscribers = new Map<string, Set<Subscriber>>(),
 		persistent = !!options.slot,
 		slot = options.slot || "postgresjs_" + Math.random().toString(36).slice(2),
 		// The pid and secret key of the backend that streams the replication. `subscribe`
@@ -17,8 +56,8 @@ export default function Subscribe(postgres, options) {
 		state: { pid?: number; secret?: number } = {},
 		timers = options.timers;
 
-	let connection,
-		current = null,
+	let connection: Promise<unknown> | null,
+		current: ReturnType<typeof Stream> | null = null,
 		ended = false,
 		retries = 0;
 
@@ -65,7 +104,12 @@ export default function Subscribe(postgres, options) {
 
 	return subscribe;
 
-	async function subscribe(event, fn, onsubscribe = noop, onerror) {
+	async function subscribe(
+		event: string,
+		fn: Subscriber["fn"],
+		onsubscribe: () => void = noop,
+		onerror?: Subscriber["onerror"],
+	) {
 		event = parseEvent(event);
 
 		if (!connection) {
@@ -89,7 +133,7 @@ export default function Subscribe(postgres, options) {
 				onsubscribe();
 				return { unsubscribe, state, sql };
 			},
-			(error) => {
+			(error: Error) => {
 				unsubscribe();
 				connection = null;
 				throw error;
@@ -99,8 +143,8 @@ export default function Subscribe(postgres, options) {
 
 	function restart() {
 		const delay = Math.min(100 * 2 ** retries++, 10000);
-		connection = new Promise((r) => timers.setTimeout(r, retries === 1 ? 0 : delay))
-			.then(() => ended || init())
+		connection = new Promise<void>((r) => timers.setTimeout(r, retries === 1 ? 0 : delay))
+			.then(() => (ended ? null : init()))
 			.then(
 				(x) => {
 					retries = 0;
@@ -109,7 +153,7 @@ export default function Subscribe(postgres, options) {
 					}
 					return x;
 				},
-				(error) => {
+				(error: Error) => {
 					report(error);
 					if (!ended) {
 						restart();
@@ -128,7 +172,7 @@ export default function Subscribe(postgres, options) {
 			.unsafe(
 				`CREATE_REPLICATION_SLOT ${slot}${persistent ? "" : " TEMPORARY"} LOGICAL pgoutput NOEXPORT_SNAPSHOT`,
 			)
-			.catch((error) => {
+			.catch((error: Failure) => {
 				if (!persistent || error.code !== "42710") {
 					throw error;
 				}
@@ -145,19 +189,20 @@ export default function Subscribe(postgres, options) {
 		return current;
 	}
 
-	function Stream(stream) {
-		const relations = {};
+	function Stream(stream: Duplex) {
+		const relations: Record<number, postgres.RelationInfo> = {};
 		let acked = 0n,
 			received = 0n,
 			transaction: Transaction | null = null,
-			queue = null,
+			// The promise of the subscribers' handling of the changes so far, while one is pending
+			queue: Promise<unknown> | null = null,
 			failed = false,
 			stopped = false,
-			timer = timers.setTimeout(tick, statusInterval),
-			soon = null;
+			timer: ReturnType<Timers["setTimeout"]> | null = timers.setTimeout(tick, statusInterval),
+			soon: ReturnType<Timers["setImmediate"]> | null = null;
 
 		stream.on("data", data);
-		stream.on("error", (error) => failed || report(error));
+		stream.on("error", (error: Error) => failed || report(error));
 		stream.on("close", () => {
 			const unexpected = !stopped;
 			stop();
@@ -168,7 +213,7 @@ export default function Subscribe(postgres, options) {
 
 		return { stop, finish };
 
-		function data(x) {
+		function data(x: Buffer) {
 			if (x[0] === 0x77) {
 				received = max(received, x.readBigUInt64BE(9));
 				parse(x.subarray(25), relations, sql.options.parsers, message, options.transform);
@@ -183,7 +228,10 @@ export default function Subscribe(postgres, options) {
 			}
 		}
 
-		function message(kind, x, info) {
+		function message(kind: "begin", x: Begin): Transaction;
+		function message(kind: "commit", x: Commit): void;
+		function message(kind: "change", row: postgres.Row | null, info: Change): void;
+		function message(kind: string, x: any, info?: Change) {
 			if (kind === "begin") {
 				transaction = { lsn: x.lsn, end: null, time: x.time, xid: x.xid };
 				return transaction;
@@ -203,7 +251,7 @@ export default function Subscribe(postgres, options) {
 			run(() => handle(x, info));
 		}
 
-		function run(fn) {
+		function run(fn: () => unknown) {
 			if (failed || stopped) {
 				return;
 			}
@@ -214,7 +262,7 @@ export default function Subscribe(postgres, options) {
 			}
 
 			const result = fn();
-			if (result && typeof result.then === "function") {
+			if (result instanceof Promise) {
 				queue = result;
 				stream.pause();
 				drain();
@@ -235,7 +283,7 @@ export default function Subscribe(postgres, options) {
 			}, noop);
 		}
 
-		function commit(done) {
+		function commit(done: Transaction) {
 			acked = max(acked, done.end);
 			if (persistent && !soon) {
 				soon = timers.setImmediate(() => {
@@ -245,11 +293,11 @@ export default function Subscribe(postgres, options) {
 			}
 		}
 
-		function handle(row, info) {
+		function handle(row: postgres.Row | null, info: Change) {
 			const path = info.relation.schema + "." + info.relation.table,
 				key =
 					row && info.relation.keys.length ? "=" + info.relation.keys.map((x) => row[x.name]) : "",
-				pending = [];
+				pending: Promise<unknown>[] = [];
 
 			call(pending, "*", row, info);
 			call(pending, "*:" + path, row, info);
@@ -264,23 +312,29 @@ export default function Subscribe(postgres, options) {
 			return pending.length ? Promise.all(pending) : null;
 		}
 
-		function call(pending, event, row, info) {
+		function call(
+			pending: Promise<unknown>[],
+			event: string,
+			row: postgres.Row | null,
+			info: Change,
+		) {
 			if (subscribers.has(event)) {
 				subscribers.get(event).forEach((subscriber) => {
-					let result;
+					let result: unknown;
 					try {
-						result = subscriber.fn(row, info, event);
+						// The change has the transaction's fields by now: it is a ReplicationEvent
+						result = subscriber.fn(row, info as postgres.ReplicationEvent, event);
 					} catch (error) {
 						return fail(error, subscriber);
 					}
-					if (result && typeof result.then === "function") {
+					if (result instanceof Promise) {
 						pending.push(result.catch((error) => fail(error, subscriber)));
 					}
 				});
 			}
 		}
 
-		function fail(error, subscriber) {
+		function fail(error: unknown, subscriber: Subscriber) {
 			report(error, subscriber);
 			if (!persistent || failed) {
 				return;
@@ -356,14 +410,16 @@ export default function Subscribe(postgres, options) {
 		}
 	}
 
-	function report(error, subscriber?) {
+	function report(error: unknown, subscriber?: Subscriber) {
 		const handlers = subscriber
 			? [subscriber.onerror]
 			: [...subscribers.values()].flatMap((subs) => [...subs].map((s) => s.onerror));
 
-		const listeners = handlers.filter(Boolean);
+		const listeners = handlers.filter(
+			(fn): fn is (error: Error) => void => typeof fn === "function",
+		);
 		if (listeners.length) {
-			listeners.forEach((fn) => fn(error));
+			listeners.forEach((fn) => fn(error as Error));
 		} else {
 			console.error("postgres.js: logical replication error", error);
 		}
@@ -380,15 +436,21 @@ type Transaction = {
 	xid: number;
 };
 
-function max(a, b) {
+function max(a: bigint, b: bigint) {
 	return a > b ? a : b;
 }
 
-function Time(x) {
+function Time(x: bigint) {
 	return new Date(Date.UTC(2000, 0, 1) + Number(x / 1000n));
 }
 
-function parse(x, relations, parsers, message, transform) {
+function parse(
+	x: Buffer,
+	relations: Record<number, postgres.RelationInfo>,
+	parsers: Options["parsers"],
+	message: Message,
+	transform: Options["transform"],
+) {
 	const type = x[0];
 	if (type === 82) {
 		let i = 1;
@@ -401,7 +463,7 @@ function parse(x, relations, parsers, message, transform) {
 		i += 2;
 
 		let columnIndex = 0,
-			column;
+			column: postgres.ColumnInfo;
 
 		while (i < x.length) {
 			column = r.columns[columnIndex++] = {
@@ -470,10 +532,15 @@ function parse(x, relations, parsers, message, transform) {
 	}
 }
 
-function tuples(x, columns, xi, transform) {
-	let type, column, value;
+function tuples(
+	x: Buffer,
+	columns: postgres.ColumnInfo[],
+	xi: number,
+	transform: Options["transform"],
+) {
+	let type: number, column: postgres.ColumnInfo, value: unknown;
 
-	const row = {};
+	const row: Record<string, unknown> = {};
 	for (let i = 0; i < columns.length; i++) {
 		type = x[xi++];
 		column = columns[i];
@@ -484,7 +551,10 @@ function tuples(x, columns, xi, transform) {
 					? undefined
 					: column.parser(x.toString("utf8", xi + 4, (xi += 4 + x.readUInt32BE(xi))));
 
-		value = transform.value.from ? transform.value.from(value, column) : value;
+		// The transform gets the replication's column record, not a query's Column, which it is declared for
+		value = transform.value.from
+			? transform.value.from(value, column as unknown as postgres.Column<string>)
+			: value;
 		if (column.name === "__proto__") {
 			own(row, column.name, value);
 		} else {
@@ -495,7 +565,7 @@ function tuples(x, columns, xi, transform) {
 	return { i: xi, row: transform.row.from ? transform.row.from(row) : row };
 }
 
-function parseEvent(x) {
+function parseEvent(x: string) {
 	const [, command, path, key] = x.match(
 		/^(\*|insert|update|delete|truncate)?:?([^.]+?\.?[^=]+)?=?(.+)?/i,
 	);

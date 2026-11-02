@@ -10,20 +10,21 @@ import {
 	port_of,
 	defer,
 } from "./setup.ts";
+import type { Options } from "../src/index.ts";
 import { open } from "../src/startup.ts";
 import { Query, Frames } from "../src/protocol.ts";
 
-const base = {
+const base: Partial<Options> = {
 	host: ["localhost"],
 	port: [pg_port],
 	database: options.db,
 	connect_timeout: 3,
-	timers: { setTimeout, clearTimeout },
+	timers: { setTimeout, clearTimeout, setImmediate, clearImmediate, now: () => performance.now() },
 	...login,
 };
 
 const session = async (overrides?) => {
-	const ready = await open({ ...base, ...overrides });
+	const ready = await open({ ...base, ...overrides } as Options);
 	ready.socket.end();
 	return ready;
 };
@@ -104,7 +105,7 @@ test("Startup with target_session_attrs standby and no standby", async () => {
 });
 
 test("Cancel reaches the backend", async () => {
-	const ready = await open(base),
+	const ready = await open(base as Options),
 		types = [],
 		frames = Frames((type) => types.push(String.fromCharCode(type)));
 	await using _end = defer(() => ready.socket.end());
