@@ -549,13 +549,29 @@ export function Connection(ready, options, events) {
 	 */
 	function stop(x) {
 		if (!x.stopping) {
-			cancelling++;
-			x.stopping = ready.cancel().finally(() => {
-				cancelling--;
-				release();
-			});
+			x.stopping = ready.cancel();
+			hold(x.stopping);
 		}
 		return x.stopping;
+	}
+
+	/**
+	 * Writes nothing more on this connection until `promise` settles, and the pool
+	 * sends it no queries meanwhile. Then the connection writes what waits in
+	 * `pending`, and tells the pool that it can take queries again.
+	 *
+	 * @param promise settles once a cancel request has been handled, or has failed
+	 */
+	function hold(promise) {
+		cancelling++;
+		const done = () => {
+			cancelling--;
+			if (cancelling === 0 && !closed) {
+				release();
+				events.onready(connection);
+			}
+		};
+		promise.then(done, done);
 	}
 
 	/**

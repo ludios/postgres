@@ -259,7 +259,7 @@ test(
 	"Destroying a copy to stdout readable while back-pressure has paused it leaves the connection usable",
 	{ timeout: 10_000 },
 	async () => {
-		const sql = postgres({ ...options, max: 1 });
+		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
 			const readable =
 				await sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`.readable();
@@ -280,7 +280,7 @@ test(
 	"Destroying a copy to stdout readable from a data handler leaves the connection usable",
 	{ timeout: 10_000 },
 	async () => {
-		const sql = postgres({ ...options, max: 1 }),
+		const sql = postgres({ ...options, max: 1, idle_timeout: null }),
 			xs = [];
 		try {
 			// Once the stream flows with an empty buffer, `push` emits "data" synchronously,
@@ -313,7 +313,7 @@ test(
 	"Canceling a copy to stdout that is being read fails its readable with 57014",
 	{ timeout: 10_000 },
 	async () => {
-		const sql = postgres({ ...options, max: 1 });
+		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
 			const query = sql.unsafe(SLOW_COPY),
 				readable = await query.readable();
@@ -337,7 +337,7 @@ test(
 	"Canceling a copy to stdout whose readable was destroyed in a transaction stops it, and aborts the transaction",
 	{ timeout: 10_000 },
 	async () => {
-		const sql = postgres({ ...options, max: 1 });
+		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
 			const error = await sql
 				.begin(async (sql) => {
@@ -380,7 +380,7 @@ test(
 	"Canceling a copy from stdin that waits for data fails its writable with 57014",
 	{ timeout: 10_000 },
 	async () => {
-		const sql = postgres({ ...options, max: 1 });
+		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
 			await sql`create table test (x int)`;
 			const query = sql`copy test from stdin`,
@@ -404,7 +404,7 @@ test(
 	"Canceling a copy to stdout while back-pressure has paused it fails its readable with 57014",
 	{ timeout: 10_000 },
 	async () => {
-		const sql = postgres({ ...options, max: 1 });
+		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
 			const query = sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`,
 				readable = await query.readable();
@@ -459,7 +459,7 @@ test(
 	"Destroying a copy to stdout outside a transaction makes the server stop it",
 	{ timeout: 10_000 },
 	async () => {
-		const sql = postgres({ ...options, max: 1 });
+		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
 			const readable = await sql.unsafe(SLOW_COPY).readable();
 			await new Promise((resolve) => readable.once("data", resolve));
@@ -476,7 +476,7 @@ test(
 	"Destroying a copy to stdout in a transaction only drops the rest, which keeps the transaction",
 	{ timeout: 10_000 },
 	async () => {
-		const sql = postgres({ ...options, max: 1 });
+		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
 			const x = await sql.begin(async (sql) => {
 				// Still running when destroyed, but only for about a second more

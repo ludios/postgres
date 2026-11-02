@@ -280,18 +280,19 @@ test("Cancel returns a promise", async () => {
 });
 
 test("A cancel that reaches the server after its query has finished does not cancel the next query", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	// Without an idle timeout, the next query has to run on the same connection
+	const sql = postgres({ ...options, max: 1, idle_timeout: null });
 	try {
-		await sql`select 1`;
+		const [{ pid }] = await sql`select pg_backend_pid() as pid`;
 		const fast = sql`select 1`.execute();
 		fast.catch(() => {});
 		// Let the query go out, then block, so that the server finishes it while its reply stays unread
 		await new Promise((resolve) => process.nextTick(resolve));
 		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
 		const cancelled = fast.cancel(),
-			[{ x }] = await sql`select pg_sleep(0.3), 1 as x`;
+			[{ x, after }] = await sql`select pg_sleep(0.3), 1 as x, pg_backend_pid() as after`;
 		await cancelled;
-		expect(x).toBe(1);
+		expect([x, after]).toEqual([1, pid]);
 	} finally {
 		await sql.end();
 	}
