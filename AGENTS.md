@@ -135,7 +135,7 @@ We're reworking all of it to follow the code conventions above and to test with 
 
 Renaming anything public (see `types/index.d.ts`) breaks users of the library; ask first.
 
-Vitest runs the tests (see `vitest.config.ts`): the unit tests in `tests/unit/`, and the integration tests in `tests/`, which need PostgreSQL. Node runs the scripts `tests/simulate.ts` (which needs no PostgreSQL server) and `tests/soak.ts` directly.
+Vitest runs the tests (see `vitest.config.ts`): the unit tests in `tests/unit/`, and the integration tests in `tests/`, which need PostgreSQL. Vitest runs only the files whose names end in `.test.ts`. Node runs the scripts `tests/simulate.ts` (which needs no PostgreSQL server) and `tests/soak.ts` directly.
 
 # Before committing
 
