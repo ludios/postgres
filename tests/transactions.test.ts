@@ -214,18 +214,17 @@ test(
 		timeout: 2000,
 	},
 	async () => {
-		let error;
-		try {
-			const sql = postgres({ host: "localhost", port: 1 });
-
-			await sql.begin(async (sql) => {
+		const sql = postgres({ host: "localhost", port: 1 });
+		const code = await sql
+			.begin(async (sql) => {
 				await sql`insert into test (label, value) values (${1}, ${2})`;
-			});
-		} catch (err) {
-			error = err;
-		}
-
-		expect(error.code).toBe("ECONNREFUSED");
+			})
+			.then(
+				() => "ran",
+				(e) => e.code,
+			);
+		await sql.end();
+		expect(code).toBe("ECONNREFUSED");
 	},
 );
 
