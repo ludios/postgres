@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import postgres from "../../src/index.ts";
-import { thrown } from "../helpers.ts";
+import { thrown, with_env } from "../helpers.ts";
 
 /**
  * @param url - the url to give postgres(), if any
@@ -113,43 +113,35 @@ test("disable and false in the query of a url turn an option off", async () => {
 });
 
 test("disable and false in a PG environment variable turn an option off, as in a url", async () => {
-	process.env.PGPREPARE = "false";
-	process.env.PGIDLE_TIMEOUT = "disable";
-	let read;
-	try {
-		const x = postgres({ max: 1 }).options;
-		read = [x.prepare, x.idle_timeout];
-	} finally {
-		delete process.env.PGPREPARE;
-		delete process.env.PGIDLE_TIMEOUT;
-	}
-	expect(read).toEqual([false, false]);
+	const x = with_env(
+		{ PGPREPARE: "false", PGIDLE_TIMEOUT: "disable" },
+		() => postgres({ max: 1 }).options,
+	);
+	expect([x.prepare, x.idle_timeout]).toEqual([false, false]);
 });
 
 test("target_session_attrs from options, the url and PGTARGETSESSIONATTRS, as libpq reads it", async () => {
-	process.env.PGTARGETSESSIONATTRS = "standby";
-	let read;
-	try {
-		read = [
-			postgres({ max: 1 }).options.target_session_attrs,
-			postgres("postgres://u@h/db?target_session_attrs=primary", { max: 1 }).options
-				.target_session_attrs,
-			postgres({ max: 1, target_session_attrs: null }).options.target_session_attrs,
-		];
-	} finally {
-		delete process.env.PGTARGETSESSIONATTRS;
-	}
-	expect([read, postgres({ max: 1 }).options.target_session_attrs]).toEqual([
-		["standby", "primary", null],
-		null,
+	const read = with_env({ PGTARGETSESSIONATTRS: "standby" }, () => [
+		postgres({ max: 1 }).options.target_session_attrs,
+		postgres("postgres://u@h/db?target_session_attrs=primary", { max: 1 }).options
+			.target_session_attrs,
+		postgres({ max: 1, target_session_attrs: null }).options.target_session_attrs,
 	]);
+	const unset = with_env(
+		{ PGTARGETSESSIONATTRS: undefined },
+		() => postgres({ max: 1 }).options.target_session_attrs,
+	);
+	expect([read, unset]).toEqual([["standby", "primary", null], null]);
 });
 
-test("An unsupported target_session_attrs throws", async () => {
-	expect(thrown(() => postgres({ target_session_attrs: "any" })).message).toBe(
+test("An unsupported or empty target_session_attrs throws", async () => {
+	const must =
 		"The option target_session_attrs must be one of " +
-			'null, "read-write", "read-only", "primary", "standby", "prefer-standby", but it is "any"',
-	);
+		'null, "read-write", "read-only", "primary", "standby", "prefer-standby", but it is ';
+	expect([
+		thrown(() => postgres({ target_session_attrs: "any" })).message,
+		thrown(() => postgres({ target_session_attrs: "" })).message,
+	]).toEqual([must + '"any"', must + '""']);
 });
 
 test("sql.array() is removed, and says so", async () => {
@@ -178,24 +170,20 @@ test("The removed casing transforms throw when read, and Object.assign does not 
 });
 
 test("channel_binding from options, the url and PGCHANNELBINDING, as libpq reads it", async () => {
-	process.env.PGCHANNELBINDING = "disable";
-	let read;
-	try {
-		read = [
-			postgres({ max: 1 }).options.channel_binding,
-			postgres("postgres://u@h/db?channel_binding=require", { max: 1 }).options.channel_binding,
-			postgres({ max: 1, channel_binding: "prefer" }).options.channel_binding,
-			postgres("postgres://u@h/db?channel_binding=require", { max: 1 }).options.connection
-				.channel_binding,
-		];
-	} finally {
-		delete process.env.PGCHANNELBINDING;
-	}
-	const invalid = thrown(() => postgres({ channel_binding: "yes" })).message;
-	expect([read, invalid]).toEqual([
-		["disable", "require", "prefer", undefined],
-		'The option channel_binding must be one of "disable", "prefer", "require", but it is "yes"',
+	const read = with_env({ PGCHANNELBINDING: "disable" }, () => [
+		postgres({ max: 1 }).options.channel_binding,
+		postgres("postgres://u@h/db?channel_binding=require", { max: 1 }).options.channel_binding,
+		postgres({ max: 1, channel_binding: "prefer" }).options.channel_binding,
+		postgres("postgres://u@h/db?channel_binding=require", { max: 1 }).options.connection
+			.channel_binding,
 	]);
+	const must =
+		'The option channel_binding must be one of "disable", "prefer", "require", but it is ';
+	expect([
+		read,
+		thrown(() => postgres({ channel_binding: "yes" })).message,
+		thrown(() => postgres({ channel_binding: null })).message,
+	]).toEqual([["disable", "require", "prefer", undefined], must + '"yes"', must + "null"]);
 });
 
 test("The scheduler is on by default, and off with scheduler: false, scheduler=false in the url, or max: 1", async () => {
@@ -208,28 +196,25 @@ test("The scheduler is on by default, and off with scheduler: false, scheduler=f
 });
 
 test("A numeric option written as text is a number, from the url, a PG variable or the options", async () => {
-	process.env.PGMAX_PIPELINE = " 7\r\n";
-	let read;
-	try {
-		const x = postgres("postgres://u@h/db?max=1&connect_timeout=2.5", {
-			idle_timeout: "60",
-		}).options;
-		read = [x.max, x.connect_timeout, x.idle_timeout, x.max_pipeline, x.scheduler];
-	} finally {
-		delete process.env.PGMAX_PIPELINE;
-	}
-	expect(read).toEqual([1, 2.5, 60, 7, false]);
+	const x = with_env(
+		{ PGMAX_PIPELINE: " 7\r\n" },
+		() => postgres("postgres://u@h/db?max=1&connect_timeout=2.5", { idle_timeout: "60" }).options,
+	);
+	expect([x.max, x.connect_timeout, x.idle_timeout, x.max_pipeline, x.scheduler]).toEqual([
+		1,
+		2.5,
+		60,
+		7,
+		false,
+	]);
 });
 
 test("A numeric option that is not a finite, non-negative number, or text that is not a non-negative decimal number, throws, naming its source", async () => {
 	const must = " must be a non-negative decimal number, but it is ";
-	process.env.PGCONNECT_TIMEOUT = "30s";
-	let from_variable;
-	try {
-		from_variable = thrown(() => postgres({ max: 1 })).message;
-	} finally {
-		delete process.env.PGCONNECT_TIMEOUT;
-	}
+	const from_variable = with_env(
+		{ PGCONNECT_TIMEOUT: "30s" },
+		() => thrown(() => postgres({ max: 1 })).message,
+	);
 	const texts = ["abc", "", " ", "-1", "1e3", "0x10", ".5", "Infinity", "9".repeat(400)];
 	expect([
 		from_variable,
@@ -277,13 +262,10 @@ test("max, min and max_pipeline must be integers of at least 1, 0 and 0", async 
 
 test("An option that is on or off is true or false, or the text true, false or disable; anything else throws", async () => {
 	const must = (source, shown) => "The " + source + " must be true or false, but it is " + shown;
-	process.env.PGFETCH_TYPES = "off";
-	let from_variable;
-	try {
-		from_variable = thrown(() => postgres({ max: 1 })).message;
-	} finally {
-		delete process.env.PGFETCH_TYPES;
-	}
+	const from_variable = with_env(
+		{ PGFETCH_TYPES: "off" },
+		() => thrown(() => postgres({ max: 1 })).message,
+	);
 	const read = postgres("postgres://u@h/db?infer=true&prepare=disable", {
 		max: 1,
 		fetch_types: "false",

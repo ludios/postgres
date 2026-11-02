@@ -51,6 +51,38 @@ export function thrown(f: () => unknown): any {
 }
 
 /**
+ * @param name  - the name of an environment variable
+ * @param value - the value to give it, or `undefined` to unset it
+ */
+function set_env(name: string, value: string | undefined) {
+	if (value === undefined) {
+		delete process.env[name];
+	} else {
+		process.env[name] = value;
+	}
+}
+
+/**
+ * @param vars - the environment variables to set while `f` runs, by name; `undefined` unsets one
+ * @param f    - a function to run; a promise that it returns is not awaited
+ * @returns what `f` returns; whether `f` returns or throws, each variable in `vars` then has the
+ * value that it had before `with_env` was called, or is unset if it was unset then
+ */
+export function with_env<T>(vars: Record<string, string | undefined>, f: () => T): T {
+	const before = Object.keys(vars).map((name) => [name, process.env[name]] as const);
+	for (const [name, value] of Object.entries(vars)) {
+		set_env(name, value);
+	}
+	try {
+		return f();
+	} finally {
+		for (const [name, value] of before) {
+			set_env(name, value);
+		}
+	}
+}
+
+/**
  * @param fn - a cleanup, such as one that drops a table or ends a pool; what it returns is awaited
  * @returns a resource that runs `fn` when the scope that declared it with `await using` exits,
  * even when the scope exits by throwing
