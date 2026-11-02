@@ -21,7 +21,6 @@
     "test:integration": "node tests/index.ts",
     "test:simulate": "node tests/simulate.ts",
     "coverage": "node tests/coverage.ts",
-    "test:cf": "sh tests/cf/run.sh",
     "prepare": "rm -rf dist && node node_modules/typescript/bin/tsc -p tsconfig.build.json",
     "typecheck": "node node_modules/typescript/bin/tsc && node node_modules/typescript/bin/tsc -p types && node node_modules/typescript5/bin/tsc -p types",
     "lint": "eslint src tests"
