@@ -8,7 +8,7 @@ import { thrown, with_env } from "../helpers.ts";
  * @returns the hosts, ports, user, pass, database and socket path (null if none) of the options that
  * postgres() made
  */
-const parsed = (url, o?) => {
+const parsed = (url: string, o?: Record<string, unknown>) => {
 	const x = postgres(url, { max: 1, ...o }).options;
 	return [x.host, x.port, x.user, x.pass, x.database, x.path || null];
 };
@@ -153,7 +153,7 @@ test("sql.array() is removed, and says so", async () => {
 
 test("A custom type can have the name of a property of functions, such as name or length", async () => {
 	const names = ["name", "length", "arguments", "caller", "__proto__"],
-		type = { to: 19, from: [19], parse: (x) => x, serialize: (x) => x },
+		type = { to: 19, from: [19], parse: (x: string) => x, serialize: (x: unknown) => x },
 		sql = postgres({ max: 1, types: Object.fromEntries(names.map((name) => [name, type])) });
 	const prototype = Object.getPrototypeOf(sql.types) === Function.prototype;
 	expect([names.map((name) => sql.types[name]("x").type), prototype]).toEqual([
@@ -164,7 +164,9 @@ test("A custom type can have the name of a property of functions, such as name o
 
 test("The removed casing transforms throw when read, and Object.assign does not copy them", async () => {
 	const names = "camel toCamel fromCamel pascal toPascal fromPascal kebab toKebab fromKebab",
-		codes = names.split(" ").map((name) => thrown(() => postgres[name]).code);
+		codes = names
+			.split(" ")
+			.map((name) => thrown(() => (postgres as unknown as Record<string, unknown>)[name]).code);
 	const copied = Object.assign({}, postgres);
 	expect([codes, names.split(" ").filter((name) => name in copied)]).toEqual([
 		Array(9).fill("CASING_TRANSFORM_REMOVED"),
@@ -214,7 +216,7 @@ test("ssl is true, false, TLS options or a mode, from options, the url and PGSSL
 });
 
 test("Another ssl throws, and so does verify-ca, which libpq refuses with sslrootcert=system", async () => {
-	const must = (source, shown) =>
+	const must = (source: string, shown: string) =>
 		"The " +
 		source +
 		' must be true, false, an object of TLS options, or one of "disable", "allow", "prefer", ' +
@@ -234,7 +236,7 @@ test("Another ssl throws, and so does verify-ca, which libpq refuses with sslroo
 });
 
 test("sslmode in a url is read as ssl, and its errors name it, even when it is empty", async () => {
-	const must = (shown) =>
+	const must = (shown: string) =>
 		"The url parameter sslmode must be true, false, an object of TLS options, or one of " +
 		'"disable", "allow", "prefer", "require", "verify-full", but it is ' +
 		shown;
@@ -247,7 +249,7 @@ test("sslmode in a url is read as ssl, and its errors name it, even when it is e
 
 test("sslrootcert=system makes verify-full the ssl mode, and any other mode, also from PGSSLMODE, throws, as in libpq", async () => {
 	const url = "postgres://u@h/db?sslrootcert=system";
-	const must = (shown) =>
+	const must = (shown: string) =>
 		'The url parameter sslrootcert is "system", which, as in libpq, needs the ssl mode ' +
 		'"verify-full", but ssl is ' +
 		shown;
@@ -300,7 +302,7 @@ test("PGSSLROOTCERT=system acts as sslrootcert=system in the url, which comes fi
 });
 
 test("A file of certificate authorities, which is not read, throws with true or a mode that encrypts", async () => {
-	const must = (source) =>
+	const must = (source: string) =>
 		"The " +
 		source +
 		' is "/etc/ca.pem", a file of certificate authorities, which postgres.js does not read, so ' +
@@ -308,7 +310,7 @@ test("A file of certificate authorities, which is not read, throws with true or 
 		"instead, with checkServerIdentity: () => undefined if the host name is not to be checked, " +
 		"as libpq's require and verify-ca do not check it";
 	const tls: { ca: string[] } = { ca: [] };
-	const thrown_with = (ssl) => thrown(() => postgres({ max: 1, ssl })).message;
+	const thrown_with = (ssl: unknown) => thrown(() => postgres({ max: 1, ssl })).message;
 	const read = with_env({ PGSSLROOTCERT: "/etc/ca.pem" }, () => [
 		[
 			postgres({ max: 1 }).options.ssl,
@@ -346,11 +348,11 @@ test("sslnegotiation from options, the url and PGSSLNEGOTIATION; another value t
 });
 
 test("sslnegotiation=direct needs an ssl that always encrypts, as in libpq", async () => {
-	const must = (shown) =>
+	const must = (shown: string) =>
 		'sslnegotiation is "direct", which, as in libpq, needs an ssl that always encrypts: true, ' +
 		'"require", "verify-full" or TLS options, but ssl is ' +
 		shown;
-	const direct = (ssl) => postgres({ max: 1, sslnegotiation: "direct", ssl }).options.ssl;
+	const direct = (ssl: unknown) => postgres({ max: 1, sslnegotiation: "direct", ssl }).options.ssl;
 	expect([
 		[true, "require", "verify-full", { ca: [] }].map(direct),
 		thrown(() => postgres("postgres://u@h/db?sslnegotiation=direct", { max: 1 })).message,
@@ -416,7 +418,7 @@ test("A numeric option that is not a finite, non-negative number, or text that i
 });
 
 test("max, min and max_pipeline must be integers of at least 1, 0 and 0", async () => {
-	const must = (k, least, shown) =>
+	const must = (k: string, least: number, shown: string) =>
 		"The " + k + " must be an integer of at least " + least + ", but it is " + shown;
 	const read = postgres("postgres://u@h/db?max=2&min=0&max_pipeline=0").options;
 	expect([
@@ -439,7 +441,8 @@ test("max, min and max_pipeline must be integers of at least 1, 0 and 0", async 
 });
 
 test("An option that is on or off is true, false or null, or the text true, false or disable; anything else throws", async () => {
-	const must = (source, shown) => "The " + source + " must be true or false, but it is " + shown;
+	const must = (source: string, shown: string) =>
+		"The " + source + " must be true or false, but it is " + shown;
 	const from_variable = with_env(
 		{ PGFETCH_TYPES: "off" },
 		() => thrown(() => postgres({ max: 1 })).message,
@@ -468,7 +471,7 @@ test("An option that is on or off is true, false or null, or the text true, fals
 
 test("debug is true or false, the text true, false or disable, or a function; anything else throws", async () => {
 	const f = vi.fn<() => void>();
-	const must = (source, shown) =>
+	const must = (source: string, shown: string) =>
 		"The " + source + " must be true, false or a function, but it is " + shown;
 	const read = with_env({ PGDEBUG: "true" }, () => [
 		postgres({ max: 1 }).options.debug,

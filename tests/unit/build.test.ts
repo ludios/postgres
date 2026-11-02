@@ -2,11 +2,12 @@ import util from "util";
 import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";
 import cases from "./build.cases.ts";
+import type { Query } from "../../src/query.ts";
 import { snake_case, thrown } from "../helpers.ts";
 
 const sql = postgres({ host: "localhost", port: 1, max: 1 });
 /** @returns the text and the parameters of `q`, a query that is built but not run */
-const show = (q) => [q.text, q.parameters];
+const show = (q: Query) => [q.text, q.parameters];
 
 cases.forEach(([name, fn, text, parameters]) =>
 	// oxlint-disable-next-line vitest/valid-title -- the rule wants a literal title, not `name`

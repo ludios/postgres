@@ -2,19 +2,19 @@ import { expect, test } from "vitest";
 import * as p from "../../src/protocol.ts";
 import { thrown } from "../helpers.ts";
 
-const hex = (x) => Buffer.from(x).toString("hex");
-const str = (x) => Buffer.from(x + "\0");
-const i16 = (x) => {
+const hex = (x: Uint8Array) => Buffer.from(x).toString("hex");
+const str = (x: string) => Buffer.from(x + "\0");
+const i16 = (x: number) => {
 	const b = Buffer.alloc(2);
 	b.writeInt16BE(x);
 	return b;
 };
-const i32 = (x) => {
+const i32 = (x: number) => {
 	const b = Buffer.alloc(4);
 	b.writeInt32BE(x);
 	return b;
 };
-const msg = (type, ...parts) => {
+const msg = (type: string, ...parts: Buffer[]) => {
 	const body = Buffer.concat(parts);
 	return Buffer.concat([Buffer.from(type), i32(body.length + 4), body]);
 };
@@ -160,8 +160,8 @@ const stream = Buffer.concat(messages);
  * @returns each message that the Frames hands over, as its type character followed by its length in
  * bytes (including the type byte)
  */
-function collect(chunks) {
-	const out = [],
+function collect(chunks: Buffer[]) {
+	const out: string[] = [],
 		frames = p.Frames((type, buffer, start, end) =>
 			out.push(String.fromCharCode(type) + (end - start)),
 		);
@@ -189,14 +189,14 @@ test("Frames handles one byte at a time", async () => {
 test("Frames on a shared read buffer keeps what it has not framed when paused, and what comes while paused", async () => {
 	const expected = collect([stream]),
 		shared = Buffer.alloc(stream.length),
-		out = [],
+		out: string[] = [],
 		frames = p.Frames((type, buffer, start, end) => {
 			out.push(String.fromCharCode(type) + (end - start));
 			if (type === 84) {
 				frames.pause();
 			}
 		}, true),
-		read = (from, to) => {
+		read = (from: number, to: number) => {
 			stream.copy(shared, 0, from, to);
 			frames.push(shared.subarray(0, to - from));
 			shared.fill(0);
@@ -210,7 +210,7 @@ test("Frames on a shared read buffer keeps what it has not framed when paused, a
 
 test("Frames owning a shared read buffer hands over messages that stay intact after the buffer is reused", async () => {
 	const shared = Buffer.alloc(stream.length),
-		kept = [],
+		kept: Buffer[] = [],
 		frames = p.Frames((type, buffer, start, end) => {
 			if (frames.owns(buffer)) {
 				kept.push(buffer.subarray(start, end));
@@ -219,7 +219,7 @@ test("Frames owning a shared read buffer hands over messages that stay intact af
 				frames.own(true);
 			}
 		}, true),
-		read = (from, to) => {
+		read = (from: number, to: number) => {
 			stream.copy(shared, 0, from, to);
 			frames.push(shared.subarray(0, to - from));
 			shared.fill(0);
@@ -241,7 +241,7 @@ test("Frames hands over the whole message buffer", async () => {
 });
 
 test("Frames pauses mid-chunk and resumes without a new push", async () => {
-	const out = [];
+	const out: string[] = [];
 	const frames = p.Frames((type) => {
 		out.push(String.fromCharCode(type));
 		if (type === 84) {
@@ -257,7 +257,8 @@ test("Frames pauses mid-chunk and resumes without a new push", async () => {
 	]);
 });
 
-const decode = (fn, x) => fn(x, 0, x.length);
+const decode = <T>(fn: (x: Buffer, start: number, end: number) => T, x: Buffer) =>
+	fn(x, 0, x.length);
 
 test("Decode ErrorResponse fields", async () => {
 	const e = decode(

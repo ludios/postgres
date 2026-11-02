@@ -23,8 +23,8 @@ function uncancelable_query() {
  * @returns The errors that Node reported as uncaught exceptions or as unhandled rejections.
  */
 async function unhandled_errors(fn: () => void) {
-	const errors = [];
-	const on_error = (error) => errors.push(error);
+	const errors: unknown[] = [];
+	const on_error = (error: unknown) => errors.push(error);
 	process.on("uncaughtException", on_error);
 	process.on("unhandledRejection", on_error);
 	try {

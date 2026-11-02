@@ -9,7 +9,8 @@ function exposed_gc() {
 	return vm.runInNewContext("gc");
 }
 
-const gc = globalThis.Bun ? () => globalThis.Bun.gc(true) : exposed_gc();
+const bun = (globalThis as { Bun?: { gc: (full: boolean) => void } }).Bun,
+	gc = bun ? () => bun.gc(true) : exposed_gc();
 
 test("Queue hands items back in order across compaction", async () => {
 	const q = Queue(),
@@ -36,7 +37,7 @@ test("Queue removes, peeks and takes what is left", async () => {
 });
 
 test("Queue shifts a long queue in linear time", async () => {
-	const time = (n) => {
+	const time = (n: number) => {
 		const q = Queue();
 		for (let i = 0; i < n; i++) {
 			q.push({ i });
@@ -47,7 +48,7 @@ test("Queue shifts a long queue in linear time", async () => {
 		}
 		return performance.now() - start;
 	};
-	const best = (n) => Math.min(...[1, 2, 3, 4, 5].map(() => time(n)));
+	const best = (n: number) => Math.min(...[1, 2, 3, 4, 5].map(() => time(n)));
 	time(50000);
 	const small = Math.max(best(50000), 1),
 		large = best(400000);

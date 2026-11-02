@@ -3,11 +3,11 @@ import * as fc from "fast-check";
 import { Types } from "../../src/types.ts";
 
 const types = Types({}),
-	parse = (oid, x) => types.parser(oid)(x),
-	serialize = (oid, x) => types.serializer(oid)(x);
+	parse = (oid: number, x: string) => types.parser(oid)(x),
+	serialize = (oid: number, x: unknown) => types.serializer(oid)(x) as string;
 
 /** Like `new Date(year, month, ...)` (in local time), but without mapping the years 0 to 99 to 1900 to 1999 */
-const local = (year, month, day = 1, h = 0, m = 0, s = 0, ms = 0) => {
+const local = (year: number, month: number, day = 1, h = 0, m = 0, s = 0, ms = 0) => {
 	const x = new Date(2000, month, day, h, m, s, ms);
 	x.setFullYear(year);
 	return x;
@@ -190,9 +190,16 @@ test("Array NULL with the box ; delimiter", async () => {
 });
 
 test("Array parser is not called for NULL", async () => {
-	const parsed = [],
+	const parsed: string[] = [],
 		custom = Types({
-			types: { text: { to: 25, from: [25], serialize: (x) => x, parse: (x) => parsed.push(x) } },
+			types: {
+				text: {
+					to: 25,
+					from: [25],
+					serialize: (x: unknown) => x,
+					parse: (x: string) => parsed.push(x),
+				},
+			},
 		});
 	custom.parser(1009)('{a,NULL,"NULL"}');
 	expect(parsed).toEqual(["a", "NULL"]);
@@ -270,12 +277,12 @@ test("A custom type named __proto__ resolves to its OID", async () => {
 		visible: true,
 	};
 	// Answers only the query that looks up the named types
-	const run = async (text) => (text.includes("t.typname in") ? [row] : []);
+	const run = async (text: string) => (text.includes("t.typname in") ? [row] : []);
 	await custom.load(run);
 	expect([custom.resolve("__proto__"), custom.parser(99999)("x")]).toEqual([99999, "p:x"]);
 });
 
-const pad = (n, width) => String(n).padStart(width, "0");
+const pad = (n: number, width: number) => String(n).padStart(width, "0");
 
 /**
  * @param t - an instant, in milliseconds since 1970-01-01 UTC
@@ -284,7 +291,7 @@ const pad = (n, width) => String(n).padStart(width, "0");
  * @returns the text that PostgreSQL sends for the timestamp with DateStyle ISO, in a time zone
  *   with the offset `offset`
  */
-function iso(t, micros, offset) {
+function iso(t: number, micros: number, offset: number | null) {
 	const d = new Date(t + (offset ?? 0) * 1000),
 		year = d.getUTCFullYear(),
 		fraction = (pad(d.getUTCMilliseconds(), 3) + pad(micros, 3)).replace(/0+$/, "");
@@ -319,7 +326,7 @@ function iso(t, micros, offset) {
  * @returns the bytes of `text` between digits of other values, where a decoder that reads past the
  *   value would find them, and where `text` starts and ends in those bytes
  */
-function embedded(text) {
+function embedded(text: string) {
 	return { x: Buffer.from("12345" + text + "67890", "latin1"), start: 5, end: 5 + text.length };
 }
 
@@ -331,7 +338,7 @@ const utc_types = Types({ infer: false });
  * @param text - the text of the value
  * @returns the value that the decoder of `utc_types` for `oid` gives for the bytes of `text`
  */
-function decoded(oid, text) {
+function decoded(oid: number, text: string) {
 	const { x, start, end } = embedded(text);
 	return utc_types.decoder(oid, utc_types.parser(oid))(x, start, end);
 }
@@ -426,7 +433,7 @@ test("Read a timestamp as local time with its text parser, which has no decoder"
  * @param n - an integer
  * @returns `n` as a signed 32-bit big-endian integer
  */
-function int32_bytes(n) {
+function int32_bytes(n: number) {
 	const x = Buffer.alloc(4);
 	x.writeInt32BE(n);
 	return x;
@@ -438,9 +445,9 @@ function int32_bytes(n) {
  * @param write - `(element) => Buffer` gives the binary format of an element
  * @returns the array in PostgreSQL's binary format, with lower bounds of 1
  */
-function binary_array_bytes(xs, write) {
-	const sizes = [];
-	for (let a = xs; Array.isArray(a) && a.length > 0; a = a[0]) {
+function binary_array_bytes(xs: unknown[], write: (x: any) => Buffer) {
+	const sizes: number[] = [];
+	for (let a: unknown = xs; Array.isArray(a) && a.length > 0; a = a[0]) {
 		sizes.push(a.length);
 	}
 	const flat = xs.flat(Math.max(sizes.length - 1, 0));
@@ -461,7 +468,7 @@ function binary_array_bytes(xs, write) {
  * @param show - `(element) => string` gives the text of an element
  * @returns the text that PostgreSQL sends for the array
  */
-function array_text(xs, show) {
+function array_text(xs: unknown, show: (x: any) => string): string {
 	return Array.isArray(xs)
 		? "{" + xs.map((x) => array_text(x, show)).join(",") + "}"
 		: xs === null
@@ -474,7 +481,7 @@ function array_text(xs, show) {
  * @returns an arbitrary of arrays of `element` and NULLs, with one dimension (and maybe no
  *   elements) or two
  */
-function arrays_of(element) {
+function arrays_of<T>(element: fc.Arbitrary<T>) {
 	const item = fc.option(element, { nil: null });
 	return fc.oneof(
 		fc.array(item, { maxLength: 8 }),
@@ -487,17 +494,22 @@ function arrays_of(element) {
 }
 
 /** For each array type that is read in binary: its elements, their binary format, and their text */
-const binary_cases = [
+const binary_cases: {
+	oid: number;
+	element: fc.Arbitrary<any>;
+	write: (x: any) => Buffer;
+	show: (x: any) => string;
+}[] = [
 	{
 		oid: 1000,
 		element: fc.boolean(),
-		write: (x) => Buffer.from([x ? 1 : 0]),
-		show: (x) => (x ? "t" : "f"),
+		write: (x: boolean) => Buffer.from([x ? 1 : 0]),
+		show: (x: boolean) => (x ? "t" : "f"),
 	},
 	{
 		oid: 1005,
 		element: fc.integer({ min: -32768, max: 32767 }),
-		write: (x) => {
+		write: (x: number) => {
 			const b = Buffer.alloc(2);
 			b.writeInt16BE(x);
 			return b;
@@ -554,7 +566,7 @@ test("Decode arrays with a lower bound other than 1 without the bounds, as their
  * @param oid - a type
  * @returns the types of a pool whose options.types parses `oid` itself
  */
-function custom_types(oid) {
+function custom_types(oid: number) {
 	return Types({ types: { x: { to: oid, from: [oid], serialize: String, parse: String } } });
 }
 
@@ -563,7 +575,7 @@ function custom_types(oid) {
  * @param oid - the type of a column
  * @returns the decoder of the binary format that a column of type `oid` gets, or null
  */
-function binary_decoder(pool_types, oid) {
+function binary_decoder(pool_types: ReturnType<typeof Types>, oid: number) {
 	return pool_types.binary(oid, pool_types.parser(oid));
 }
 

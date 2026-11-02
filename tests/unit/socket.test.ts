@@ -9,11 +9,11 @@ import { port_of } from "../helpers.ts";
 function fake() {
 	const x: any = new EventEmitter();
 	x.written = [];
-	x.write = (data) => {
+	x.write = (data: Buffer) => {
 		x.written.push(data);
 		return true;
 	};
-	x.end = (data) => {
+	x.end = (data?: Buffer) => {
 		if (data) {
 			x.written.push(data);
 		}
@@ -37,7 +37,7 @@ test("Socket takes the user socket", async () => {
 test("Socket passes data, drain and writes through", async () => {
 	const raw = fake(),
 		socket = await Socket(opts({ socket: async () => raw })),
-		got = [];
+		got: string[] = [];
 	socket.ondata = (x) => got.push(x.toString());
 	socket.ondrain = () => got.push("drain");
 	raw.emit("data", Buffer.from("a"));
@@ -49,7 +49,7 @@ test("Socket passes data, drain and writes through", async () => {
 test("Socket closes once with the error that came before", async () => {
 	const raw = fake(),
 		socket = await Socket(opts({ socket: () => raw })),
-		closes = [];
+		closes: unknown[] = [];
 	socket.onclose = (x) => closes.push(x && x.code);
 	raw.emit("error", Object.assign(new Error("reset"), { code: "ECONNRESET" }));
 	raw.emit("close", true);

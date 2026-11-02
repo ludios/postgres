@@ -1,6 +1,7 @@
 import util from "util";
 import { expect, test } from "vitest";
 import { PostgresError, copy_error, queryError } from "../../src/errors.ts";
+import type { Failure } from "../../src/errors.ts";
 import postgres from "../../src/index.ts";
 
 const here = new URL(import.meta.url).pathname;
@@ -53,7 +54,7 @@ test("PostgresError is exported from the package", async () => {
 
 test("Connection error stack is writable and configurable", async () => {
 	await using sql = offline();
-	const e = await sql`select 1`.catch((x) => x);
+	const e = await sql`select 1`.catch((x: Failure) => x);
 	const d = Object.getOwnPropertyDescriptor(e, "stack");
 	e.stack = "y";
 	expect([d ? d.writable !== false || !!d.set : true, d ? d.configurable : true, e.stack]).toEqual([
@@ -65,13 +66,13 @@ test("Connection error stack is writable and configurable", async () => {
 
 test("Connection error stack includes the calling line", async () => {
 	await using sql = offline();
-	const e = await sql`select 1`.catch((x) => x);
+	const e = await sql`select 1`.catch((x: Failure) => x);
 	expect(e.stack.includes(here)).toBe(true);
 });
 
 test("Undefined value error stack includes the calling line", async () => {
 	await using sql = offline();
-	const e = await sql`select ${undefined}`.catch((x) => x);
+	const e = await sql`select ${undefined}`.catch((x: Failure) => x);
 	expect([e.code, e.stack.includes(here)]).toEqual(["UNDEFINED_VALUE", true]);
 });
 
