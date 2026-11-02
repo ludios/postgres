@@ -100,7 +100,8 @@ test("Connect using SSL require", async () => {
 });
 
 test("Connect using SSL direct", async ({ skip }) => {
-	skip((await server_major()) < 17, "direct TLS needs PostgreSQL 17 or later");
+	const major = await server_major();
+	skip(major < 17, "direct TLS needs PostgreSQL 17 or later");
 	expect(
 		await new Promise((resolve, reject) => {
 			postgres({

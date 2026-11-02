@@ -1013,7 +1013,8 @@ test("sql.rollback() comes after the queries already made, and the connection is
 test("A transaction ended by transaction_timeout rejects with the FATAL error instead of CONNECTION_CLOSED (#1283)", async ({
 	skip,
 }) => {
-	skip((await server_major()) < 17, "transaction_timeout needs PostgreSQL 17 or later");
+	const major = await server_major();
+	skip(major < 17, "transaction_timeout needs PostgreSQL 17 or later");
 
 	const timed = postgres({ ...options, max: 1 });
 	const error = await timed

@@ -173,7 +173,8 @@ test(
 	"Copy read through a slow pipeline over direct TLS keeps every byte",
 	{ timeout: 30_000 },
 	async ({ skip }) => {
-		skip((await server_major()) < 17, "direct TLS needs PostgreSQL 17 or later");
+		const major = await server_major();
+		skip(major < 17, "direct TLS needs PostgreSQL 17 or later");
 
 		const tls = postgres({ ...options, ssl: "require", sslnegotiation: "direct", max: 1 });
 		const [{ ssl }] = await tls`select ssl from pg_stat_ssl where pid = pg_backend_pid()`;
