@@ -552,8 +552,9 @@ function Listen(options) {
 				listening: false,
 				timer: null,
 			};
-			channels.set(name, channel);
+			// Not stored if the LISTEN cannot be sent, which connection() may throw for
 			send_listen(channel, name);
+			channels.set(name, channel);
 		}
 
 		const channel = channels.get(name);
