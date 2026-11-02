@@ -625,6 +625,8 @@ for await (const chunk of readableStream) {
 }
 ```
 
+Destroying the readable stream partway through (as `pipeline` does when the destination fails, and as `break` does in `for await`) stops the stream, but not the server. The connection reads and drops the rest of the COPY output, and runs its next query only after the server has finished the COPY.
+
 > **NOTE** This is a low-level API which does not provide any type safety. To make this work, you must match your [`copy query` parameters](https://www.postgresql.org/docs/14/sql-copy.html) correctly to your [Node.js stream read or write](https://nodejs.org/api/stream.html) code. Ensure [Node.js stream backpressure](https://nodejs.org/en/learn/modules/backpressuring-in-streams) is handled correctly to avoid memory exhaustion.
 
 ### Canceling Queries in Progress

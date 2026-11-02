@@ -254,3 +254,47 @@ test(
 		await sql`drop table test`;
 	},
 );
+
+test(
+	"Destroying a copy to stdout readable while back-pressure has paused it leaves the connection usable",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1 }),
+			readable =
+				await sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`.readable();
+		// Nothing reads, so the connection stops reading the socket once the buffer is full
+		while (readable.readableLength < readable.readableHighWaterMark) {
+			await delay(1);
+		}
+		readable.destroy();
+		const [{ x }] = await sql`select 1 as x`;
+		await sql.end();
+		expect(x).toBe(1);
+	},
+);
+
+test(
+	"Destroying a copy to stdout readable from a data handler leaves the connection usable",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1 }),
+			xs = [];
+		// Once the stream flows with an empty buffer, `push` emits "data" synchronously,
+		// so destroying after a later chunk does so from inside `push`.
+		for (const after of [1, 2, 50, 500]) {
+			const readable =
+				await sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`.readable();
+			let n = 0;
+			readable.on("data", () => {
+				n++;
+				if (n === after) {
+					readable.destroy();
+				}
+			});
+			const [{ x }] = await sql`select ${after}::int as x`;
+			xs.push(x);
+		}
+		await sql.end();
+		expect(xs).toEqual([1, 2, 50, 500]);
+	},
+);

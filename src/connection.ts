@@ -1120,7 +1120,7 @@ export function Connection(ready, options, events) {
 			},
 			destroy(error, callback) {
 				callback(error);
-				item.stream = null;
+				discard(item);
 				if (!item.copied && !closed && !item.error) {
 					p.copyFail(out, (error || "The COPY stream was destroyed") + "");
 					item.copied = true;
@@ -1146,20 +1146,47 @@ export function Connection(ready, options, events) {
 		item.query.resolve(item.stream);
 	}
 
+	/** Resumes reading the socket, if a COPY stream's back-pressure paused it. */
+	function unpause() {
+		if (!frames.paused) {
+			return;
+		}
+		frames.resume();
+		if (!frames.paused) {
+			socket.resume();
+		}
+	}
+
+	/**
+	 * Detaches a destroyed COPY stream, so that the connection reads and drops the
+	 * rest of the COPY data instead of waiting for the stream to ask for more.
+	 *
+	 * @param item the exchange whose COPY the stream belonged to
+	 */
+	function discard(item) {
+		if (!item.stream) {
+			return;
+		}
+		item.stream = null;
+		unpause();
+	}
+
 	function readable(item) {
 		return () => {
 			item.wanted = true;
-
-			if (!frames.paused) return;
-
-			frames.resume();
-			frames.paused || socket.resume();
+			unpause();
 		};
 	}
 
 	function CopyOutResponse() {
 		const item = sent[0];
-		item.stream = new Stream.Readable({ read: readable(item) });
+		item.stream = new Stream.Readable({
+			read: readable(item),
+			destroy(error, callback) {
+				discard(item);
+				callback(error);
+			},
+		});
 		item.open = false;
 		frames.own(true);
 		item.query.resolve(item.stream);

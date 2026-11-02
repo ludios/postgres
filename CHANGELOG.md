@@ -106,6 +106,7 @@ The open issues and pull requests were triaged into 33 correctness bugs, each wi
 - `end()` stops connection attempts under way and settles every query; a reserved connection is never stranded.
 - Array and domain types are fetched once per pool, on its first connection; if that query fails with a server error the pool carries on without them instead of asking again for every query.
 - COPY under back-pressure no longer stalls, and COPY TO STDOUT to a slow consumer is no slower with the shared read buffer than without it.
+- Destroying a `copy ... to stdout` readable partway through no longer hangs its connection; the connection reads and drops the rest of the COPY output.
 
 ### Performance
 
