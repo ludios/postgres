@@ -187,7 +187,7 @@ test("A numeric option written as text is a number, from the url, a PG variable 
 	expect(read).toEqual([1, 2.5, 60, 7, false]);
 });
 
-test("A numeric option written as anything but a non-negative decimal number throws, naming its source", async () => {
+test("A numeric option that is not a finite, non-negative number, or text that is not a non-negative decimal number, throws, naming its source", async () => {
 	const must = " must be a non-negative decimal number, but it is ";
 	process.env.PGCONNECT_TIMEOUT = "30s";
 	let from_variable;
@@ -196,10 +196,13 @@ test("A numeric option written as anything but a non-negative decimal number thr
 	} finally {
 		delete process.env.PGCONNECT_TIMEOUT;
 	}
-	const texts = ["abc", "", " 1", "-1", "1e3", "0x10", ".5", "Infinity"];
+	const texts = ["abc", "", " 1", "-1", "1e3", "0x10", ".5", "Infinity", "9".repeat(400)];
 	expect([
 		from_variable,
 		thrown(() => postgres({ max: 1, idle_timeout: "abc" })).message,
+		thrown(() => postgres({ max: 1, connect_timeout: NaN })).message,
+		thrown(() => postgres({ max: -1 })).message,
+		thrown(() => postgres({ max: 1, idle_timeout: Infinity })).message,
 		...texts.map(
 			(x) =>
 				thrown(() => postgres("postgres://u@h/db?backoff=" + encodeURIComponent(x), { max: 1 }))
@@ -208,6 +211,9 @@ test("A numeric option written as anything but a non-negative decimal number thr
 	]).toEqual([
 		"The environment variable PGCONNECT_TIMEOUT" + must + '"30s"',
 		"The option idle_timeout" + must + '"abc"',
+		"The option connect_timeout" + must + "NaN",
+		"The option max" + must + "-1",
+		"The option idle_timeout" + must + "Infinity",
 		...texts.map((x) => "The url parameter backoff" + must + JSON.stringify(x)),
 	]);
 });
