@@ -308,7 +308,9 @@ test("connect_timeout", { timeout: 20_000 }, async () => {
 	const start = Date.now();
 	let end;
 	await sql`select 1`.catch((e) => {
-		if (e.code !== "CONNECT_TIMEOUT") throw e;
+		if (e.code !== "CONNECT_TIMEOUT") {
+			throw e;
+		}
 		end = Date.now();
 	});
 	server.close();
@@ -333,7 +335,9 @@ test("connect_timeout error message includes host:port", { timeout: 20_000 }, as
 	const port = port_of(server);
 	let err;
 	await sql`select 1`.catch((e) => {
-		if (e.code !== "CONNECT_TIMEOUT") throw e;
+		if (e.code !== "CONNECT_TIMEOUT") {
+			throw e;
+		}
 		err = e.message;
 	});
 	server.close();
@@ -1096,7 +1100,9 @@ test(
 		const other = postgres({ ...options, max: 1 });
 		await other`select pg_terminate_backend(${pid})`;
 		const settled = await burst;
-		while ((await other`select 1 from pg_stat_activity where pid = ${pid}`).length) await delay(10);
+		while ((await other`select 1 from pg_stat_activity where pid = ${pid}`).length) {
+			await delay(10);
+		}
 		await delay(50);
 		await other.end();
 		const [{ x }] = await sql`select 1 as x`;
@@ -1122,11 +1128,15 @@ function lyingServer(final) {
 		s.on("data", (d) => {
 			buf = Buffer.concat([buf, d]);
 			let more = true;
-			while (more) more = started ? message() : startup();
+			while (more) {
+				more = started ? message() : startup();
+			}
 		});
 
 		function startup() {
-			if (buf.length < 8 || buf.length < buf.readInt32BE(0)) return false;
+			if (buf.length < 8 || buf.length < buf.readInt32BE(0)) {
+				return false;
+			}
 
 			const code = buf.readInt32BE(4);
 			buf = buf.subarray(buf.readInt32BE(0));
@@ -1138,7 +1148,9 @@ function lyingServer(final) {
 		}
 
 		function message() {
-			if (buf.length < 5 || buf.length < buf.readInt32BE(1) + 1) return false;
+			if (buf.length < 5 || buf.length < buf.readInt32BE(1) + 1) {
+				return false;
+			}
 
 			const type = String.fromCharCode(buf[0]),
 				body = buf.subarray(5, buf.readInt32BE(1) + 1);
@@ -1369,7 +1381,9 @@ test("Queries and transactions fail fast with the connection error while connect
 test("Errors from fast failures are separate objects for each query", async () => {
 	const sql = postgres({ ...options, port: 1 });
 	const errors = [];
-	for (let i = 0; i < 4; i++) errors.push(await sql.unsafe("select " + i).catch((e) => e));
+	for (let i = 0; i < 4; i++) {
+		errors.push(await sql.unsafe("select " + i).catch((e) => e));
+	}
 	await sql.end();
 	expect([new Set(errors).size, errors.map((e) => [e.query, typeof e.stack, e.code])]).toEqual([
 		4,

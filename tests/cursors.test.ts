@@ -131,21 +131,27 @@ test("Async Iterator Unsafe cursor", async () => {
 
 test("Async Iterator Cursor custom n", async () => {
 	const order = [];
-	for await (const x of sql`select * from generate_series(1,20)`.cursor(10)) order.push(x.length);
+	for await (const x of sql`select * from generate_series(1,20)`.cursor(10)) {
+		order.push(x.length);
+	}
 
 	expect(order).toEqual([10, 10]);
 });
 
 test("Async Iterator Cursor custom with rest n", async () => {
 	const order = [];
-	for await (const x of sql`select * from generate_series(1,20)`.cursor(11)) order.push(x.length);
+	for await (const x of sql`select * from generate_series(1,20)`.cursor(11)) {
+		order.push(x.length);
+	}
 
 	expect(order).toEqual([11, 9]);
 });
 
 test("Async Iterator Cursor custom with less results than batch size", async () => {
 	const order = [];
-	for await (const x of sql`select * from generate_series(1,20)`.cursor(21)) order.push(x.length);
+	for await (const x of sql`select * from generate_series(1,20)`.cursor(21)) {
+		order.push(x.length);
+	}
 	expect(order).toEqual([20]);
 });
 
@@ -215,7 +221,9 @@ test(
 			});
 			const done = cursor.then(() => batches),
 				until = async (fn) => {
-					while (!fn()) await delay(5);
+					while (!fn()) {
+						await delay(5);
+					}
 				},
 				next = async () => {
 					const before = release;
@@ -225,7 +233,9 @@ test(
 			await until(() => release);
 			const q = sql`select ${"value"}::text as a, ${Math.random()}::float8 as cursor_order_shape`;
 			q.catch(() => {});
-			for (let i = 0; i < 10; i++) await Promise.resolve();
+			for (let i = 0; i < 10; i++) {
+				await Promise.resolve();
+			}
 			await next();
 			await next();
 			release();
@@ -255,7 +265,9 @@ test(
 			await delay(50);
 		});
 		cursor.catch(() => {});
-		while (!batches.length) await delay(2);
+		while (!batches.length) {
+			await delay(2);
+		}
 		const [{ a }] = await reserved`select 'q1' as a`;
 		await cursor;
 		reserved.release();
@@ -363,7 +375,9 @@ test("A pool cursor whose callback throws on the last batch rejects and frees th
 	const sql = postgres({ ...options, max: 1 });
 	const error = await sql`select generate_series(1, 3) as x`
 		.cursor(2, (rows) => {
-			if (rows[0].x === 3) throw new Error("last");
+			if (rows[0].x === 3) {
+				throw new Error("last");
+			}
 		})
 		.then(
 			() => "resolved",
@@ -382,7 +396,9 @@ test("A pool cursor whose column parser throws rejects and frees the connection"
 				to: 0,
 				from: [23],
 				parse: (x) => {
-					if (x === "3") throw new Error("parser");
+					if (x === "3") {
+						throw new Error("parser");
+					}
 					return +x;
 				},
 			},
@@ -403,7 +419,9 @@ test("A reserved cursor whose callback throws on the last batch rejects and leav
 	const reserved = await sql.reserve();
 	const error = await reserved`select generate_series(1, 3) as x`
 		.cursor(2, (rows) => {
-			if (rows[0].x === 3) throw new Error("last");
+			if (rows[0].x === 3) {
+				throw new Error("last");
+			}
 		})
 		.then(
 			() => "resolved",

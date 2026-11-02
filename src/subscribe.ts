@@ -104,14 +104,18 @@ export default function Subscribe(postgres, options) {
 	}
 
 	async function init() {
-		if (!options.publications) throw new Error("Missing publication names");
+		if (!options.publications) {
+			throw new Error("Missing publication names");
+		}
 
 		await sql
 			.unsafe(
 				`CREATE_REPLICATION_SLOT ${slot}${persistent ? "" : " TEMPORARY"} LOGICAL pgoutput NOEXPORT_SNAPSHOT`,
 			)
 			.catch((error) => {
-				if (!persistent || error.code !== "42710") throw error;
+				if (!persistent || error.code !== "42710") {
+					throw error;
+				}
 			});
 
 		const query = sql.unsafe(
@@ -158,8 +162,9 @@ export default function Subscribe(postgres, options) {
 		}
 
 		function message(kind, x, info) {
-			if (kind === "begin")
+			if (kind === "begin") {
 				return (transaction = { lsn: x.lsn, end: null, time: x.time, xid: x.xid });
+			}
 
 			if (kind === "commit") {
 				const done = transaction;
@@ -176,7 +181,9 @@ export default function Subscribe(postgres, options) {
 		}
 
 		function run(fn) {
-			if (failed || stopped) return;
+			if (failed || stopped) {
+				return;
+			}
 
 			if (queue) {
 				queue = queue.then(() => (failed || stopped ? null : fn()));
@@ -194,7 +201,9 @@ export default function Subscribe(postgres, options) {
 		function drain() {
 			const at = queue;
 			at.then(() => {
-				if (queue !== at) return queue && drain();
+				if (queue !== at) {
+					return queue && drain();
+				}
 
 				queue = null;
 				stopped || failed || stream.resume();
@@ -238,7 +247,9 @@ export default function Subscribe(postgres, options) {
 
 		function fail(error, subscriber) {
 			report(error, subscriber);
-			if (!persistent || failed) return;
+			if (!persistent || failed) {
+				return;
+			}
 
 			failed = true;
 			queue = null;
@@ -253,14 +264,18 @@ export default function Subscribe(postgres, options) {
 
 		function tick() {
 			timer = null;
-			if (stopped) return;
+			if (stopped) {
+				return;
+			}
 
 			status();
 			timer = timers.setTimeout(tick, statusInterval);
 		}
 
 		function status() {
-			if (stopped || stream.destroyed || !stream.writable) return;
+			if (stopped || stream.destroyed || !stream.writable) {
+				return;
+			}
 
 			const x = Buffer.alloc(34);
 			x[0] = 0x72;
@@ -282,7 +297,9 @@ export default function Subscribe(postgres, options) {
 		}
 
 		function stop() {
-			if (stopped) return;
+			if (stopped) {
+				return;
+			}
 
 			stopped = true;
 			timer && timers.clearTimeout(timer);

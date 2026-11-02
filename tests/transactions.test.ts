@@ -810,7 +810,9 @@ test("A query that leaves a transaction open on the pool is rejected and rolled 
 		() => "ok",
 		(e) => e.code,
 	);
-	for (let i = 0; i < 4; i++) await sql`insert into test values (${i})`;
+	for (let i = 0; i < 4; i++) {
+		await sql`insert into test values (${i})`;
+	}
 	await sql.end();
 	const check = postgres(options);
 	const [{ n }] = await check`select count(*)::int as n from test`;
@@ -936,7 +938,9 @@ test(
 		const result = await sql.begin(async (sql) => {
 			await sql`create table test (x int)`;
 			let start = Date.now();
-			for (let i = 0; i < 5; i++) await sql`select ${i}::int`;
+			for (let i = 0; i < 5; i++) {
+				await sql`select ${i}::int`;
+			}
 			const sequential = Date.now() - start;
 			start = Date.now();
 			const [, counted, , summed] = await Promise.all([
@@ -1045,8 +1049,9 @@ test("A transaction whose backend is terminated mid-query rejects with the FATAL
 				!(
 					await killer`select wait_event = 'PgSleep' as sleeping from pg_stat_activity where pid = ${pid}`
 				)[0].sleeping
-			)
+			) {
 				await delay(1);
+			}
 			await killer`select pg_terminate_backend(${pid})`;
 			await query;
 		})

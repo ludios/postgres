@@ -132,7 +132,9 @@ test("Large object tell, size, truncate, and ranges for readable and writable", 
 	const lo = await sql.largeObject(),
 		read = async (o?) => {
 			let s = "";
-			for await (const x of await lo.readable(o)) s += x;
+			for await (const x of await lo.readable(o)) {
+				s += x;
+			}
 			return s;
 		};
 	await lo.write(Buffer.from("0123456789"));

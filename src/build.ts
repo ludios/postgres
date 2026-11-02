@@ -64,8 +64,9 @@ export function build(query, options) {
 		? stringify(query, o)
 		: (query.args.forEach((x) => value(x, o)), "" + query.strings[0]);
 
-	if (values.length >= 65534)
+	if (values.length >= 65534) {
 		throw Errors.generic("MAX_PARAMETERS_EXCEEDED", "Max number of parameters (65534) exceeded");
+	}
 
 	const types = oids.join();
 	return { strings: query.strings, dynamic: o.dynamic, types, text, values, oids };
@@ -74,8 +75,9 @@ export function build(query, options) {
 function stringify(q, o) {
 	let string = q.strings[0];
 
-	for (let i = 1; i < q.strings.length; i++)
+	for (let i = 1; i < q.strings.length; i++) {
 		string += part(string, q.args[i - 1], o, q.strings[i]) + q.strings[i];
+	}
 
 	return string;
 }
@@ -86,8 +88,9 @@ function part(before, x, o, after = "") {
 		x instanceof Identifier ||
 		isFragment(x) ||
 		(Array.isArray(x) && isFragment(x[0]))
-	)
+	) {
 		o.dynamic = true;
+	}
 
 	return isFragment(x) && x.strings === joinStrings
 		? joined(x.args[0], o, before, after)
@@ -131,8 +134,9 @@ export function value(x, o) {
 	let v = x instanceof Parameter ? x.value : x;
 	if (v === undefined) {
 		v = o.transform.undefined;
-		if (v === undefined)
+		if (v === undefined) {
 			throw Errors.generic("UNDEFINED_VALUE", "Undefined values are not allowed");
+		}
 		x instanceof Parameter || (x = v);
 	}
 	o.values.push(v);
@@ -153,8 +157,9 @@ const builders = {
 };
 
 function call(first, rest, o) {
-	if (first === null || typeof first !== "object" || Array.isArray(first) || isFragment(first))
+	if (first === null || typeof first !== "object" || Array.isArray(first) || isFragment(first)) {
 		return select(first, rest, o);
+	}
 
 	return columns(first, rest)
 		.map((x) => escapeIdentifier(column(x, o)) + " => " + part("values", first[x], o))
@@ -242,12 +247,13 @@ function context(sql) {
 		} else if (c === "(") {
 			if (depth === 0) {
 				const word = previous(sql, i - 1);
-				if (words.length === 0)
+				if (words.length === 0) {
 					return word === "in" || word === "values"
 						? word
 						: word && !clauses.has(word) && !stops.has(word)
 							? "call"
 							: "select";
+				}
 				return "select";
 			}
 			depth--;
@@ -255,19 +261,30 @@ function context(sql) {
 		} else if (c === "'" || c === '"') {
 			const end = i;
 			i--;
-			while (i >= 0 && !(sql[i] === c && sql[i - 1] !== c)) sql[i] === c ? (i -= 2) : i--;
+			while (i >= 0 && !(sql[i] === c && sql[i - 1] !== c)) {
+				sql[i] === c ? (i -= 2) : i--;
+			}
 			i--;
-			if (sql[i] === ".") i--;
-			else depth === 0 && c === '"' && words.push(sql.slice(i + 1, end + 1));
+			if (sql[i] === ".") {
+				i--;
+			} else {
+				depth === 0 && c === '"' && words.push(sql.slice(i + 1, end + 1));
+			}
 		} else if (/[a-z_0-9$]/i.test(c)) {
 			const end = i + 1;
-			while (i >= 0 && /[a-z_0-9$.]/i.test(sql[i])) i--;
+			while (i >= 0 && /[a-z_0-9$.]/i.test(sql[i])) {
+				i--;
+			}
 			const word = depth === 0 && sql.slice(i + 1, end).toLowerCase();
 			if (word && clauses.has(word)) {
 				return clauses.get(word);
 			}
-			if (word === "into") return insert_into(words, sql, i) ? "insert" : null;
-			if (word && stops.has(word)) return null;
+			if (word === "into") {
+				return insert_into(words, sql, i) ? "insert" : null;
+			}
+			if (word && stops.has(word)) {
+				return null;
+			}
 			word && words.push(word);
 		} else {
 			i--;
@@ -277,12 +294,18 @@ function context(sql) {
 }
 
 function previous(sql, i) {
-	while (i >= 0 && /\s/.test(sql[i])) i--;
+	while (i >= 0 && /\s/.test(sql[i])) {
+		i--;
+	}
 
-	if (sql[i] === '"') return '"';
+	if (sql[i] === '"') {
+		return '"';
+	}
 
 	const end = i + 1;
-	while (i >= 0 && /[a-z_0-9$.]/i.test(sql[i])) i--;
+	while (i >= 0 && /[a-z_0-9$.]/i.test(sql[i])) {
+		i--;
+	}
 
 	return sql.slice(i + 1, end).toLowerCase();
 }
@@ -318,8 +341,9 @@ function update(first, rest, o) {
 }
 
 function insert(first, rest, o) {
-	if (Array.isArray(first) && first.every((x) => typeof x === "string"))
+	if (Array.isArray(first) && first.every((x) => typeof x === "string")) {
 		return "(" + escapeIdentifiers(first.concat(rest.flat()), o) + ")";
+	}
 
 	const picked = columns(Array.isArray(first) ? first[0] || {} : first, rest);
 	picked.length || empty("insert");
@@ -354,7 +378,9 @@ function member(x, o) {
 
 function select(first, rest, o) {
 	typeof first === "string" && (first = [first].concat(rest));
-	if (Array.isArray(first)) return identifiers(first, o);
+	if (Array.isArray(first)) {
+		return identifiers(first, o);
+	}
 
 	return columns(first, rest)
 		.map((x) => {

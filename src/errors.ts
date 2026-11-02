@@ -138,9 +138,13 @@ export function copy_error(error) {
 }
 
 export function queryError(error, q, debug) {
-	if (!error || typeof error !== "object") error = new Error(error);
+	if (!error || typeof error !== "object") {
+		error = new Error(error);
+	}
 
-	if (!q || "query" in error) return error;
+	if (!q || "query" in error) {
+		return error;
+	}
 
 	const built = q.built;
 	Object.defineProperties(error, {

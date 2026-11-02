@@ -4,7 +4,9 @@ import { postgres, options, delay, pg_socket_dir } from "./setup.ts";
 const until = async (fn, ms = 5000) => {
 	const end = Date.now() + ms;
 	while (!(await fn())) {
-		if (Date.now() > end) throw new Error("Timed out waiting");
+		if (Date.now() > end) {
+			throw new Error("Timed out waiting");
+		}
 		await delay(10);
 	}
 };
@@ -317,7 +319,9 @@ test("A listener that throws keeps its connection and gets the next notification
 		"throwing",
 		(x) => {
 			got.push(x);
-			if (x === "throw") throw new Error("listener throws");
+			if (x === "throw") {
+				throw new Error("listener throws");
+			}
 		},
 		() => onlisten++,
 	);

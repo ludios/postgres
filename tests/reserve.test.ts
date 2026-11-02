@@ -24,7 +24,9 @@ test("reserve connection", async () => {
 		reserved`select 3 as x`.then(([{ x }]) => ({ time: Date.now(), x })),
 	]);
 
-	if (xs[1].time - xs[2].time < 500) throw new Error("Wrong time");
+	if (xs[1].time - xs[2].time < 500) {
+		throw new Error("Wrong time");
+	}
 
 	expect(xs.map((x) => x.x)).toEqual([1, 2, 3]);
 });
@@ -101,8 +103,9 @@ test("reserve after a terminated query", async () => {
 		!(
 			await sql`select wait_event = 'PgSleep' as sleeping from pg_stat_activity where pid = ${pid}`
 		)[0].sleeping
-	)
+	) {
 		await delay(1);
+	}
 
 	await sql`select pg_terminate_backend(${pid})`;
 	await query;

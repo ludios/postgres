@@ -392,7 +392,9 @@ test("A prepared statement that a changed column type no longer fits is prepared
 	await sql`alter table test alter column x type uuid using null`;
 	const id = "6f1c2c43-6f6b-4a40-9a39-2d8f4a1f3b11";
 	const rows = [];
-	for (let i = 0; i < 3; i++) rows.push((await insert(id))[0].x);
+	for (let i = 0; i < 3; i++) {
+		rows.push((await insert(id))[0].x);
+	}
 	expect(rows).toEqual([id, id, id]);
 	await sql`drop table test`;
 	await sql.end();
@@ -434,7 +436,9 @@ test("A query waiting on another query's description of the same statement does 
 				() => "ok",
 				(e) => e.code,
 			);
-			for (let i = 0; i < 5; i++) await Promise.resolve();
+			for (let i = 0; i < 5; i++) {
+				await Promise.resolve();
+			}
 			const b = sql`select ${2}::int as shared_describe_shape`.then(
 				(x) => x[0].shared_describe_shape,
 				(e) => e.code,
@@ -464,8 +468,9 @@ test("An invalid value for a prepared statement keeps the statement and leaves n
 	await Promise.all(Array.from({ length: 40 }, () => q(zero)));
 	const before = await counts();
 	const codes = new Set();
-	for (let i = 0; i < 50; i++)
+	for (let i = 0; i < 50; i++) {
 		await Promise.all([q("not-a-uuid").catch((e) => codes.add(e.code)), q(zero), q(zero), q(zero)]);
+	}
 	const after = await counts();
 	expect([[...codes], after <= before + 1]).toEqual([["22P02"], true]);
 	await sql`drop table test`;
@@ -560,7 +565,9 @@ test("A late 26000 does not make the connection forget a statement prepared agai
 		await third,
 	];
 	const after = [];
-	for (let i = 0; i < 3; i++) after.push(await code(query()));
+	for (let i = 0; i < 3; i++) {
+		after.push(await code(query()));
+	}
 	expect([before, after]).toEqual([
 		["ok", "26000", "ok", "26000", "ok"],
 		["ok", "ok", "ok"],
@@ -612,8 +619,9 @@ test(
 	async () => {
 		const sql = postgres({ ...options, max: 1, prepare: true }),
 			run = (i) => sql.unsafe("select $1::int + " + i + " as x", [1], { prepare: true });
-		for (let i = 0; i < 2100; i += 100)
+		for (let i = 0; i < 2100; i += 100) {
 			await Promise.all(Array.from({ length: 100 }, (_, j) => run(i + j)));
+		}
 		const [{ n }] = await sql`select count(*)::int as n from pg_prepared_statements`,
 			[{ x }] = await run(0);
 		expect([n <= 1001, x]).toEqual([true, 1]);

@@ -118,7 +118,9 @@ const dates = { 1082: parseDate, 1114: parseTimestamp, 1184: parseTimestamptz };
 function integer(x, i, end) {
 	const negative = x[i] === 45;
 	let n = 0;
-	for (negative && i++; i < end; i++) n = n * 10 + x[i] - 48;
+	for (negative && i++; i < end; i++) {
+		n = n * 10 + x[i] - 48;
+	}
 	return negative ? -n : n;
 }
 
@@ -202,9 +204,13 @@ export function Types(options: Record<string, any> = {}) {
 	}
 
 	function parser(oid) {
-		if (oid in parsers) return parsers[oid];
+		if (oid in parsers) {
+			return parsers[oid];
+		}
 
-		if (oid in bases) return (parsers[oid] = parser(bases[oid]));
+		if (oid in bases) {
+			return (parsers[oid] = parser(bases[oid]));
+		}
 
 		if (oid in elements) {
 			const [element, delimiter] = elements[oid],
@@ -216,9 +222,13 @@ export function Types(options: Record<string, any> = {}) {
 	}
 
 	function serializer(oid) {
-		if (oid in serializers) return serializers[oid];
+		if (oid in serializers) {
+			return serializers[oid];
+		}
 
-		if (oid in bases) return (serializers[oid] = serializer(bases[oid]));
+		if (oid in bases) {
+			return (serializers[oid] = serializer(bases[oid]));
+		}
 
 		if (oid in elements) {
 			const [element, delimiter] = elements[oid],
@@ -282,7 +292,9 @@ export function Types(options: Record<string, any> = {}) {
 				"from pg_catalog.pg_type where typtype = 'd' or (typcategory = 'A' and oid >= 16384)",
 		).then((rows) =>
 			rows.forEach(({ oid, element, delimiter, base, kind }) => {
-				if (oid in parsers || oid in serializers) return;
+				if (oid in parsers || oid in serializers) {
+					return;
+				}
 				kind === "d"
 					? (bases[oid] = base)
 					: element && !(oid in elements) && (elements[oid] = [element, delimiter]);
@@ -333,12 +345,16 @@ export function parseArray(x, parse, delimiter = ",") {
 				xs.push(level());
 			} else if (x[i] === '"') {
 				let s = "";
-				for (i++; x[i] !== '"'; i++) s += x[i] === "\\" ? x[++i] : x[i];
+				for (i++; x[i] !== '"'; i++) {
+					s += x[i] === "\\" ? x[++i] : x[i];
+				}
 				i++;
 				xs.push(parse ? parse(s) : s);
 			} else {
 				const start = i;
-				while (x[i] !== delimiter && x[i] !== "}") i++;
+				while (x[i] !== delimiter && x[i] !== "}") {
+					i++;
+				}
 				const s = x.slice(start, i);
 				xs.push(s === "NULL" ? null : parse ? parse(s) : s);
 			}
@@ -357,8 +373,9 @@ export function serializeArray(xs, serialize = string, delimiter = ",", undefine
 				const typed = x instanceof Parameter;
 				typed && (x = x.value);
 				x === undefined && (x = undefinedValue);
-				if (x === undefined)
+				if (x === undefined) {
 					throw Errors.generic("UNDEFINED_VALUE", "Undefined values are not allowed");
+				}
 				return Array.isArray(x) && !typed
 					? serializeArray(x, serialize, delimiter, undefinedValue)
 					: x === null
@@ -383,7 +400,9 @@ const timestamp =
 
 function parts(x) {
 	const m = x.match(timestamp);
-	if (!m) return null;
+	if (!m) {
+		return null;
+	}
 
 	const year = m[12] ? 1 - m[1] : +m[1],
 		ms = m[7] ? +(m[7] + "00").slice(0, 3) : 0,
@@ -425,12 +444,18 @@ function plain(x) {
 }
 
 function parseTimestamptz(x) {
-	if (plain(x)) return new Date(x);
+	if (plain(x)) {
+		return new Date(x);
+	}
 
 	const p = infinite(x) || parts(x);
-	if (!p) return new Date(x);
+	if (!p) {
+		return new Date(x);
+	}
 
-	if (typeof p === "number") return p;
+	if (typeof p === "number") {
+		return p;
+	}
 
 	const date = utc(p);
 	date.setTime(date.getTime() - p.offset);
@@ -444,7 +469,9 @@ function parseDate(x) {
 
 function parseTimestamp(x) {
 	const p = infinite(x) || parts(x);
-	if (!p || typeof p === "number") return p || new Date(x);
+	if (!p || typeof p === "number") {
+		return p || new Date(x);
+	}
 
 	const date = new Date(2000, p.month, p.day, p.hour, p.minute, p.second, p.ms);
 	date.setFullYear(p.year);

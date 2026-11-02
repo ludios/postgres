@@ -123,7 +123,9 @@ export class Query extends Promise<any> {
 	}
 
 	[util.inspect.custom](depth, options, inspect) {
-		if (!this.handler.debug) return "Query {}";
+		if (!this.handler.debug) {
+			return "Query {}";
+		}
 
 		let x;
 		try {
@@ -139,9 +141,13 @@ export class Query extends Promise<any> {
 	}
 
 	signal(signal) {
-		if (!signal || this.settled) return this;
+		if (!signal || this.settled) {
+			return this;
+		}
 
-		if (signal.aborted) return (this.cancel(), this);
+		if (signal.aborted) {
+			return (this.cancel(), this);
+		}
 
 		const abort = () => this.cancel();
 		signal.addEventListener("abort", abort, { once: true });
@@ -176,13 +182,17 @@ export class Query extends Promise<any> {
 
 		this.cursorRows = rows;
 
-		if (typeof fn === "function") return ((this.cursorFn = fn), this);
+		if (typeof fn === "function") {
+			return ((this.cursorFn = fn), this);
+		}
 
 		let prev;
 		return {
 			[Symbol.asyncIterator]: () => ({
 				next: () => {
-					if (this.executed && !this.active) return { done: true };
+					if (this.executed && !this.active) {
+						return { done: true };
+					}
 
 					prev && prev();
 					const promise = new Promise((resolve, reject) => {
@@ -241,7 +251,9 @@ export class Query extends Promise<any> {
 	}
 
 	handle() {
-		if (this.executed) return;
+		if (this.executed) {
+			return;
+		}
 
 		this.executed = true;
 		queueMicrotask(() => this.run());

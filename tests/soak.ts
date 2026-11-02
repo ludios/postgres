@@ -48,12 +48,15 @@ const kinds = {
 				(e) => ["22012", "25P02", "TRANSACTION_ROLLED_BACK"].includes(e.code) || Promise.reject(e),
 			),
 	cursor: async () => {
-		for await (const rows of sql`select generate_series(1, 300) as n`.cursor(50)) rows.length;
+		for await (const rows of sql`select generate_series(1, 300) as n`.cursor(50)) {
+			rows.length;
+		}
 	},
 	copy: async () => {
 		let bytes = 0;
-		for await (const x of await sql`copy (select generate_series(1, 5000)) to stdout`.readable())
+		for await (const x of await sql`copy (select generate_series(1, 5000)) to stdout`.readable()) {
 			bytes += x.length;
+		}
 		return bytes;
 	},
 	notify: () => sql.notify("soak", "x" + next),
@@ -101,7 +104,9 @@ function operation() {
 }
 
 async function worker() {
-	while (Date.now() < deadline) await operation();
+	while (Date.now() < deadline) {
+		await operation();
+	}
 }
 
 async function faults() {

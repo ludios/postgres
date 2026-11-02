@@ -56,11 +56,12 @@ function Postgres(a?, b?) {
 		subscribe = options.no_subscribe || Subscribe(Postgres, { ...options, shared_types: types }),
 		listener = Listen(options);
 
-	if (types.named && options.fetch_types === false)
+	if (types.named && options.fetch_types === false) {
 		throw Errors.generic(
 			"TYPE_NOT_FOUND",
 			"Custom types given by name need fetch_types to look them up",
 		);
+	}
 
 	options.resolve = types.resolve;
 	options.parsers = view(types.parsers, types.parser);
@@ -148,7 +149,9 @@ function Postgres(a?, b?) {
 			arguments.length === 2 && !Array.isArray(args) && ((options = args), (args = []));
 			const fileHandler = (query) =>
 				fs.readFile(path, "utf8", (err, string) => {
-					if (err) return query.reject(err);
+					if (err) {
+						return query.reject(err);
+					}
 					query.strings = [string];
 					handler(query);
 				});
@@ -180,7 +183,9 @@ function Postgres(a?, b?) {
 
 	function begin(mode, fn) {
 		!fn && ((fn = mode), (mode = ""));
-		if (!active(channels.transaction)) return transaction(mode, fn, null);
+		if (!active(channels.transaction)) {
+			return transaction(mode, fn, null);
+		}
 
 		const context = {
 			mode,
@@ -231,13 +236,17 @@ function Postgres(a?, b?) {
 				rolled = null,
 				after = null;
 
-			if (above()) throw rolledBack();
+			if (above()) {
+				throw rolledBack();
+			}
 
 			const stopped = () => !!rolled || above(),
 				scoped = Sql(
 					Object.assign(
 						(q) => {
-							if (stopped()) return q.reject(after || (after = rolledBack()));
+							if (stopped()) {
+								return q.reject(after || (after = rolledBack()));
+							}
 							q.catch((e) => uncaught || (uncaught = e));
 							lease.send(q);
 						},
@@ -253,11 +262,12 @@ function Postgres(a?, b?) {
 					() => {},
 				));
 			scoped.prepare = (x) => {
-				if (inside)
+				if (inside) {
 					throw Errors.generic(
 						"NESTED_TRANSACTION_MODE",
 						"A nested transaction can not be prepared, only the outermost one",
 					);
+				}
 				prepare = x.replace(/[^a-z0-9$\-_. ]/gi, "");
 			};
 
@@ -267,8 +277,12 @@ function Postgres(a?, b?) {
 					const x = fn(scoped);
 					Promise.resolve(Array.isArray(x) ? Promise.all(x) : x).then(resolve, reject);
 				});
-				if (uncaught && !stopped()) throw uncaught;
-				if (lease.connection.closed) throw lease.error || lease.connection.closed;
+				if (uncaught && !stopped()) {
+					throw uncaught;
+				}
+				if (lease.connection.closed) {
+					throw lease.error || lease.connection.closed;
+				}
 			} catch (error) {
 				context && !name && (context.outcome = "rollback");
 				stopped()
@@ -282,7 +296,9 @@ function Postgres(a?, b?) {
 				rolled && (await rolled);
 				context && !name && (context.outcome = "rollback");
 
-				if (after) throw after;
+				if (after) {
+					throw after;
+				}
 
 				return result;
 			}
@@ -299,17 +315,20 @@ function Postgres(a?, b?) {
 							? "commit"
 							: "rollback");
 
-				if (!prepare && done.command !== "COMMIT")
+				if (!prepare && done.command !== "COMMIT") {
 					throw Errors.generic(
 						"TRANSACTION_ROLLED_BACK",
 						"The server rolled back the transaction instead of committing it",
 					);
+				}
 			}
 
 			return result;
 
 			function savepoint(name, fn?) {
-				if (name && Array.isArray(name.raw)) return savepoint((sql) => sql.apply(sql, arguments));
+				if (name && Array.isArray(name.raw)) {
+					return savepoint((sql) => sql.apply(sql, arguments));
+				}
 
 				arguments.length === 1 && ((fn = name), (name = null));
 				return scope(fn, "s" + savepoints++ + (name ? "_" + name : ""), false, stopped);
@@ -318,11 +337,12 @@ function Postgres(a?, b?) {
 			async function nested(inner, fn) {
 				!fn && ((fn = inner), (inner = ""));
 
-				if (normal(inner) && normal(inner) !== normal(mode))
+				if (normal(inner) && normal(inner) !== normal(mode)) {
 					throw Errors.generic(
 						"NESTED_TRANSACTION_MODE",
 						"A nested transaction runs in a savepoint, which can not change the transaction mode",
 					);
+				}
 
 				return scope(fn, "s" + savepoints++, true, stopped);
 			}
@@ -393,7 +413,9 @@ function Listen(options) {
 				fetch_types: false,
 				no_subscribe: true,
 				onclose() {
-					if (closing) return;
+					if (closing) {
+						return;
+					}
 
 					channels.forEach((channel, name) => relisten(channel, name));
 				},
@@ -414,7 +436,9 @@ function Listen(options) {
 				channel.listeners.forEach((l) => l.onlisten && l.onlisten());
 			},
 			() => {
-				if (closing || channels.get(name) !== channel) return;
+				if (closing || channels.get(name) !== channel) {
+					return;
+				}
 
 				retries++;
 				const seconds =
@@ -434,8 +458,9 @@ function Listen(options) {
 
 	async function listen(name, fn, onlisten) {
 		const listener = { fn, onlisten };
-		if (!channels.has(name))
+		if (!channels.has(name)) {
 			channels.set(name, { listeners: new Set(), result: start(name), state: {} });
+		}
 
 		const channel = channels.get(name);
 		channel.listeners.add(listener);
@@ -453,15 +478,21 @@ function Listen(options) {
 		return { state: channel.state, unlisten };
 
 		async function unlisten() {
-			if (!channel.listeners.delete(listener) || channel.listeners.size) return;
+			if (!channel.listeners.delete(listener) || channel.listeners.size) {
+				return;
+			}
 
 			channels.get(name) === channel && channels.delete(name);
 			const x = sql;
 
-			if (closing || !x) return;
+			if (closing || !x) {
+				return;
+			}
 
 			await x`unlisten ${x.unsafe('"' + name.replace(/"/g, '""') + '"')}`.catch((e) => {
-				if (!/^CONNECTION_/.test(e.code)) throw e;
+				if (!/^CONNECTION_/.test(e.code)) {
+					throw e;
+				}
 			});
 			if (channels.size === 0 && sql === x) {
 				sql = null;
@@ -555,7 +586,9 @@ function read_option(k, d, o, query, env) {
 }
 
 function parseOptions(a, b) {
-	if (a && a.shared) return a;
+	if (a && a.shared) {
+		return a;
+	}
 
 	const env = process.env,
 		o = (!a || typeof a === "string" ? b : a) || {},
@@ -659,8 +692,9 @@ function tsa(o, url, env) {
 		o.target_session_attrs ||
 		url.searchParams.get("target_session_attrs") ||
 		env.PGTARGETSESSIONATTRS;
-	if (!x || ["read-write", "read-only", "primary", "standby", "prefer-standby"].includes(x))
+	if (!x || ["read-write", "read-only", "primary", "standby", "prefer-standby"].includes(x)) {
 		return x;
+	}
 
 	throw new Error("target_session_attrs " + x + " is not supported");
 }
@@ -671,7 +705,9 @@ function binding(o, url, env) {
 		url.searchParams.get("channel_binding") ||
 		env.PGCHANNELBINDING ||
 		"prefer";
-	if (["disable", "prefer", "require"].includes(x)) return x;
+	if (["disable", "prefer", "require"].includes(x)) {
+		return x;
+	}
 
 	throw new Error("channel_binding " + x + " is not supported");
 }
@@ -703,7 +739,9 @@ function parseTransform(x) {
 }
 
 function parseUrl(url) {
-	if (!url || typeof url !== "string") return { url: { searchParams: new Map() }, targets: [] };
+	if (!url || typeof url !== "string") {
+		return { url: { searchParams: new Map() }, targets: [] };
+	}
 
 	const rest = url.slice(url.indexOf("://") + 3),
 		end = rest.search(/[/?]/),
@@ -734,9 +772,13 @@ function decode(x) {
 
 function hosts(o, query, url, env) {
 	const given = o.hostname || o.host || query.host;
-	if (given) return Array.isArray(given) ? given.map((x) => [x, null]) : split(given);
+	if (given) {
+		return Array.isArray(given) ? given.map((x) => [x, null]) : split(given);
+	}
 
-	if (url.targets.some(([x]) => x)) return url.targets;
+	if (url.targets.some(([x]) => x)) {
+		return url.targets;
+	}
 
 	return split(env.PGHOST || "localhost").map(([x, p], i) => [
 		x,

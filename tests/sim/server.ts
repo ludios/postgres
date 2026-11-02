@@ -79,7 +79,9 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			incoming = Buffer.concat([incoming, data]);
 			while (incoming.length >= (started ? 5 : 4)) {
 				const length = started ? incoming.readInt32BE(1) + 1 : incoming.readInt32BE(0);
-				if (incoming.length < length) break;
+				if (incoming.length < length) {
+					break;
+				}
 
 				const message = incoming.subarray(0, length);
 				incoming = incoming.subarray(length);
@@ -98,23 +100,32 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 
 		function first(message) {
 			const code = message.readInt32BE(4);
-			if (code === 80877103) return end.write("N");
+			if (code === 80877103) {
+				return end.write("N");
+			}
 
 			if (code === 80877102) {
 				const pid = message.readInt32BE(8),
 					secret = message.readInt32BE(12);
-				for (const s of sessions) s.id === pid && s.secret === secret && s.cancel && s.cancel();
+				for (const s of sessions) {
+					s.id === pid && s.secret === secret && s.cancel && s.cancel();
+				}
 				return end.end();
 			}
 			started = true;
 			const mode = startup[host];
 			mode !== "ready" && attempts.push(clock.now);
-			if (mode === "close") return end.end();
+			if (mode === "close") {
+				return end.end();
+			}
 
-			if (mode === "error")
+			if (mode === "error") {
 				return end.end(error("FATAL", "53300", "sorry, too many clients already"));
+			}
 
-			if (mode === "hang") return;
+			if (mode === "hang") {
+				return;
+			}
 
 			sessions.add(x);
 			peak = Math.max(peak, [...sessions].filter((x) => x.end.writable).length);
@@ -141,7 +152,9 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 
 		function pump() {
 			while (true) {
-				if (busy || gone || !queue.length) break;
+				if (busy || gone || !queue.length) {
+					break;
+				}
 				handle(queue.shift());
 			}
 		}
@@ -164,19 +177,24 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 							.replace(/[^ -~]+/g, ".")
 							.slice(0, 90),
 				);
-			if (discard && type !== "S") return;
+			if (discard && type !== "S") {
+				return;
+			}
 
 			if (type === "P") {
 				const name = r.str(),
 					text = r.str();
 				const ast = parse(text);
-				if (!ast) return fail("42601", 'syntax error at or near "' + text.slice(0, 10) + '"');
+				if (!ast) {
+					return fail("42601", 'syntax error at or near "' + text.slice(0, 10) + '"');
+				}
 
-				if (status === "E" && !ast.control)
+				if (status === "E" && !ast.control) {
 					return fail(
 						"25P02",
 						"current transaction is aborted, commands ignored until end of transaction block",
 					);
+				}
 
 				if (name && prepared.has(name)) {
 					violation('parse of statement "' + name + '" that already exists in session ' + x.id);
@@ -216,8 +234,9 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 						violation('describe of statement "' + name + '" that session ' + x.id + " never had");
 					return fail(kind === "S" ? "26000" : "34000", "does not exist");
 				}
-				if (p.ast.select && p.shape !== x.shape)
+				if (p.ast.select && p.shape !== x.shape) {
 					return fail("0A000", "cached plan must not change result type");
+				}
 
 				kind === "S" &&
 					reply(msg("t", i16(p.ast.params), ...[...Array(p.ast.params)].map(() => i32(23))));
@@ -344,13 +363,14 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 					violation("stale plan for query " + id + " retried " + retry.retries + " times");
 			}
 
-			if (scope && scopes.has(scope) && scopes.get(scope) !== x.id)
+			if (scope && scopes.has(scope) && scopes.get(scope) !== x.id) {
 				violation(
 					"scope " + scope + " reached session " + x.id + " after session " + scopes.get(scope),
 				);
+			}
 			scope && scopes.set(scope, x.id);
 
-			if (status !== "I" && scope !== txScope)
+			if (status !== "I" && scope !== txScope) {
 				violation(
 					"query " +
 						id +
@@ -361,10 +381,13 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 						" inside the transaction of scope " +
 						txScope,
 				);
+			}
 		}
 
 		function order(id, scope) {
-			if (!scope) return;
+			if (!scope) {
+				return;
+			}
 
 			latest.get(scope) > id &&
 				violation(
@@ -431,10 +454,14 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 
 		function parse(text) {
 			const c = text.trim().match(control);
-			if (c) return { control: c[1], params: 0, select: false };
+			if (c) {
+				return { control: c[1], params: 0, select: false };
+			}
 
 			const m = text.trim().match(select);
-			if (!m) return null;
+			if (!m) {
+				return null;
+			}
 
 			const [, id, scope, rows = null, fail = null, sleep = null] = m.map(
 				(x) => x && x.replace(/::int$/, ""),
@@ -461,7 +488,9 @@ function columns(shape) {
 }
 
 function cell(x) {
-	if (x === null || x === undefined) return [i32(-1)];
+	if (x === null || x === undefined) {
+		return [i32(-1)];
+	}
 
 	const b = Buffer.from(String(x));
 	return [i32(b.length), b];

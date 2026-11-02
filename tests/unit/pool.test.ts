@@ -14,7 +14,9 @@ test("Queue hands items back in order across compaction", async () => {
 		q.push(i);
 		i % 3 === 0 && out.push(q.shift());
 	}
-	while (q.length) out.push(q.shift());
+	while (q.length) {
+		out.push(q.shift());
+	}
 	expect(out).toEqual([...Array(5000).keys()]);
 });
 
@@ -30,9 +32,13 @@ test("Queue removes, peeks and takes what is left", async () => {
 test("Queue shifts a long queue in linear time", async () => {
 	const time = (n) => {
 		const q = Queue();
-		for (let i = 0; i < n; i++) q.push({ i });
+		for (let i = 0; i < n; i++) {
+			q.push({ i });
+		}
 		const start = performance.now();
-		while (q.length) q.shift();
+		while (q.length) {
+			q.shift();
+		}
 		return performance.now() - start;
 	};
 	const best = (n) => Math.min(...[1, 2, 3, 4, 5].map(() => time(n)));
@@ -47,10 +53,14 @@ test("Queue stays small when items cycle through it without it ever draining (#7
 	q.push("a");
 	q.push("b");
 	q.push("c");
-	for (let i = 0; i < 1000000; i++) q.push(q.shift());
+	for (let i = 0; i < 1000000; i++) {
+		q.push(q.shift());
+	}
 	gc();
 	const before = process.memoryUsage().heapUsed;
-	for (let i = 0; i < 1000000; i++) q.push(q.shift());
+	for (let i = 0; i < 1000000; i++) {
+		q.push(q.shift());
+	}
 	gc();
 	expect([q.length, process.memoryUsage().heapUsed - before < 1024 * 1024]).toEqual([3, true]);
 });

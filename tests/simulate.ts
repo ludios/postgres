@@ -39,7 +39,9 @@ for (let seed = first; seed < first + runs; seed++) {
 			"\n⛔️ SEED=" + seed + " (" + result.scenario + ")\n  " + result.violations.join("\n  "),
 		);
 		single && console.log("\n" + result.trace.join("\n"));
-		if (failed >= (+process.env.MAXFAIL || 10) && !single) break;
+		if (failed >= (+process.env.MAXFAIL || 10) && !single) {
+			break;
+		}
 	} else if (single) {
 		console.log(result.trace.join("\n"));
 	}
@@ -116,10 +118,13 @@ async function simulate(seed) {
 		"reserve",
 		"cursor",
 	];
-	for (let i = 0; i < config.ops; i++)
+	for (let i = 0; i < config.ops; i++) {
 		clock.timers.setTimeout(() => settled.push(operation(random.pick(kinds))), random.int(0, 3000));
+	}
 
-	for (let i = 0; i < config.faults; i++) clock.timers.setTimeout(fault, random.int(0, 3000));
+	for (let i = 0; i < config.faults; i++) {
+		clock.timers.setTimeout(fault, random.int(0, 3000));
+	}
 
 	let ended = false;
 	try {
@@ -172,8 +177,9 @@ async function simulate(seed) {
 
 	function expect(name, id, scope, rows?) {
 		return (xs) => {
-			if (rows !== undefined && xs.length !== rows)
+			if (rows !== undefined && xs.length !== rows) {
 				violations.push(name + " " + id + " got " + xs.length + " rows, expected " + rows);
+			}
 			xs.forEach(
 				(x) =>
 					(x.id !== id || x.scope !== scope) &&
@@ -229,17 +235,20 @@ async function simulate(seed) {
 	function query(sql, kind, scope) {
 		const id = next++;
 		const k = random.int(1, 5);
-		if (kind === "rows")
+		if (kind === "rows") {
 			return sql`select ${id}::int as id, ${scope}::int as scope from rows(${k}::int)`.then(
 				expect(kind, id, scope, k),
 			);
+		}
 
 		if (kind === "fail") {
 			const at = random.int(0, k - 1);
 			return sql`select ${id}::int as id, ${scope}::int as scope from rows(${k}::int) fail(${at}::int)`.then(
 				() => violations.push("query " + id + " should have failed"),
 				(e) => {
-					if (e.code !== "22012") throw e;
+					if (e.code !== "22012") {
+						throw e;
+					}
 				},
 			);
 		}
@@ -247,7 +256,9 @@ async function simulate(seed) {
 			return sql`selec ${id}::int as id, ${scope}::int as scope`.then(
 				() => violations.push("query " + id + " should have failed to parse"),
 				(e) => {
-					if (e.code !== "42601") throw e;
+					if (e.code !== "42601") {
+						throw e;
+					}
 				},
 			);
 		}
@@ -261,10 +272,11 @@ async function simulate(seed) {
 				);
 			return q.then(expect(kind, id, scope, 1));
 		}
-		if (kind === "unsafe")
+		if (kind === "unsafe") {
 			return sql
 				.unsafe("select " + id + " as id, " + scope + " as scope")
 				.then(expect(kind, id, scope, 1));
+		}
 
 		if (kind === "cursor") {
 			const check = expect(kind, id, scope);
@@ -304,7 +316,9 @@ async function simulate(seed) {
 			const tx = sql.begin(async (sql) => {
 				await query(sql, "query", scope);
 				await scoped(sql, scope);
-				if (!ok) throw Object.assign(new Error("rollback"), { code: "SIM_ROLLBACK" });
+				if (!ok) {
+					throw Object.assign(new Error("rollback"), { code: "SIM_ROLLBACK" });
+				}
 			});
 			return settle(
 				"begin",
@@ -383,7 +397,9 @@ async function simulate(seed) {
 			server.startup[0] = mode;
 			return clock.timers.setTimeout(() => (server.startup[0] = "ready"), ms);
 		}
-		if (!x) return;
+		if (!x) {
+			return;
+		}
 
 		log("fault " + kind + " session " + x.id);
 		kind === "kill"

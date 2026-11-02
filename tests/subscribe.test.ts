@@ -165,8 +165,9 @@ test("subscribe reconnects and calls onsubscribe", { timeout: 10_000 }, async ()
 const until = async (fn, ms = 5000, state?) => {
 	const start = Date.now();
 	while (!fn()) {
-		if (Date.now() - start > ms)
+		if (Date.now() - start > ms) {
 			throw new Error("Timed out waiting for " + fn + (state ? " with " + state() : ""));
+		}
 		await delay(10);
 	}
 };
@@ -183,8 +184,9 @@ async function replicating(name?) {
 		async done(...slots) {
 			await sql`drop table test`;
 			await sql`drop publication alltables`;
-			for (const slot of slots)
+			for (const slot of slots) {
 				await sql`select pg_drop_replication_slot(slot_name) from pg_replication_slots where slot_name = ${slot}`;
+			}
 			await sql.end();
 		},
 		replica: () =>
@@ -236,7 +238,9 @@ test(
 			await delay(Math.random() * 20);
 			seen.push(row.id);
 		});
-		for (let i = 0; i < 10; i++) await sql`insert into test (name) values (${"x" + i})`;
+		for (let i = 0; i < 10; i++) {
+			await sql`insert into test (name) values (${"x" + i})`;
+		}
 		await until(() => seen.length === 10);
 		await sub.end();
 		try {
@@ -261,7 +265,9 @@ test(
 			"insert:test",
 			async (row) => {
 				seen.push(row.name);
-				if (row.name === "a" && fails-- > 0) throw new Error("not yet");
+				if (row.name === "a" && fails-- > 0) {
+					throw new Error("not yet");
+				}
 			},
 			() => {},
 			(error) => errors.push(error.message),
@@ -376,7 +382,9 @@ test(
 	{ timeout: 20_000 },
 	async () => {
 		const until = async (fn) => {
-			while (!fn()) await delay(20);
+			while (!fn()) {
+				await delay(20);
+			}
 		};
 		const sql = postgres({
 			database: "postgres_js_test",
@@ -515,7 +523,9 @@ async function failing(onerror) {
 		database: "postgres_js_test",
 		publications: "alltables",
 		user: () => {
-			if (fail) throw new Error("no user now");
+			if (fail) {
+				throw new Error("no user now");
+			}
 
 			return user;
 		},

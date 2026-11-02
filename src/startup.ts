@@ -38,10 +38,14 @@ export async function open(
 					(x) => [false, null, x],
 					(x) => [true, x],
 				);
-			if (!failed && fits(want, ready.attributes)) return ((ready.index = i), ready);
+			if (!failed && fits(want, ready.attributes)) {
+				return ((ready.index = i), ready);
+			}
 			failed || ready.socket.end(p.Terminate());
 			last = failed ? error : Errors.connection("CONNECTION_DESTROYED", options, host, port);
-			if (signal.aborted) throw last;
+			if (signal.aborted) {
+				throw last;
+			}
 		}
 	}
 
@@ -49,7 +53,9 @@ export async function open(
 }
 
 function traced(options, host, port, signal) {
-	if (!active(channels.connect)) return attempt(options, host, port, signal);
+	if (!active(channels.connect)) {
+		return attempt(options, host, port, signal);
+	}
 
 	const context = {
 		host: options.path ? null : host,
@@ -109,7 +115,9 @@ function attempt(options, host, port, signal) {
 		);
 
 		function done(failed, error, ready?) {
-			if (settled) return;
+			if (settled) {
+				return;
+			}
 
 			settled = true;
 			timer && clearTimeout(timer);
@@ -127,8 +135,9 @@ function attempt(options, host, port, signal) {
 
 		async function session() {
 			socket = await Socket(options, host, port, (x) => (raw = x));
-			if (settled || signal.aborted)
+			if (settled || signal.aborted) {
 				return (socket.destroy(), done(true, fail("CONNECTION_DESTROYED")));
+			}
 
 			signal.sockets.add(socket);
 			socket.onclose = (error) =>
@@ -212,13 +221,14 @@ function attempt(options, host, port, signal) {
 				}
 
 				function ready(x, rest) {
-					if (!auth.authenticated)
+					if (!auth.authenticated) {
 						return reject(
 							Errors.generic(
 								"AUTHENTICATION_INCOMPLETE",
 								"The server was ready before it accepted the authentication",
 							),
 						);
+					}
 
 					status = x;
 					const known =
@@ -255,21 +265,27 @@ function attempt(options, host, port, signal) {
 }
 
 async function negotiate(socket, options) {
-	if (!secured(options) || socket.negotiated) return;
+	if (!secured(options) || socket.negotiated) {
+		return;
+	}
 
 	const ssl = options.ssl,
 		tls = secureOptions(ssl);
 
-	if (options.sslnegotiation === "direct")
+	if (options.sslnegotiation === "direct") {
 		return socket.upgrade({ ...tls, ALPNProtocols: ["postgresql"] });
+	}
 
 	const answer = new Promise((r) => (socket.ondata = (x) => r(x[0])));
 	socket.write(p.SSLRequest());
 
-	if ((await answer) === S) return socket.upgrade(tls);
+	if ((await answer) === S) {
+		return socket.upgrade(tls);
+	}
 
-	if (ssl !== "prefer" && ssl !== "allow")
+	if (ssl !== "prefer" && ssl !== "allow") {
 		throw Errors.generic("SSL_NOT_SUPPORTED", "The server does not support SSL connections");
+	}
 }
 
 async function cancel(options, host, port, { pid, secret }) {
@@ -300,10 +316,11 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 
 	async function respond(x) {
 		const type = x.readInt32BE(5);
-		if ((type === 3 || type === 5) && binding === "require")
+		if ((type === 3 || type === 5) && binding === "require") {
 			throw unbound(
 				"the server asked for " + (type === 3 ? "a cleartext" : "an MD5") + " password",
 			);
+		}
 
 		return type === 0
 			? ok()
@@ -331,18 +348,20 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 			hash = certificate && endpoint(certificate),
 			plus = !!hash && offered.includes("SCRAM-SHA-256-PLUS");
 
-		if (binding === "require" && !plus)
+		if (binding === "require" && !plus) {
 			throw unbound(
 				offered.includes("SCRAM-SHA-256-PLUS")
 					? "the server certificate could not be hashed for it"
 					: "the server did not offer it",
 			);
+		}
 
-		if (!plus && !offered.includes("SCRAM-SHA-256"))
+		if (!plus && !offered.includes("SCRAM-SHA-256")) {
 			throw Errors.generic(
 				"SASL_MECHANISM_NOT_SUPPORTED",
 				"The server offered no supported SASL mechanism",
 			);
+		}
 
 		header = plus ? "p=tls-server-end-point,," : hash ? "y,," : "n,,";
 		bound = plus ? hash : false;
@@ -358,11 +377,12 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 				.reduce((acc, x) => ((acc[x[0]] = x.slice(2)), acc), {}),
 			key = sha256(pass + "\0" + res.s + "\0" + res.i).toString("base64");
 
-		if (!res.r.startsWith(nonce))
+		if (!res.r.startsWith(nonce)) {
 			throw Errors.generic(
 				"SASL_NONCE_MISMATCH",
 				"The server nonce does not start with the client nonce",
 			);
+		}
 
 		if (!salted.has(key)) {
 			salted.size >= 64 && salted.delete(salted.keys().next().value);
@@ -400,24 +420,28 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 	}
 
 	function finish(x) {
-		if (!signature || x.toString("utf8", 9).split("\0", 1)[0].slice(2) !== signature)
+		if (!signature || x.toString("utf8", 9).split("\0", 1)[0].slice(2) !== signature) {
 			throw Errors.generic(
 				"SASL_SIGNATURE_MISMATCH",
 				"The server did not return the correct signature",
 			);
+		}
 
 		verified = true;
 		return null;
 	}
 
 	function ok() {
-		if (!verified)
+		if (!verified) {
 			throw Errors.generic(
 				"SASL_SIGNATURE_MISMATCH",
 				"The server ended SCRAM authentication without proving it knows the password",
 			);
+		}
 
-		if (binding === "require" && !bound) throw unbound("the server authenticated without it");
+		if (binding === "require" && !bound) {
+			throw unbound("the server authenticated without it");
+		}
 
 		respond.authenticated = true;
 		return null;
@@ -480,14 +504,20 @@ function signature(x) {
 		oid = der(x, algorithm.body),
 		name = x[oid.start] === 0x06 && x.toString("hex", oid.body, oid.end);
 
-	if (name !== "2a864886f70d01010a") return signatures[name];
+	if (name !== "2a864886f70d01010a") {
+		return signatures[name];
+	}
 
-	if (oid.end >= algorithm.end) return "sha256";
+	if (oid.end >= algorithm.end) {
+		return "sha256";
+	}
 
 	const params = der(x, oid.end),
 		first = params.body < params.end && der(x, params.body);
 
-	if (!first || x[first.start] !== 0xa0) return "sha256";
+	if (!first || x[first.start] !== 0xa0) {
+		return "sha256";
+	}
 
 	const hash = der(x, der(x, first.body).body);
 	return digests[x.toString("hex", hash.body, hash.end)];
@@ -500,11 +530,15 @@ function der(x, start) {
 	if (length & 0x80) {
 		const n = length & 0x7f;
 		length = 0;
-		for (let i = 0; i < n; i++) length = length * 256 + x[body + i];
+		for (let i = 0; i < n; i++) {
+			length = length * 256 + x[body + i];
+		}
 		body += n;
 	}
 
-	if (body + length > x.length) throw new Error("Truncated certificate");
+	if (body + length > x.length) {
+		throw new Error("Truncated certificate");
+	}
 
 	return { start, body, end: body + length };
 }
@@ -523,17 +557,23 @@ function sha256(x) {
 
 function xor(a, b) {
 	const x = Buffer.allocUnsafe(a.length);
-	for (let i = 0; i < a.length; i++) x[i] = a[i] ^ b[i];
+	for (let i = 0; i < a.length; i++) {
+		x[i] = a[i] ^ b[i];
+	}
 	return x;
 }
 
 function pgpass(file, host, port, database, user) {
-	if (!file) return null;
+	if (!file) {
+		return null;
+	}
 
 	let text;
 	try {
 		const stat = fs.statSync(file);
-		if (!stat.isFile() || (process.platform !== "win32" && stat.mode & 0o077)) return null;
+		if (!stat.isFile() || (process.platform !== "win32" && stat.mode & 0o077)) {
+			return null;
+		}
 		text = fs.readFileSync(file, "utf8");
 	} catch (_) {
 		return null;
@@ -541,8 +581,9 @@ function pgpass(file, host, port, database, user) {
 	const wanted = [host, String(port), database, user];
 	for (const line of text.split(/\r?\n/)) {
 		const fields = line && line[0] !== "#" ? split(line) : [];
-		if (fields.length === 5 && wanted.every((x, i) => fields[i] === "*" || fields[i] === x))
+		if (fields.length === 5 && wanted.every((x, i) => fields[i] === "*" || fields[i] === x)) {
 			return fields[4];
+		}
 	}
 	return null;
 }
@@ -552,9 +593,13 @@ function split(line) {
 	let field = "";
 	for (let i = 0; i < line.length; i++) {
 		const c = line[i];
-		if (c === "\\" && i + 1 < line.length) field += line[++i];
-		else if (c === ":" && fields.length < 4) (fields.push(field), (field = ""));
-		else field += c;
+		if (c === "\\" && i + 1 < line.length) {
+			field += line[++i];
+		} else if (c === ":" && fields.length < 4) {
+			(fields.push(field), (field = ""));
+		} else {
+			field += c;
+		}
 	}
 	fields.push(field);
 	return fields;

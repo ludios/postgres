@@ -45,7 +45,9 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
 							max -= l;
 							const [{ data }] = await lo.read(l);
 							data.length && this.push(data);
-							if (data.length < l || max === 0) this.push(null);
+							if (data.length < l || max === 0) {
+								this.push(null);
+							}
 						},
 					});
 				}

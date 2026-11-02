@@ -64,15 +64,19 @@ export function Clock(
 				await new Promise(realImmediate);
 				same = now === at ? same + 1 : 0;
 				at = now;
-				if (same > 20000)
+				if (same > 20000) {
 					throw new Error(
 						"Timer storm: 20,000 timers ran at " + now + "ms without the clock moving on",
 					);
+				}
 
 				let next = null;
-				for (const x of timers.values())
+				for (const x of timers.values()) {
 					(!next || x.at < next.at || (x.at === next.at && x.seq < next.seq)) && (next = x);
-				if (!next || next.at > until) break;
+				}
+				if (!next || next.at > until) {
+					break;
+				}
 
 				timers.delete(next.seq);
 				now = next.at;
@@ -110,15 +114,21 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 			readable: true,
 			write(data, encoding, cb) {
 				typeof encoding === "function" && (cb = encoding);
-				if (x.destroyed || !x.writable) return false;
+				if (x.destroyed || !x.writable) {
+					return false;
+				}
 
 				data = Buffer.from(data);
-				for (const part of chop(data)) send(part);
+				for (const part of chop(data)) {
+					send(part);
+				}
 				cb && setTimeout(cb, 0);
 				return true;
 			},
 			end(data) {
-				if (x.destroyed || !x.writable) return x;
+				if (x.destroyed || !x.writable) {
+					return x;
+				}
 
 				data && data.length && x.write(data);
 				x.writable = false;
@@ -126,7 +136,9 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 				return x;
 			},
 			destroy(error) {
-				if (x.destroyed) return x;
+				if (x.destroyed) {
+					return x;
+				}
 
 				x.destroyed = true;
 				x.writable = x.readable = false;
@@ -163,7 +175,9 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 			unref: () => x,
 			receive,
 			closed(reset) {
-				if (x.destroyed) return;
+				if (x.destroyed) {
+					return;
+				}
 
 				if (reset) {
 					x.destroyed = true;
@@ -184,12 +198,16 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 		return x;
 
 		function receive(data) {
-			if (x.destroyed) return;
+			if (x.destroyed) {
+				return;
+			}
 			paused ? held.push(data) : x.emit("data", data);
 		}
 
 		function chop(data) {
-			if (!split || !random.chance(split) || data.length < 2) return [data];
+			if (!split || !random.chance(split) || data.length < 2) {
+				return [data];
+			}
 
 			const at = random.int(1, data.length - 1);
 			return [data.subarray(0, at), data.subarray(at)];

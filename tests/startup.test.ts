@@ -128,11 +128,13 @@ const fake = (respond) =>
 		socket.on("error", () => {});
 		socket.on("data", (data) => {
 			buffer = Buffer.concat([buffer, data]);
-			while (started ? one() : first());
+			while (started ? one() : first()) {}
 		});
 
 		function first() {
-			if (buffer.length < 8 || buffer.length < buffer.readInt32BE(0)) return false;
+			if (buffer.length < 8 || buffer.length < buffer.readInt32BE(0)) {
+				return false;
+			}
 
 			const code = buffer.readInt32BE(4);
 			buffer = buffer.subarray(buffer.readInt32BE(0));
@@ -141,7 +143,9 @@ const fake = (respond) =>
 		}
 
 		function one() {
-			if (buffer.length < 5 || buffer.length < buffer.readInt32BE(1) + 1) return false;
+			if (buffer.length < 5 || buffer.length < buffer.readInt32BE(1) + 1) {
+				return false;
+			}
 
 			const type = String.fromCharCode(buffer[0]),
 				body = buffer.subarray(5, buffer.readInt32BE(1) + 1);
@@ -340,8 +344,9 @@ test("channel_binding: require rejects a connection without TLS, or authenticate
 test("channel_binding: disable and prefer connect over TLS and without it", async () => {
 	const statuses = [];
 	for (const channel_binding of ["disable", "prefer"]) {
-		for (const ssl of [false, "require"])
+		for (const ssl of [false, "require"]) {
 			statuses.push((await session({ ...login_scram, ssl, channel_binding })).status);
+		}
 	}
 	expect(statuses).toEqual(["I", "I", "I", "I"]);
 });

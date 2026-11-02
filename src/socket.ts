@@ -28,7 +28,9 @@ export function secureOptions(ssl) {
 }
 
 function context(ssl) {
-	if (!node || ssl.secureContext || !ssl.ca) return ssl;
+	if (!node || ssl.secureContext || !ssl.ca) {
+		return ssl;
+	}
 
 	const values = { ...ssl };
 	let last = contexts.get(ssl);
@@ -152,7 +154,9 @@ function wrap(socket, host) {
 	}
 
 	function close() {
-		if (closed) return;
+		if (closed) {
+			return;
+		}
 
 		closed = true;
 		x.onclose(failure);

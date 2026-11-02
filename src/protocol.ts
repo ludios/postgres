@@ -46,7 +46,9 @@ export function Writer(size = 16384) {
 			return w;
 		},
 		value(x) {
-			if (x === null || x === undefined) return w.i32(-1);
+			if (x === null || x === undefined) {
+				return w.i32(-1);
+			}
 			const n = i;
 			i += 4;
 			w.bytes(x);
@@ -91,7 +93,9 @@ export function Writer(size = 16384) {
 	return w;
 
 	function fit(n) {
-		if (b.length - i >= n) return;
+		if (b.length - i >= n) {
+			return;
+		}
 
 		const prev = b;
 		b = Buffer.allocUnsafe(Math.max(size, prev.length * 2, i + n));
@@ -165,17 +169,19 @@ function one(fn) {
 
 export function startup(w, parameters) {
 	w.untyped().i32(196608);
-	for (const k in parameters)
+	for (const k in parameters) {
 		parameters[k] && w.str(unbroken(k, k)).str(unbroken(k, "" + parameters[k]));
+	}
 
 	return w.u8(0).endUntyped();
 }
 
 function unbroken(k, x) {
-	if (x.indexOf("\0") !== -1)
+	if (x.indexOf("\0") !== -1) {
 		throw Object.assign(new Error("The connection parameter " + k + " contains a NUL character"), {
 			code: "NUL_CHARACTER",
 		});
+	}
 
 	return x;
 }
@@ -186,20 +192,28 @@ export function sasl(w, mechanism, initial) {
 
 export function parse(w, name, text, oids = []) {
 	w.type(P).str(name).str(text).u16(oids.length);
-	for (let j = 0; j < oids.length; j++) w.i32(oids[j] | 0);
+	for (let j = 0; j < oids.length; j++) {
+		w.i32(oids[j] | 0);
+	}
 
 	return w.end();
 }
 
 export function bind(w, portal, name, values = [], formats = [], resultFormats = []) {
 	w.type(B).str(portal).str(name).i16(formats.length);
-	for (let j = 0; j < formats.length; j++) w.i16(formats[j]);
+	for (let j = 0; j < formats.length; j++) {
+		w.i16(formats[j]);
+	}
 
 	w.u16(values.length);
-	for (let j = 0; j < values.length; j++) w.value(values[j]);
+	for (let j = 0; j < values.length; j++) {
+		w.value(values[j]);
+	}
 
 	w.i16(resultFormats.length);
-	for (let j = 0; j < resultFormats.length; j++) w.i16(resultFormats[j]);
+	for (let j = 0; j < resultFormats.length; j++) {
+		w.i16(resultFormats[j]);
+	}
 
 	return w.end();
 }
@@ -227,7 +241,9 @@ export function Frames(onframe, shared = false, onerror = null) {
 
 	return {
 		push(x) {
-			if (broken) return;
+			if (broken) {
+				return;
+			}
 
 			chunks.push(shared && (paused || owning) ? own(x) : x);
 			run();
@@ -259,19 +275,27 @@ export function Frames(onframe, shared = false, onerror = null) {
 	}
 
 	function settle() {
-		if (!shared) return;
+		if (!shared) {
+			return;
+		}
 
 		data && at < data.length && !owned.has(data) && ((data = own(data.subarray(at))), (at = 0));
-		for (let i = 0; i < chunks.length; i++) owned.has(chunks[i]) || (chunks[i] = own(chunks[i]));
+		for (let i = 0; i < chunks.length; i++) {
+			owned.has(chunks[i]) || (chunks[i] = own(chunks[i]));
+		}
 	}
 
 	function run() {
-		if (running) return;
+		if (running) {
+			return;
+		}
 
 		running = true;
 		try {
 			while (true) {
-				if (broken || paused || !((data && at < data.length) || next())) break;
+				if (broken || paused || !((data && at < data.length) || next())) {
+					break;
+				}
 				part ? fill() : frame();
 			}
 		} finally {
@@ -280,7 +304,9 @@ export function Frames(onframe, shared = false, onerror = null) {
 	}
 
 	function invalid(length) {
-		if (length >= 4 && length <= largest) return false;
+		if (length >= 4 && length <= largest) {
+			return false;
+		}
 
 		broken = true;
 		chunks.length = 0;
@@ -302,13 +328,19 @@ export function Frames(onframe, shared = false, onerror = null) {
 
 	function frame() {
 		const left = data.length - at;
-		if (left < 5) return start(5);
+		if (left < 5) {
+			return start(5);
+		}
 
 		const length = data.readInt32BE(at + 1);
-		if (invalid(length)) return;
+		if (invalid(length)) {
+			return;
+		}
 
 		const end = at + 1 + length;
-		if (end > data.length) return start(end - at);
+		if (end > data.length) {
+			return start(end - at);
+		}
 
 		const begin = at;
 		at = end;
@@ -326,12 +358,16 @@ export function Frames(onframe, shared = false, onerror = null) {
 		const n = data.copy(part, filled, at, at + part.length - filled);
 		filled += n;
 		at += n;
-		if (filled < part.length) return;
+		if (filled < part.length) {
+			return;
+		}
 
 		if (part.length === 5) {
 			const head = part,
 				length = head.readInt32BE(1);
-			if (invalid(length)) return;
+			if (invalid(length)) {
+				return;
+			}
 
 			part = Buffer.allocUnsafe(1 + length);
 			shared && owned.add(part);
@@ -392,7 +428,9 @@ export function rowDescription(x, start, end, make = field) {
 	const columns = new Array((x[start + 5] << 8) | x[start + 6]);
 	for (let i = start + 7, j = 0; j < columns.length; j++) {
 		let zero = i;
-		while (x[zero] !== 0) zero++;
+		while (x[zero] !== 0) {
+			zero++;
+		}
 		columns[j] = make(text(x, i, zero), u32(x, zero + 1), u16(x, zero + 5), u32(x, zero + 7));
 		i = zero + 19;
 	}
@@ -401,7 +439,9 @@ export function rowDescription(x, start, end, make = field) {
 
 export function parameterDescription(x, start) {
 	const oids = new Array(x.readUInt16BE(start + 5));
-	for (let j = 0; j < oids.length; j++) oids[j] = x.readUInt32BE(start + 7 + j * 4);
+	for (let j = 0; j < oids.length; j++) {
+		oids[j] = x.readUInt32BE(start + 7 + j * 4);
+	}
 
 	return oids;
 }
@@ -414,8 +454,12 @@ export function commandComplete(x, start, end) {
 
 	while (true) {
 		let s = e - 1;
-		while (s >= first && x[s] >= 48 && x[s] <= 57) s--;
-		if (s === e - 1 || s < first || x[s] !== 32) break;
+		while (s >= first && x[s] >= 48 && x[s] <= 57) {
+			s--;
+		}
+		if (s === e - 1 || s < first || x[s] !== 32) {
+			break;
+		}
 		count === null && (count = +text(x, s + 1, e));
 		e = s;
 	}

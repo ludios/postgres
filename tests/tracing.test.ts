@@ -111,10 +111,14 @@ test("Tracing: a store bound to start is current while the query is dispatched",
 test("Tracing: cursors and copy streams finish their trace", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	const { events, stop } = record("postgres:query");
-	for await (const [row] of sql`select generate_series(1, 3) as x`.cursor()) row;
+	for await (const [row] of sql`select generate_series(1, 3) as x`.cursor()) {
+		row;
+	}
 	await sql`select generate_series(1, 3) as x`.cursor(2, () => {});
 	const readable = await sql`copy (select 1) to stdout`.readable();
-	for await (const x of readable) x;
+	for await (const x of readable) {
+		x;
+	}
 	await delay(10);
 	stop();
 	const done = events.filter((x) => x.event === "asyncEnd").length,

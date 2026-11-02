@@ -8,7 +8,9 @@ const here = path.dirname(new URL(import.meta.url).pathname),
 	bin = process.env.PG_BIN || path.dirname(spawnSync("sh", ["-c", find]).stdout.toString().trim()),
 	url = "postgres://postgres@localhost:5434,localhost:5435/postgres",
 	until = async (fn, ms = 100) => {
-		while (!fn()) await delay(ms);
+		while (!fn()) {
+			await delay(ms);
+		}
 	},
 	ctl = (...args) => spawnSync(path.join(bin, "pg_ctl"), args, { encoding: "utf8" }),
 	failures = [],
@@ -27,7 +29,9 @@ const setup = spawnSync("sh", [path.join(here, "failover.sh")], {
 	encoding: "utf8",
 	stdio: ["ignore", "pipe", "inherit"],
 });
-if (setup.status !== 0) throw new Error("could not set up the primary and standby");
+if (setup.status !== 0) {
+	throw new Error("could not set up the primary and standby");
+}
 
 const writer = postgres(url, {
 		target_session_attrs: "primary",

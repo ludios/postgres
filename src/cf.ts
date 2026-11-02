@@ -15,11 +15,12 @@ throw_on_casing_transforms(Postgres);
 export { PostgresError };
 
 export async function socket(options, host, port) {
-	if (direct(options))
+	if (direct(options)) {
 		throw Errors.generic(
 			"SSL_NEGOTIATION_NOT_SUPPORTED",
 			"sslnegotiation: direct needs ALPN, which Cloudflare Workers sockets do not offer",
 		);
+	}
 
 	const tls = secured(options);
 	let raw = connect(
@@ -37,7 +38,9 @@ export async function socket(options, host, port) {
 		writer.releaseLock();
 		reader.releaseLock();
 
-		if (done) throw Errors.connection("CONNECTION_CLOSED", options, host, port);
+		if (done) {
+			throw Errors.connection("CONNECTION_CLOSED", options, host, port);
+		}
 
 		if (value[0] === 83) {
 			raw = raw.startTls();
@@ -74,7 +77,9 @@ function Stream(raw, secure, host, port) {
 		negotiated: true,
 		destroyed: false,
 		write(data) {
-			if (closed) return false;
+			if (closed) {
+				return false;
+			}
 
 			for (let i = 0; i < data.length; i += chunk) {
 				pending++;
@@ -115,7 +120,9 @@ function Stream(raw, secure, host, port) {
 				paused && (await resumed());
 				const { value, done } = await reader.read();
 
-				if (done) break;
+				if (done) {
+					break;
+				}
 
 				answered = true;
 				x.emit("data", Buffer.from(value.buffer, value.byteOffset, value.byteLength));
@@ -132,7 +139,9 @@ function Stream(raw, secure, host, port) {
 	}
 
 	function finish() {
-		if (closed) return;
+		if (closed) {
+			return;
+		}
 
 		answered || x.destroyed || x.emit("error", handshake());
 		closed = true;
@@ -140,7 +149,9 @@ function Stream(raw, secure, host, port) {
 	}
 
 	function handshake(error?) {
-		if (answered) return error;
+		if (answered) {
+			return error;
+		}
 
 		answered = true;
 
