@@ -188,10 +188,13 @@ export function Connection(ready, options, events) {
 	}
 
 	function release() {
-		if (!cancelling) {
-			while (!blocker && pending.length && pending[0] !== fence) {
-				write(pending.shift());
+		while (!blocker && pending.length && pending[0] !== fence) {
+			// Before each write, because write() runs user code (a debug callback, a custom type's
+			// serializer) that may cancel a query, and a cancel starts a hold
+			if (cancelling) {
+				break;
 			}
+			write(pending.shift());
 		}
 
 		schedule();
