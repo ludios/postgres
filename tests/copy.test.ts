@@ -56,7 +56,7 @@ test("Copy from file", async () => {
 			.on("finish", r),
 	);
 
-	expect(await sql`select * from test`).toEqual([
+	expect(await sql`select * from test order by x`).toEqual([
 		{ x: 1, y: 2, z: 3 },
 		{ x: 4, y: 5, z: 6 },
 	]);
