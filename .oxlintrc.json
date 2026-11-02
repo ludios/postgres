@@ -50,7 +50,7 @@
 				"typescript/no-implied-eval": "warn",
 				"unicorn/prefer-string-starts-ends-with": "warn",
 				"typescript/no-misused-spread": "warn",
-				"no-sequences": "warn"
+				"no-sequences": ["warn", { "allowInParentheses": false }]
 			}
 		}
 	],
@@ -62,7 +62,8 @@
 		"no-debugger": "error",
 		// AGENTS.md: "Use the { } curlies even for one-statement blocks."
 		"curly": ["error", "all"],
-		"no-sequences": "error",
+		// Also the sequences in parentheses, which is how oxfmt writes most of them.
+		"no-sequences": ["error", { "allowInParentheses": false }],
 		// https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-underscore-dangle.html
 		// This is just annoying.
 		"no-underscore-dangle": "off",
