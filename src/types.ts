@@ -280,7 +280,8 @@ function binary_array(read) {
 /**
  * For each built-in array type that is read in binary: the type of its elements, and the decoder of
  * the array, which gives the elements as their built-in text parsers do. Not int8[]: its elements
- * are kept as text, and making that text from the binary takes longer than reading it.
+ * are kept as text, and making that text from the binary takes longer than reading it
+ * (tests/bench_decoders.ts).
  */
 const binary_arrays = {
 	1000: [16, binary_array((x, i) => x[i] === 1)],
