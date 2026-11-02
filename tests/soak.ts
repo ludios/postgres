@@ -23,7 +23,7 @@ const seconds = +process.argv[2] || +process.env.SOAK_SECONDS || 60,
 	pending = new Map(),
 	samples = [],
 	failures = [],
-	counts = {};
+	counts: Record<string, number> = {};
 
 let next = 0,
 	notified = 0;

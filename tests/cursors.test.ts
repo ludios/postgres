@@ -191,9 +191,8 @@ test("concurrent cursors multiple connections", async () => {
 });
 
 test("Async iterator cursor surfaces an error arriving between batches", async () => {
-	const iterator = sql`select 1 / (3 - x) as x from generate_series(1, 5) as x`
-		.cursor(1)
-		[Symbol.asyncIterator]();
+	const cursor = sql`select 1 / (3 - x) as x from generate_series(1, 5) as x`.cursor(1);
+	const iterator = cursor[Symbol.asyncIterator]();
 	await iterator.next();
 	const code = await iterator
 		.next()

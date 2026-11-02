@@ -95,7 +95,7 @@ test("Tracing: a failing query publishes error with the error, then asyncStart a
 
 test("Tracing: start runs in the context of the code that made the query", async () => {
 	await using sql = postgres({ ...options, max: 1 });
-	const store = new AsyncLocalStorage(),
+	const store = new AsyncLocalStorage<string>(),
 		seen: string[] = [],
 		start = (context) => seen.push(store.getStore() + ":" + context.query);
 	dc.subscribe("tracing:postgres:query:start", start);

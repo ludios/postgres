@@ -48,7 +48,7 @@ test("copy_error returns a value that is not an object as is", async () => {
 });
 
 test("PostgresError is exported from the package", async () => {
-	expect(postgres.PostgresError === PostgresError).toBe(true);
+	expect(postgres).toHaveProperty("PostgresError", PostgresError);
 });
 
 test("Connection error stack is writable and configurable", async () => {

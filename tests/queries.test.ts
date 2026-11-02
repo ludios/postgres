@@ -102,7 +102,7 @@ test("Cancel queued query", async () => {
 });
 
 test("Result becomes array", async () => {
-	expect((await sql`select 1`).slice() instanceof Array).toBe(true);
+	expect(Array.isArray((await sql`select 1`).slice())).toBe(true);
 });
 
 test("Include table oid and column number in column details", async () => {

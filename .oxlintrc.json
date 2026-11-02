@@ -40,15 +40,6 @@
 				// some tests replace console.log on purpose.
 				"no-console": "off"
 			}
-		},
-		{
-			// The existing code breaks these rules, so they are warnings until the
-			// code is cleaned up. Delete a rule from this list once no code breaks
-			// it, so that it is an error again.
-			"files": ["**/*.ts"],
-			"rules": {
-				"typescript/no-base-to-string": "warn"
-			}
 		}
 	],
 
