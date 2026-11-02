@@ -73,6 +73,11 @@ export function Connection(ready, options, events) {
 		get inflight() {
 			return sent.length + pending.length + settling;
 		},
+		/**
+		 * Whether the pool must send this connection nothing now: an exchange that must run alone,
+		 * such as a cursor or a stream, is in flight, or a cancel request holds the connection until
+		 * the server has handled it
+		 */
 		get exclusive() {
 			return (!!blocker && exclusive(blocker)) || cancelling > 0;
 		},

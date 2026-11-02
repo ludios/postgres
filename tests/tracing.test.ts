@@ -2,7 +2,7 @@ import dc from "diagnostics_channel";
 import net from "net";
 import { AsyncLocalStorage } from "async_hooks";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { postgres, options, delay, pg_port } from "./setup.ts";
+import { postgres, options, delay, defer, pg_port, port_of, until_sleeping } from "./setup.ts";
 
 function record(name) {
 	const events = [],
@@ -236,6 +236,54 @@ test("Tracing: the pool publishes no idle for a connection that is closing", asy
 	await closed;
 	stop();
 	expect(messages.slice(before_close).map((x) => x.event)).toEqual(["close"]);
+});
+
+test("Tracing: the pool publishes idle for a cancelled query's connection once its cancel request has been handled", async () => {
+	// A proxy that passes the server's close of a cancel request's connection on to the client only
+	// when the test says so, so that the cancelled query's ReadyForQuery is sure to arrive first.
+	// The client half-closes that connection as soon as it has sent the request, so the proxy must
+	// not answer its FIN with one of its own
+	let cancel_closed: (release: () => void) => void;
+	const releasable = new Promise<() => void>((r) => (cancel_closed = r));
+	const proxy = net.createServer({ allowHalfOpen: true }, (client) => {
+		const server = net.connect(pg_port, "localhost");
+		let cancel_request = false;
+		client.on("data", (x) => {
+			// A CancelRequest has the code 80877102 after its length, where a StartupMessage has
+			// the protocol version
+			cancel_request ||= x.length >= 8 && x.readInt32BE(4) === 80877102;
+			server.write(x);
+		});
+		server.on("data", (x) => client.write(x));
+		client.on("error", () => server.destroy());
+		server.on("error", () => client.destroy());
+		client.on("close", () => server.destroy());
+		server.on("close", () => {
+			if (cancel_request) {
+				cancel_closed(() => client.destroy());
+			} else {
+				client.destroy();
+			}
+		});
+	});
+	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
+	await using _close = defer(() => proxy.close());
+	const { messages, stop } = listen("postgres:pool");
+	await using sql = postgres({ ...options, host: "localhost", port: port_of(proxy), max: 1 });
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
+	const query = sql`select pg_sleep(2)`.execute(),
+		failed = query.catch((x) => x.code);
+	await until_sleeping(pid);
+	const idles = () => messages.filter((x) => x.event === "idle").length,
+		before = idles(),
+		cancelled = query.cancel(),
+		code = await failed;
+	// The query has failed, but the client has not seen the cancel request's connection close yet
+	const while_held = idles() - before;
+	(await releasable)();
+	await cancelled;
+	stop();
+	expect([code, while_held, idles() - before]).toEqual(["57014", 0, 1]);
 });
 
 test("Tracing: the pool's close event has an error only if the connection did not close in an orderly way", async () => {
