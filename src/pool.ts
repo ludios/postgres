@@ -91,7 +91,7 @@ export function Pool(options, types) {
 	return pool;
 
 	function query(q, lease?) {
-		if (ending && !lease)
+		if (ending && !lease) {
 			return q.reject(
 				queryError(
 					Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]),
@@ -99,6 +99,7 @@ export function Pool(options, types) {
 					options.debug,
 				),
 			);
+		}
 
 		let built;
 		try {
@@ -116,7 +117,9 @@ export function Pool(options, types) {
 			return place({ q, simple: built.text, exclusive: !!q.streaming || q.alone }, lease);
 		}
 
-		if (q.onlyDescribe) return describeOnly(q, built, lease);
+		if (q.onlyDescribe) {
+			return describeOnly(q, built, lease);
+		}
 
 		const statement = statements.get(built, options.prepare && q.options.prepare !== false);
 		q.alone = free && alone(statement.live ? statement : statements.known(built.text));
@@ -143,7 +146,9 @@ export function Pool(options, types) {
 
 	function unbuilt(q, error, lease) {
 		error = queryError(error, q, options.debug);
-		if (!lease || lease.released || lease.connection.closed) return q.reject(error);
+		if (!lease || lease.released || lease.connection.closed) {
+			return q.reject(error);
+		}
 
 		q.connection = lease.connection;
 		lease.connection.local(q, error);
@@ -154,9 +159,11 @@ export function Pool(options, types) {
 		used = true;
 		const missing = !lease && retype();
 
-		if (missing) return reject(job, missing);
+		if (missing) {
+			return reject(job, missing);
+		}
 
-		if (job.q && job.q.cancelled)
+		if (job.q && job.q.cancelled) {
 			return job.q.reject(
 				queryError(
 					Errors.generic("57014", "canceling statement due to user request"),
@@ -164,6 +171,7 @@ export function Pool(options, types) {
 					options.debug,
 				),
 			);
+		}
 
 		if (lease) {
 			return lease.connection.closed
@@ -173,23 +181,30 @@ export function Pool(options, types) {
 					: run(lease.connection, job);
 		}
 
-		if (signal.aborted)
+		if (signal.aborted) {
 			return reject(
 				job,
 				Errors.connection("CONNECTION_DESTROYED", options, options.host[0], options.port[0]),
 			);
+		}
 
-		if (failingFast()) return reject(job, copy_error(failure.error));
+		if (failingFast()) {
+			return reject(job, copy_error(failure.error));
+		}
 
 		const c = waiting.length === 0 && pick(job);
-		if (c) return run(c, job);
+		if (c) {
+			return run(c, job);
+		}
 
 		waiting.push(wait(job));
 		drain();
 	}
 
 	function wait(job) {
-		if (!options.queue_timeout) return job;
+		if (!options.queue_timeout) {
+			return job;
+		}
 
 		job.timer = setTimeout(() => {
 			job.timer = null;
@@ -214,7 +229,9 @@ export function Pool(options, types) {
 		started(job);
 		hold(c);
 
-		if (job.run) return job.run(c);
+		if (job.run) {
+			return job.run(c);
+		}
 
 		job.q.connection = c;
 		job.simple !== undefined ? c.simple(job.q, job.simple) : c.send(job.q);
@@ -226,7 +243,9 @@ export function Pool(options, types) {
 			const job = waiting.peek(),
 				c = pick(job);
 
-			if (!c && !copying(job)) break;
+			if (!c && !copying(job)) {
+				break;
+			}
 
 			waiting.shift();
 			!c
@@ -244,10 +263,14 @@ export function Pool(options, types) {
 	}
 
 	function copying(job) {
-		if (!job.q || connections.size + opening < options.max || connections.size === 0) return false;
+		if (!job.q || connections.size + opening < options.max || connections.size === 0) {
+			return false;
+		}
 
 		for (const c of connections) {
-			if (!c.copying) return false;
+			if (!c.copying) {
+				return false;
+			}
 		}
 		return true;
 	}
@@ -273,7 +296,9 @@ export function Pool(options, types) {
 		for (const c of connections) {
 			const free = usable(c);
 			if (free && c.inflight === 0) {
-				if (any || c.prepared.has(statement.name)) return c;
+				if (any || c.prepared.has(statement.name)) {
+					return c;
+				}
 				best = best && best.inflight === 0 ? best : c;
 			} else if (
 				free &&
@@ -286,9 +311,13 @@ export function Pool(options, types) {
 			}
 		}
 
-		if (best && best.inflight === 0) return best;
+		if (best && best.inflight === 0) {
+			return best;
+		}
 
-		if (connections.size + opening < options.max && !failingSince) return null;
+		if (connections.size + opening < options.max && !failingSince) {
+			return null;
+		}
 
 		best && options.scheduler && job.q && needed(job) && (best = scheduled(job) || best);
 		return best && opening && best.inflight >= Math.ceil(waiting.length / (opening + 1))
@@ -297,10 +326,14 @@ export function Pool(options, types) {
 	}
 
 	function needed(job) {
-		if (!job.q.cost || job.q.cost.est === undefined || job.q.cost.est >= notable) return true;
+		if (!job.q.cost || job.q.cost.est === undefined || job.q.cost.est >= notable) {
+			return true;
+		}
 
 		for (const c of connections) {
-			if (c.notable) return true;
+			if (c.notable) {
+				return true;
+			}
 		}
 
 		return false;
@@ -310,10 +343,14 @@ export function Pool(options, types) {
 		const t = now(),
 			e = job.q.cost ? job.q.cost.est : undefined;
 
-		if (e === undefined || e < slow) return soonest(t, Infinity, false);
+		if (e === undefined || e < slow) {
+			return soonest(t, Infinity, false);
+		}
 
 		let heavy = 0;
-		for (const c of connections) c.inflight && c.heavy() && heavy++;
+		for (const c of connections) {
+			c.inflight && c.heavy() && heavy++;
+		}
 
 		decay(t);
 		const reserve = Math.max(
@@ -338,8 +375,11 @@ export function Pool(options, types) {
 				usable(c) && c.inflight < options.max_pipeline && (!heavy || c.heavy())
 					? c.backlog(t)
 					: Infinity;
-			if (v <= most && v < value) ((best = c), (value = v), (ties = 1));
-			else if (v <= most && v === value && v !== Infinity && Math.random() * ++ties < 1) best = c;
+			if (v <= most && v < value) {
+				((best = c), (value = v), (ties = 1));
+			} else if (v <= most && v === value && v !== Infinity && Math.random() * ++ties < 1) {
+				best = c;
+			}
 		}
 
 		return best;
@@ -358,11 +398,14 @@ export function Pool(options, types) {
 	}
 
 	function grow() {
-		if (ending && waiting.length === 0) return;
+		if (ending && waiting.length === 0) {
+			return;
+		}
 
 		if (failingSince !== null) {
-			if (opening || !waiting.length || retryTimer || [...connections].some((x) => x.loading))
+			if (opening || !waiting.length || retryTimer || [...connections].some((x) => x.loading)) {
 				return;
+			}
 			const wait = nextAttempt - now();
 			return wait > 0
 				? (retryTimer = setTimeout(() => ((retryTimer = null), grow()), wait))
@@ -370,14 +413,18 @@ export function Pool(options, types) {
 		}
 
 		let loading = 0;
-		for (const c of connections) c.loading && loading++;
+		for (const c of connections) {
+			c.loading && loading++;
+		}
 
 		const wanted = Math.max(
 			Math.min(waiting.length - opening - loading, options.max - connections.size - opening),
 			used && !ending ? Math.min(options.min, options.max) - connections.size - opening : 0,
 		);
 
-		for (let i = 0; i < wanted; i++) connect();
+		for (let i = 0; i < wanted; i++) {
+			connect();
+		}
 	}
 
 	function connect() {
@@ -395,7 +442,9 @@ export function Pool(options, types) {
 
 	function stuck() {
 		for (const c of connections) {
-			if (!c.lease) return false;
+			if (!c.lease) {
+				return false;
+			}
 		}
 		return true;
 	}
@@ -426,9 +475,13 @@ export function Pool(options, types) {
 	}
 
 	function retype() {
-		if (!typesError) return null;
+		if (!typesError) {
+			return null;
+		}
 
-		if (now() - typesFailed < 1000) return copy_error(typesError);
+		if (now() - typesFailed < 1000) {
+			return copy_error(typesError);
+		}
 
 		typesError = null;
 		connections.forEach((x) => (x.loading = true));
@@ -477,7 +530,9 @@ export function Pool(options, types) {
 
 	function failed(error) {
 		opening--;
-		if (signal.aborted) return finishing();
+		if (signal.aborted) {
+			return finishing();
+		}
 
 		attempted(error);
 		ending ? finishing() : grow();
@@ -537,10 +592,14 @@ export function Pool(options, types) {
 
 	function idle(c) {
 		listened(channels.pool) && event("idle", c);
-		if (c.inflight || c.lease) return;
+		if (c.inflight || c.lease) {
+			return;
+		}
 
 		options.unref_sockets && !c.loading && waiting.length === 0 && c.unref();
-		if (!options.idle_timeout) return;
+		if (!options.idle_timeout) {
+			return;
+		}
 
 		c.idleSince = now();
 		c.idleTimer || (c.idleTimer = unref(setTimeout(() => idled(c), options.idle_timeout * 1000)));
@@ -557,9 +616,13 @@ export function Pool(options, types) {
 
 	function idled(c) {
 		c.idleTimer = null;
-		if (c.inflight || c.lease || c.closed) return;
+		if (c.inflight || c.lease || c.closed) {
+			return;
+		}
 
-		if (connections.size <= options.min) return;
+		if (connections.size <= options.min) {
+			return;
+		}
 
 		const left = options.idle_timeout * 1000 - (now() - c.idleSince);
 		left >= 1 ? (c.idleTimer = unref(setTimeout(() => idled(c), left))) : c.close();
@@ -567,13 +630,18 @@ export function Pool(options, types) {
 
 	function onready(c) {
 		if (c.releasing) {
-			if (c.inflight) return;
+			if (c.inflight) {
+				return;
+			}
 
 			c.releasing = false;
-			if (c.status !== "I") return c.close();
+			if (c.status !== "I") {
+				return c.close();
+			}
 		}
-		if (c.inflight === 0 && !c.lease && (c.retiring || (ending && waiting.length === 0)))
+		if (c.inflight === 0 && !c.lease && (c.retiring || (ending && waiting.length === 0))) {
 			return c.close();
+		}
 
 		idle(c);
 		while (
@@ -581,8 +649,9 @@ export function Pool(options, types) {
 			usable(c) &&
 			c.inflight < options.max_pipeline &&
 			plain(waiting.peek())
-		)
+		) {
 			run(c, waiting.shift());
+		}
 
 		waiting.length && !c.lease && c.inflight < options.max_pipeline && drain();
 		ending && waiting.length === 0 && finishing();
@@ -628,13 +697,18 @@ export function Pool(options, types) {
 	async function lease(kind) {
 		used = true;
 		await 1;
-		if (ending)
+		if (ending) {
 			throw Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]);
+		}
 
-		if (failingFast()) throw copy_error(failure.error);
+		if (failingFast()) {
+			throw copy_error(failure.error);
+		}
 
 		const missing = retype();
-		if (missing) throw missing;
+		if (missing) {
+			throw missing;
+		}
 
 		return new Promise<Lease>((resolve, reject) => {
 			waiting.push(
@@ -668,9 +742,13 @@ export function Pool(options, types) {
 				return released;
 			},
 			send(q) {
-				if (c.closed) return q.reject(queryError(copy_error(c.closed), q, options.debug));
+				if (c.closed) {
+					return q.reject(queryError(copy_error(c.closed), q, options.debug));
+				}
 
-				if (released) return q.reject(queryError(ended(x), q, options.debug));
+				if (released) {
+					return q.reject(queryError(ended(x), q, options.debug));
+				}
 
 				chain = chain.then(
 					() =>
@@ -682,13 +760,19 @@ export function Pool(options, types) {
 				);
 			},
 			release() {
-				if (released) return;
+				if (released) {
+					return;
+				}
 				released = true;
 				c.lease === x && (c.lease = null);
 				listened(channels.pool) && event("release", c, { kind: job.kind });
-				if (c.closed) return;
+				if (c.closed) {
+					return;
+				}
 
-				if (c.inflight) return (c.releasing = true);
+				if (c.inflight) {
+					return (c.releasing = true);
+				}
 
 				c.status === "I" ? onready(c) : c.close();
 			},
@@ -723,14 +807,18 @@ export function Pool(options, types) {
 			return Promise.resolve();
 		}
 
-		if (q.connection) return q.connection.cancel(q);
+		if (q.connection) {
+			return q.connection.cancel(q);
+		}
 
 		q.cancelled = true;
 		return Promise.resolve();
 	}
 
 	function end({ timeout = null } = {}) {
-		if (ending) return ending;
+		if (ending) {
+			return ending;
+		}
 
 		ending = new Promise<void>((resolve) => {
 			resolve_ending = resolve;
@@ -743,9 +831,13 @@ export function Pool(options, types) {
 	}
 
 	function finishing() {
-		if (!resolve_ending) return;
+		if (!resolve_ending) {
+			return;
+		}
 
-		if (waiting.length === 0) connections.forEach((c) => c.inflight === 0 && !c.lease && c.close());
+		if (waiting.length === 0) {
+			connections.forEach((c) => c.inflight === 0 && !c.lease && c.close());
+		}
 
 		if (connections.size === 0 && opening === 0 && waiting.length) {
 			for (const job of waiting.take()) {
@@ -817,7 +909,9 @@ export function Queue() {
 		},
 		remove(fn) {
 			for (let i = head; i < xs.length; i++) {
-				if (fn(xs[i])) return (xs.splice(i, 1), true);
+				if (fn(xs[i])) {
+					return (xs.splice(i, 1), true);
+				}
 			}
 			return false;
 		},
@@ -831,7 +925,9 @@ function alone(x) {
 }
 
 function opens(text) {
-	if (begins.test(text)) return true;
+	if (begins.test(text)) {
+		return true;
+	}
 
 	starts.lastIndex = 0;
 	let match;
@@ -839,17 +935,25 @@ function opens(text) {
 		const from = match.index + 5;
 		let i = from;
 		while (true) {
-			while (i < text.length && /\s/.test(text[i])) i++;
+			while (i < text.length && /\s/.test(text[i])) {
+				i++;
+			}
 
-			if (text[i] !== "/" || text[i + 1] !== "*") break;
+			if (text[i] !== "/" || text[i + 1] !== "*") {
+				break;
+			}
 
 			const end = text.indexOf("*/", i + 2);
-			if (end === -1) return false;
+			if (end === -1) {
+				return false;
+			}
 
 			i = end + 2;
 		}
 
-		if (i > from && transaction.test(text.slice(i, i + 12))) return true;
+		if (i > from && transaction.test(text.slice(i, i + 12))) {
+			return true;
+		}
 
 		starts.lastIndex = Math.max(starts.lastIndex, i);
 	}
@@ -871,7 +975,9 @@ function Statements(scheduler) {
 
 	function known(text) {
 		let x = texts.get(text);
-		if (x) return x;
+		if (x) {
+			return x;
+		}
 
 		texts.set(text, (x = { text, est: undefined, alone: undefined }));
 		texts.size > limit && texts.delete(texts.keys().next().value);
@@ -879,12 +985,16 @@ function Statements(scheduler) {
 	}
 
 	function get(built, prepare) {
-		if (!prepare) return unnamed(built.text);
+		if (!prepare) {
+			return unnamed(built.text);
+		}
 
 		const tagged = !built.dynamic && (templates.get(built.strings) || set(built.strings)),
 			cached = tagged && tagged.get(built.types);
 
-		if (cached && cached.live) return ((cached.used = clock++), cached);
+		if (cached && cached.live) {
+			return ((cached.used = clock++), cached);
+		}
 
 		const key = built.types + "\0" + built.text;
 		let statement = map.get(key);
@@ -927,7 +1037,9 @@ function Statements(scheduler) {
 
 	function evict() {
 		let oldest = null;
-		for (const x of map.values()) (!oldest || x.used < oldest.used) && (oldest = x);
+		for (const x of map.values()) {
+			(!oldest || x.used < oldest.used) && (oldest = x);
+		}
 		oldest.live = false;
 		map.delete(oldest.key);
 	}
