@@ -15,8 +15,8 @@
 		"allowImportingTsExtensions": true,
 		"erasableSyntaxOnly": true,
 		"verbatimModuleSyntax": true,
-		// Loose for now, so that typing the files that were converted from .js
-		// needs few code changes.
+		// Loose for now, so that adding type annotations to the files that were
+		// converted from .js needs few code changes.
 		"strict": false
 	},
 	"include": ["src", "tests"]
