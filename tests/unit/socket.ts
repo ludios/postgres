@@ -2,7 +2,7 @@
 import { EventEmitter } from "events";
 import { expect, test } from "vitest";
 import { Socket } from "../../src/socket.ts";
-import { port_of } from "../common.ts";
+import { port_of } from "../helpers.ts";
 
 function fake() {
 	// A fake net.Socket, which records what is written to it

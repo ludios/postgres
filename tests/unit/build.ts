@@ -3,7 +3,7 @@ import util from "util";
 import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";
 import cases from "./build.cases.ts";
-import { snake_case } from "../common.ts";
+import { snake_case } from "../helpers.ts";
 
 const sql = postgres({ host: "localhost", port: 1, max: 1 });
 const show = (q) => JSON.stringify([q.text, q.parameters]);
