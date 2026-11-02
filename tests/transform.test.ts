@@ -22,7 +22,6 @@ test("transform column", async () => {
 	await sql`create table test (hello_world int)`;
 	await sql`insert into test values (1)`;
 	expect(Object.keys((await sql`select * from test`)[0])[0]).toBe("dlrow_olleh");
-	await sql`drop table test`;
 });
 
 test("Transform row", async () => {
@@ -64,7 +63,6 @@ test("transform.column.to renames the columns given to helpers", async () => {
 	await sql`insert into test ${sql([{ aTest: 1, bTest: 1 }])}`;
 	await sql`update test set ${sql({ aTest: 2, bTest: 2 })}`;
 	expect((await sql`select ${sql("aTest", "bTest")} from test`)[0].a_test).toBe(2);
-	await sql`drop table test`;
 });
 
 test("transform.column.from renames the columns of results", async () => {
@@ -76,7 +74,6 @@ test("transform.column.from renames the columns of results", async () => {
 	await sql`insert into test ${sql([{ a_test: 1, b_test: 1 }])}`;
 	await sql`update test set ${sql({ a_test: 2, b_test: 2 })}`;
 	expect((await sql`select a_test, b_test from test`)[0].aTest).toBe(2);
-	await sql`drop table test`;
 });
 
 test("transform.column.to and transform.column.from together rename both ways", async () => {
@@ -88,7 +85,6 @@ test("transform.column.to and transform.column.from together rename both ways", 
 	await sql`insert into test ${sql([{ aTest: 1, bTest: 1 }])}`;
 	await sql`update test set ${sql({ aTest: 2, bTest: 2 })}`;
 	expect((await sql`select ${sql("aTest", "bTest")} from test`)[0].aTest).toBe(2);
-	await sql`drop table test`;
 });
 
 test("Insert array with undefined transform", async () => {
@@ -96,15 +92,13 @@ test("Insert array with undefined transform", async () => {
 	await sql`create table test (x int[])`;
 	await sql`insert into test ${sql({ x: [1, undefined, 3] })}`;
 	expect((await sql`select x from test`)[0].x[0]).toBe(1);
-	await sql`drop table test`;
 });
 
 test("transform.row applies to .values() rows too, as in v3", async () => {
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		transform: { row: { from: (row) => ((row.transformed = true), row) } },
 	});
 	const [row] = await sql`select 1 as a`.values();
 	expect([row[0], row.transformed]).toEqual([1, true]);
-	await sql.end();
 });
