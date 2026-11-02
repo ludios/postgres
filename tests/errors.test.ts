@@ -311,32 +311,46 @@ test("Cursors whose callbacks are running when the connection closes each get th
 	const sql = postgres({ ...options, max: 1 }),
 		killer = postgres(options);
 	let resume,
+		pid,
+		cursors,
 		started = 0,
-		cursors;
+		settled = 0;
 	const paused = new Promise((r) => (resume = r));
-	await sql
-		.begin(async (sql) => {
-			const [{ pid }] = await sql`select pg_backend_pid() as pid`;
+	const done = sql
+		.begin(async (tx) => {
+			pid = (await tx`select pg_backend_pid() as pid`)[0].pid;
 			cursors = ["a", "b"].map((x) =>
-				sql`select ${x}::text as x from generate_series(1, 3)`
+				tx`select ${x}::text as x from generate_series(1, 3)`
 					.cursor(1, () => {
 						started++;
 						return paused;
 					})
-					.catch((e) => e),
+					.catch((e) => e)
+					.finally(() => {
+						settled++;
+					}),
 			);
-			await vi.waitUntil(() => started === 2);
-			await killer`select pg_terminate_backend(${pid}::int)`;
 			await Promise.all(cursors);
 		})
 		.catch(() => {});
-	resume();
-	await killer.end();
-	await sql.end();
-	expect((await Promise.all(cursors)).map((e) => e.args)).toEqual([["a"], ["b"]]);
+	try {
+		await vi.waitUntil(() => started === 2);
+		await killer`select pg_terminate_backend(${pid}::int)`;
+		// The close must reject the cursors while their callbacks are still running
+		await vi.waitUntil(() => settled === 2);
+	} finally {
+		resume();
+		await done;
+		await killer.end();
+		await sql.end();
+	}
+	expect((await Promise.all(cursors)).map((e) => [e.code, e.args])).toEqual([
+		["CONNECTION_CLOSED", ["a"]],
+		["CONNECTION_CLOSED", ["b"]],
+	]);
 });
 
-test("Queries that a reserved connection gets as it closes each get their own error", async () => {
+test("Queries that a reserved connection gets just as it closes each get their own error", async () => {
 	let raw;
 	const sql = postgres({
 		...options,
@@ -345,22 +359,29 @@ test("Queries that a reserved connection gets as it closes each get their own er
 	});
 	const reserved = await sql.reserve();
 	await reserved`select 1`;
+	// Two queries that execute and two that only describe, so that the check in place() for a
+	// closed connection would show if two queries of either kind got the same error
 	const errors = [
 		reserved`select ${"a"}::text as x`.execute(),
-		// A query that only describes goes to the connection without the pool checking whether the
-		// connection has closed
-		reserved`select ${"b"}::text as x`.describe(),
+		reserved`select ${"b"}::text as x`.execute(),
+		reserved`select ${"c"}::text as x`.describe(),
+		reserved`select ${"d"}::text as x`.describe(),
 	].map((q) => q.catch((e) => e));
-	// Each query is sent to the lease in a microtask, and goes to the connection in a later
-	// microtask. The connection closes between them, as it can with a socket that reports its
-	// close in a microtask (as on Cloudflare).
+	// Each query is sent to the lease in one microtask, and goes to the connection in a later
+	// microtask. The connection closes in a microtask between those two, as it can with a socket
+	// that reports its close in a microtask (as on Cloudflare).
 	queueMicrotask(() => raw.emit("error", new Error("closed between microtasks")));
-	expect((await Promise.all(errors)).map((e) => [e.code, e.args])).toEqual([
-		["CONNECTION_CLOSED", ["a"]],
-		["CONNECTION_CLOSED", ["b"]],
-	]);
-	reserved.release();
-	await sql.end();
+	try {
+		expect((await Promise.all(errors)).map((e) => [e.code, e.args])).toEqual([
+			["CONNECTION_CLOSED", ["a"]],
+			["CONNECTION_CLOSED", ["b"]],
+			["CONNECTION_CLOSED", ["c"]],
+			["CONNECTION_CLOSED", ["d"]],
+		]);
+	} finally {
+		reserved.release();
+		await sql.end();
+	}
 });
 
 test("Query and parameters on an error are not enumerable if debug is not set", async () => {
