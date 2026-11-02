@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { EventEmitter } from "events";
 import { expect, test } from "vitest";
 import { Socket } from "../../src/socket.ts";

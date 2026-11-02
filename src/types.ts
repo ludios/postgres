@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Errors } from "./errors.ts";
 
 const number = (x) => +x,

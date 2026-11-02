@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { connect } from "cloudflare:sockets";
 import { EventEmitter } from "node:events";
 import { Buffer } from "node:buffer";

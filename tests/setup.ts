@@ -1,5 +1,4 @@
 // Model-output: Claude Opus 5.5
-// @ts-nocheck
 import { beforeEach, inject } from "vitest";
 import { exec } from "./bootstrap.ts";
 import { options, postgres } from "./common.ts";

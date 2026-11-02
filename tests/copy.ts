@@ -1,5 +1,4 @@
 // Model-output: Claude Opus 5.5
-// @ts-nocheck
 import fs from "fs";
 import crypto from "crypto";
 import { pipeline } from "stream/promises";

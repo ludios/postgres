@@ -1,5 +1,4 @@
 // Model-output: Claude Opus 5.5
-// @ts-nocheck
 import util from "util";
 import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";

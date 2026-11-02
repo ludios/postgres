@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Errors } from "./errors.ts";
 import { Parameter, infer } from "./types.ts";
 

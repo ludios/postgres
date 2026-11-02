@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { open as startup } from "./startup.ts";
 import { Connection, slow, notable } from "./connection.ts";
 import { Query } from "./query.ts";

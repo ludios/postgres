@@ -1,4 +1,3 @@
-// @ts-nocheck
 import net from "net";
 import { expect, test } from "vitest";
 import { postgres, sql, options, delay, idle_timeout, pg_port } from "./setup.ts";

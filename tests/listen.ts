@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { expect, test } from "vitest";
 import { postgres, options, delay, pg_socket_dir } from "./setup.ts";
 

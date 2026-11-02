@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { expect, test } from "vitest";
 import { PostgresError } from "../../src/errors.ts";
 import postgres from "../../src/index.ts";

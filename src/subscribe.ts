@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { own } from "./connection.ts";
 
 const noop = () => {},

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import net from "net";
 import { expect, test } from "vitest";
 import { postgres, login, login_md5, login_scram, pg_port } from "./setup.ts";

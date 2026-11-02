@@ -1,4 +1,3 @@
-// @ts-nocheck
 import dc from "diagnostics_channel";
 import { AsyncLocalStorage } from "async_hooks";
 import { expect, test } from "vitest";
