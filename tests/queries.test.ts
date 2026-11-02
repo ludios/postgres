@@ -1,7 +1,7 @@
 import fs from "fs";
 import crypto from "crypto";
 import { expect, test } from "vitest";
-import { postgres, sql, options } from "./setup.ts";
+import { postgres, sql, options, thrown } from "./setup.ts";
 
 test("Result is array", async () => {
 	expect(Array.isArray(await sql`select 1`)).toBe(true);
@@ -318,15 +318,7 @@ test("Inspecting a query with debug shows why it can not be built", async () => 
 });
 
 test(".stream() says it is now .forEach()", async () => {
-	expect(
-		(() => {
-			try {
-				sql`select 1`.stream();
-			} catch (e) {
-				return e.message;
-			}
-		})(),
-	).toBe(".stream has been renamed to .forEach");
+	expect(thrown(() => sql`select 1`.stream()).message).toBe(".stream has been renamed to .forEach");
 });
 
 test(".finally() runs the query", async () => {

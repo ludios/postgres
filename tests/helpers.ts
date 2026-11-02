@@ -28,3 +28,16 @@ export const camel_case = (x) => x.replace(/(?!^)_(.)/g, (_, c) => c.toUpperCase
  * @returns `x` in snake_case
  */
 export const snake_case = (x) => x.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());
+
+/**
+ * @param f - a function that must throw when called
+ * @returns the value that `f` threw (usually an Error, whose `code` or `message` the caller checks)
+ */
+export function thrown(f: () => unknown): any {
+	try {
+		f();
+	} catch (e) {
+		return e;
+	}
+	throw new Error("Expected the function to throw, but it returned without throwing");
+}

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { postgres, sql, options, delay } from "./setup.ts";
+import { postgres, sql, options, delay, thrown } from "./setup.ts";
 
 test("null", async () => {
 	expect((await sql`select ${null} as x`)[0].x).toBe(null);
@@ -639,15 +639,11 @@ test(
 );
 
 test("Custom types by name need fetch_types", async () => {
-	let code;
-	try {
+	const create = () =>
 		postgres({
 			...options,
 			fetch_types: false,
 			types: { x: { to: "x", from: ["x"], serialize: String, parse: String } },
 		});
-	} catch (e) {
-		code = e.code;
-	}
-	expect(code).toBe("TYPE_NOT_FOUND");
+	expect(thrown(create).code).toBe("TYPE_NOT_FOUND");
 });

@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";
+import { thrown } from "../helpers.ts";
 
 /**
  * @param url - the url to give postgres(), if any
@@ -112,27 +113,13 @@ test("disable and false in the query of a url turn an option off", async () => {
 });
 
 test("An unsupported target_session_attrs throws", async () => {
-	expect(
-		(() => {
-			try {
-				postgres({ target_session_attrs: "any" });
-			} catch (e) {
-				return e.message;
-			}
-		})(),
-	).toBe("target_session_attrs any is not supported");
+	expect(thrown(() => postgres({ target_session_attrs: "any" })).message).toBe(
+		"target_session_attrs any is not supported",
+	);
 });
 
 test("sql.array() is removed, and says so", async () => {
-	expect(
-		(() => {
-			try {
-				postgres({ max: 1 }).array([1]);
-			} catch (e) {
-				return e.code;
-			}
-		})(),
-	).toBe("ARRAY_REMOVED");
+	expect(thrown(() => postgres({ max: 1 }).array([1])).code).toBe("ARRAY_REMOVED");
 });
 
 test("A custom type can have the name of a property of functions, such as name or length", async () => {
@@ -148,13 +135,7 @@ test("A custom type can have the name of a property of functions, such as name o
 
 test("The removed casing transforms throw when read, and Object.assign does not copy them", async () => {
 	const names = "camel toCamel fromCamel pascal toPascal fromPascal kebab toKebab fromKebab",
-		codes = names.split(" ").map((name) => {
-			try {
-				return postgres[name];
-			} catch (e) {
-				return e.code;
-			}
-		});
+		codes = names.split(" ").map((name) => thrown(() => postgres[name]).code);
 	const copied = Object.assign({}, postgres);
 	expect([codes, names.split(" ").some((name) => name in copied)]).toEqual([
 		Array(9).fill("CASING_TRANSFORM_REMOVED"),
@@ -176,13 +157,7 @@ test("channel_binding from options, the url and PGCHANNELBINDING, as libpq reads
 	} finally {
 		delete process.env.PGCHANNELBINDING;
 	}
-	const invalid = (() => {
-		try {
-			postgres({ channel_binding: "yes" });
-		} catch (e) {
-			return e.message;
-		}
-	})();
+	const invalid = thrown(() => postgres({ channel_binding: "yes" })).message;
 	expect([read, invalid]).toEqual([
 		["disable", "require", "prefer", undefined],
 		"channel_binding yes is not supported",
@@ -213,27 +188,22 @@ test("A numeric option written as text is a number, from the url, a PG variable 
 });
 
 test("A numeric option written as anything but a non-negative decimal number throws, naming its source", async () => {
-	const thrown = (f) => {
-		try {
-			f();
-		} catch (e) {
-			return e.message;
-		}
-	};
 	const must = " must be a non-negative decimal number, but it is ";
 	process.env.PGCONNECT_TIMEOUT = "30s";
 	let from_variable;
 	try {
-		from_variable = thrown(() => postgres({ max: 1 }));
+		from_variable = thrown(() => postgres({ max: 1 })).message;
 	} finally {
 		delete process.env.PGCONNECT_TIMEOUT;
 	}
 	const texts = ["abc", "", " 1", "-1", "1e3", "0x10", ".5", "Infinity"];
 	expect([
 		from_variable,
-		thrown(() => postgres({ max: 1, idle_timeout: "abc" })),
-		...texts.map((x) =>
-			thrown(() => postgres("postgres://u@h/db?backoff=" + encodeURIComponent(x), { max: 1 })),
+		thrown(() => postgres({ max: 1, idle_timeout: "abc" })).message,
+		...texts.map(
+			(x) =>
+				thrown(() => postgres("postgres://u@h/db?backoff=" + encodeURIComponent(x), { max: 1 }))
+					.message,
 		),
 	]).toEqual([
 		"The environment variable PGCONNECT_TIMEOUT" + must + '"30s"',

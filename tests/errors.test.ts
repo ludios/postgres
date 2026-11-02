@@ -1,6 +1,16 @@
 import net from "net";
 import { expect, test } from "vitest";
-import { postgres, sql, options, login_md5, rel, idle_timeout, delay, port_of } from "./setup.ts";
+import {
+	postgres,
+	sql,
+	options,
+	login_md5,
+	rel,
+	idle_timeout,
+	delay,
+	port_of,
+	thrown,
+} from "./setup.ts";
 
 test("Undefined values throws", async () => {
 	let error;
@@ -61,33 +71,15 @@ test("await sql() throws not tagged error", async () => {
 });
 
 test("sql().then throws not tagged error", async () => {
-	let error;
-	try {
-		sql("select 1").then(() => {});
-	} catch (e) {
-		error = e.code;
-	}
-	expect(error).toBe("NOT_TAGGED_CALL");
+	expect(thrown(() => sql("select 1").then(() => {})).code).toBe("NOT_TAGGED_CALL");
 });
 
 test("sql().catch throws not tagged error", async () => {
-	let error;
-	try {
-		sql("select 1").catch(() => {});
-	} catch (e) {
-		error = e.code;
-	}
-	expect(error).toBe("NOT_TAGGED_CALL");
+	expect(thrown(() => sql("select 1").catch(() => {})).code).toBe("NOT_TAGGED_CALL");
 });
 
 test("sql().finally throws not tagged error", async () => {
-	let error;
-	try {
-		sql("select 1").finally(() => {});
-	} catch (e) {
-		error = e.code;
-	}
-	expect(error).toBe("NOT_TAGGED_CALL");
+	expect(thrown(() => sql("select 1").finally(() => {})).code).toBe("NOT_TAGGED_CALL");
 });
 
 test("little bobby tables", async () => {

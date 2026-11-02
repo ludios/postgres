@@ -2,7 +2,7 @@ import util from "util";
 import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";
 import cases from "./build.cases.ts";
-import { snake_case } from "../helpers.ts";
+import { snake_case, thrown } from "../helpers.ts";
 
 const sql = postgres({ host: "localhost", port: 1, max: 1 });
 /** @returns the text and the parameters of `q`, a query that is built but not run */
@@ -21,13 +21,7 @@ test("Insert and update helpers with no columns throw (#644)", async () => {
 			() => sql`insert into x ${sql({})}`,
 			() => sql`insert into x ${sql({ a: 1 }, [])}`,
 			() => sql`update x set ${sql({})}`,
-		].map((fn) => {
-			try {
-				fn().text;
-			} catch (e) {
-				return e.code;
-			}
-		}),
+		].map((fn) => thrown(() => fn().text).code),
 	).toEqual(["NO_COLUMNS", "NO_COLUMNS", "NO_COLUMNS"]);
 });
 
@@ -44,13 +38,7 @@ test("Undefined values in any row of a multi row insert throw, whatever the orde
 					{ a: 2, b: undefined },
 					{ a: 1, b: 1 },
 				])}`,
-		].map((fn) => {
-			try {
-				fn().text;
-			} catch (e) {
-				return e.code;
-			}
-		}),
+		].map((fn) => thrown(() => fn().text).code),
 	).toEqual(["UNDEFINED_VALUE", "UNDEFINED_VALUE"]);
 });
 

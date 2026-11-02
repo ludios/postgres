@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import * as p from "../../src/protocol.ts";
+import { thrown } from "../helpers.ts";
 
 const hex = (x) => Buffer.from(x).toString("hex");
 const str = (x) => Buffer.from(x + "\0");
@@ -346,12 +347,7 @@ test("A message that fails to encode leaves nothing behind for the next one", as
 			throw new Error("wat");
 		},
 	};
-	let error;
-	try {
-		p.Startup({ user: "a", database: bad });
-	} catch (e) {
-		error = e.message;
-	}
+	const error = thrown(() => p.Startup({ user: "a", database: bad })).message;
 	expect([error, p.Sync()]).toEqual(["wat", Buffer.from("5300000004", "hex")]);
 });
 
