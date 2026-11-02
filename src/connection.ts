@@ -590,10 +590,8 @@ export function Connection(ready, options, events) {
 
 	function cancel(query) {
 		if (running.has(query) || (sent[0] && sent[0].query === query && sent[0].awaiting)) {
-			return (
-				(query.aborted = Errors.generic("57014", "canceling statement due to user request")),
-				Promise.resolve()
-			);
+			query.aborted = Errors.generic("57014", "canceling statement due to user request");
+			return Promise.resolve();
 		}
 		const i = pending.findIndex((x) => x.query === query);
 
@@ -612,7 +610,9 @@ export function Connection(ready, options, events) {
 		}
 
 		if (x !== sent[0]) {
-			return new Promise((resolve, reject) => (x.cancel = { resolve, reject }));
+			// Settled once `x` is the head, or once the connection closes; every call gets the same promise
+			x.cancel = x.cancel || Promise.withResolvers();
+			return x.cancel.promise;
 		}
 		return x.copy ? cancel_copy(x) : stop(x);
 	}
@@ -667,6 +667,10 @@ export function Connection(ready, options, events) {
 		closed.cause = fatal || error || undefined;
 		let head_error = null;
 		sent.splice(0).forEach((x) => {
+			// The query fails with `closed`, so there is nothing left to cancel
+			if (x.cancel) {
+				x.cancel.resolve();
+			}
 			x.stream && x.stream.destroy(closed);
 			if (x.own) {
 				settle(x);

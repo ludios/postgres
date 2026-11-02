@@ -1,7 +1,7 @@
 import fs from "fs";
 import crypto from "crypto";
 import { expect, test } from "vitest";
-import { postgres, sql, options, thrown } from "./setup.ts";
+import { postgres, sql, options, thrown, delay, terminate, until_sleeping } from "./setup.ts";
 
 test("Result is array", async () => {
 	expect(Array.isArray(await sql`select 1`)).toBe(true);
@@ -294,6 +294,27 @@ test("A cancel that reaches the server after its query has finished does not can
 		expect(x).toBe(1);
 	} finally {
 		await sql.end();
+	}
+});
+
+test("Every cancel() of a query pipelined behind another settles when the connection closes", async () => {
+	const sql = postgres({ ...options, max: 1 });
+	try {
+		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+			first = sql`select pg_sleep(10)`.execute(),
+			second = sql`select 1`.execute();
+		first.catch(() => {});
+		second.catch(() => {});
+		await until_sleeping(pid);
+		const cancels = [second.cancel(), second.cancel()];
+		await terminate(pid);
+		const settled = await Promise.race([
+			Promise.allSettled(cancels).then(() => "settled"),
+			delay(3000).then(() => "pending"),
+		]);
+		expect(settled).toBe("settled");
+	} finally {
+		await sql.end({ timeout: 0 });
 	}
 });
 
