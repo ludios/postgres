@@ -31,11 +31,14 @@
 
 	"overrides": [
 		{
-			// A test's helper may sit inside the test that uses it, even when it closes
-			// over nothing.
 			"files": ["tests/**"],
 			"rules": {
-				"unicorn/consistent-function-scoping": "off"
+				// A test's helper may sit inside the test that uses it, even when it
+				// closes over nothing.
+				"unicorn/consistent-function-scoping": "off",
+				// simulate.ts, soak.ts and failover.ts print their reports with it, and
+				// some tests replace console.log on purpose.
+				"no-console": "off"
 			}
 		},
 		{
@@ -49,7 +52,6 @@
 				"typescript/await-thenable": "warn",
 				"no-async-promise-executor": "warn",
 				"typescript/no-base-to-string": "warn",
-				"unicorn/no-new-array": "warn",
 				"unicorn/no-thenable": "warn",
 				"promise/no-callback-in-promise": "warn",
 				"unicorn/no-unnecessary-await": "warn",
@@ -89,6 +91,17 @@
 		// Should be a warning, not an error. A name with a leading underscore is
 		// unused on purpose: the arguments that a noop takes, or `await using _x`.
 		"no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+		// https://oxc.rs/docs/guide/usage/linter/rules/unicorn/no-new-array.html
+		// `new Array(n)` preallocates an array of n values on purpose, in the code
+		// that reads every row.
+		"unicorn/no-new-array": "off",
+		// https://oxc.rs/docs/guide/usage/linter/rules/unicorn/prefer-add-event-listener.html
+		// Our socket objects are not EventTargets: `onclose` and the like are plain
+		// properties that hold one function.
+		"unicorn/prefer-add-event-listener": "off",
+		// https://oxc.rs/docs/guide/usage/linter/rules/oxc/no-map-spread.html
+		// Copying each object in map() is how we avoid changing the caller's objects.
+		"oxc/no-map-spread": "off",
 		// https://oxc.rs/docs/guide/usage/linter/rules/unicorn/no-useless-spread.html
 		// A bad rule: it will stop you from doing [...something] to copy e.g. a Set
 		// to avoid issues with it being mutated as you iterate it.
