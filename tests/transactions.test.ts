@@ -65,12 +65,12 @@ test("Transaction throws on uncaught named savepoint", async () => {
 		await sql
 			.begin(async (sql) => {
 				await sql`insert into test values(1)`;
-				await sql.savepoit("watpoint", async (sql) => {
+				await sql.savepoint("watpoint", async (sql) => {
 					await sql`insert into test values(2)`;
 					throw new Error("fail");
 				});
 			})
-			.catch(() => "fail"),
+			.catch((err) => err.message),
 	).toBe("fail");
 });
 
