@@ -307,6 +307,62 @@ test("A transaction whose connection drops mid-query rejects with that query's e
 	expect([error.code, error.args]).toEqual(["CONNECTION_CLOSED", ["a"]]);
 });
 
+test("Cursors whose callbacks are running when the connection closes each get their own error", async () => {
+	const sql = postgres({ ...options, max: 1 }),
+		killer = postgres(options);
+	let resume,
+		started = 0,
+		cursors;
+	const paused = new Promise((r) => (resume = r));
+	await sql
+		.begin(async (sql) => {
+			const [{ pid }] = await sql`select pg_backend_pid() as pid`;
+			cursors = ["a", "b"].map((x) =>
+				sql`select ${x}::text as x from generate_series(1, 3)`
+					.cursor(1, () => {
+						started++;
+						return paused;
+					})
+					.catch((e) => e),
+			);
+			await vi.waitUntil(() => started === 2);
+			await killer`select pg_terminate_backend(${pid}::int)`;
+			await Promise.all(cursors);
+		})
+		.catch(() => {});
+	resume();
+	await killer.end();
+	await sql.end();
+	expect((await Promise.all(cursors)).map((e) => e.args)).toEqual([["a"], ["b"]]);
+});
+
+test("Queries that a reserved connection gets as it closes each get their own error", async () => {
+	let raw;
+	const sql = postgres({
+		...options,
+		max: 1,
+		socket: () => (raw = net.connect(pg_port, "localhost")),
+	});
+	const reserved = await sql.reserve();
+	await reserved`select 1`;
+	const errors = [
+		reserved`select ${"a"}::text as x`.execute(),
+		// A query that only describes goes to the connection without the pool checking whether the
+		// connection has closed
+		reserved`select ${"b"}::text as x`.describe(),
+	].map((q) => q.catch((e) => e));
+	// Each query is sent to the lease in a microtask, and goes to the connection in a later
+	// microtask. The connection closes between them, as it can with a socket that reports its
+	// close in a microtask (as on Cloudflare).
+	queueMicrotask(() => raw.emit("error", new Error("closed between microtasks")));
+	expect((await Promise.all(errors)).map((e) => [e.code, e.args])).toEqual([
+		["CONNECTION_CLOSED", ["a"]],
+		["CONNECTION_CLOSED", ["b"]],
+	]);
+	reserved.release();
+	await sql.end();
+});
+
 test("Query and parameters on errorare not enumerable if debug is not set", async () => {
 	const sql = postgres({ ...options, debug: false });
 
