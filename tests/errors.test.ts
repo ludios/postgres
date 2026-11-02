@@ -270,9 +270,9 @@ test("Queries waiting for a connection when end() gives up connecting each get t
 test("A transaction whose backend is terminated mid-query rejects with that query's error", async () => {
 	await using sql = postgres({ ...options, max: 1 });
 	const error = await sql
-		.begin(async (sql) => {
-			const [{ pid }] = await sql`select pg_backend_pid() as pid`;
-			const query = failures(sql, ["a"])[0];
+		.begin(async (tx) => {
+			const [{ pid }] = await tx`select pg_backend_pid() as pid`;
+			const query = failures(tx, ["a"])[0];
 			await delay(50);
 			await terminate(pid);
 			await query;
@@ -286,8 +286,8 @@ test("A transaction whose connection drops mid-query rejects with that query's e
 	await using proxy = await proxy_to_server();
 	await using sql = postgres({ ...options, host: proxy.host, port: proxy.port, max: 1 });
 	const error = await sql
-		.begin(async (sql) => {
-			const query = failures(sql, ["a"])[0];
+		.begin(async (tx) => {
+			const query = failures(tx, ["a"])[0];
 			await delay(50);
 			for (const c of proxy.connections) {
 				c.client.destroy();

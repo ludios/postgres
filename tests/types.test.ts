@@ -478,9 +478,9 @@ test("A parameter of a type Postgres.js does not know keeps its place among the 
 	await using _drop = await enum_table("test_enum_order");
 	await using fresh = postgres({ ...options, max: 1 });
 	await fresh`select 1`;
-	const [, select] = await fresh.begin((sql) => [
-		sql`insert into test_enum_order values (${"a"})`,
-		sql`select count(*)::int as n from test_enum_order`,
+	const [, select] = await fresh.begin((tx) => [
+		tx`insert into test_enum_order values (${"a"})`,
+		tx`select count(*)::int as n from test_enum_order`,
 	]);
 	const commands = await Promise.all([
 		fresh`begin`,
@@ -573,7 +573,7 @@ test("A custom type name that does not exist rejects with TYPE_NOT_FOUND", async
 			(e) => e.code,
 		),
 		await sql2
-			.begin((sql) => sql`select 1`)
+			.begin((tx) => tx`select 1`)
 			.then(
 				() => "ran",
 				(e) => e.code,

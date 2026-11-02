@@ -3,23 +3,23 @@ import Stream from "stream";
 export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
 	return new Promise(async (resolve, reject) => {
 		await sql
-			.begin(async (sql) => {
+			.begin(async (tx) => {
 				let finish;
 				if (!oid) {
-					[{ oid }] = await sql`select lo_creat(-1) as oid`;
+					[{ oid }] = await tx`select lo_creat(-1) as oid`;
 				}
-				const [{ fd }] = await sql`select lo_open(${oid}, ${mode}) as fd`;
+				const [{ fd }] = await tx`select lo_open(${oid}, ${mode}) as fd`;
 
 				const lo = {
 					writable,
 					readable,
-					close: () => sql`select lo_close(${fd})`.then(finish),
-					tell: () => sql`select lo_tell64(${fd})`,
-					read: (x) => sql`select loread(${fd}, ${x}) as data`,
-					write: (x) => sql`select lowrite(${fd}, ${x})`,
-					truncate: (x) => sql`select lo_truncate64(${fd}, ${x})`,
-					seek: (x, whence = 0) => sql`select lo_lseek64(${fd}, ${x}, ${whence})`,
-					size: () => sql`
+					close: () => tx`select lo_close(${fd})`.then(finish),
+					tell: () => tx`select lo_tell64(${fd})`,
+					read: (x) => tx`select loread(${fd}, ${x}) as data`,
+					write: (x) => tx`select lowrite(${fd}, ${x})`,
+					truncate: (x) => tx`select lo_truncate64(${fd}, ${x})`,
+					seek: (x, whence = 0) => tx`select lo_lseek64(${fd}, ${x}, ${whence})`,
+					size: () => tx`
           select
             lo_lseek64(${fd}, location, 0) as position,
             seek.size

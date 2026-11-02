@@ -113,4 +113,4 @@ where.length satisfies number;
 await named`select * from t ${where.length ? named`where ${where}` : named``}`.signal(
 	AbortSignal.timeout(1000),
 );
-await named.begin((tx) => tx.begin((tx) => tx`select ${named.typed.vector([1, 2])}`));
+await named.begin((tx) => tx.begin((sp) => sp`select ${named.typed.vector([1, 2])}`));

@@ -82,12 +82,12 @@ test("Cursor error", async () => {
 
 test("Multiple Cursors", async () => {
 	const result = [];
-	await sql.begin(async (sql) => [
-		await sql`select 1 as cursor, x from generate_series(1,4) as x`.cursor(async ([row]) => {
+	await sql.begin(async (tx) => [
+		await tx`select 1 as cursor, x from generate_series(1,4) as x`.cursor(async ([row]) => {
 			result.push(row.x);
 			await new Promise((r) => setTimeout(r, 20));
 		}),
-		await sql`select 2 as cursor, x from generate_series(101,104) as x`.cursor(async ([row]) => {
+		await tx`select 2 as cursor, x from generate_series(101,104) as x`.cursor(async ([row]) => {
 			result.push(row.x);
 			await new Promise((r) => setTimeout(r, 10));
 		}),
@@ -213,10 +213,10 @@ test("Async iterator cursor surfaces an error arriving between batches", async (
 test("A cursor in a transaction that resumes while another query waits on its description gives each its own answer", async () => {
 	await using sql = postgres(options);
 	const out = [];
-	await sql.begin(async (sql) => {
+	await sql.begin(async (tx) => {
 		let release;
 		const batches = [];
-		const cursor = sql`select generate_series(1, 6) as x`.cursor(2, (rows) => {
+		const cursor = tx`select generate_series(1, 6) as x`.cursor(2, (rows) => {
 			batches.push(rows.map((r) => r.x));
 			return new Promise((r) => (release = r));
 		});
@@ -232,7 +232,7 @@ test("A cursor in a transaction that resumes while another query waits on its de
 				await until(() => release !== before || batches.length === 3);
 			};
 		await until(() => release);
-		const q = sql`select ${"value"}::text as a, ${Math.random()}::float8 as cursor_order_shape`;
+		const q = tx`select ${"value"}::text as a, ${Math.random()}::float8 as cursor_order_shape`;
 		q.catch(() => {});
 		for (let i = 0; i < 10; i++) {
 			await Promise.resolve();
@@ -281,16 +281,16 @@ test("A cursor that outlives its transaction is rejected instead of running in t
 	await sql`create table test (a int)`;
 	let cursor;
 	const first = await sql
-		.begin((sql) => {
-			cursor = sql`select generate_series(1, 6) as x`.cursor(2, () => delay(100));
-			return Promise.all([cursor, sql`select 1/0`]);
+		.begin((tx) => {
+			cursor = tx`select generate_series(1, 6) as x`.cursor(2, () => delay(100));
+			return Promise.all([cursor, tx`select 1/0`]);
 		})
 		.catch((e) => e.code);
 	const second = await sql
-		.begin(async (sql) => {
-			await sql`insert into test values (1)`;
+		.begin(async (tx) => {
+			await tx`insert into test values (1)`;
 			await delay(300);
-			await sql`insert into test values (2)`;
+			await tx`insert into test values (2)`;
 			return "committed";
 		})
 		.catch((e) => e.code);
@@ -322,8 +322,8 @@ test("A pool cursor whose parameter serializer returns a number rejects and free
 test("A transaction waits for a cursor it did not await before it commits", async () => {
 	const batches = [];
 	let cursor;
-	await sql.begin(async (sql) => {
-		cursor = sql`select generate_series(1, 4) as x`.cursor(1, async ([row]) => {
+	await sql.begin(async (tx) => {
+		cursor = tx`select generate_series(1, 4) as x`.cursor(1, async ([row]) => {
 			batches.push(row.x);
 			await delay(20);
 		});
@@ -342,8 +342,8 @@ test("A transaction waits for a cursor it did not await before it commits", asyn
 test("A transaction that returns right after starting a cursor still lets the cursor finish", async () => {
 	const batches = [];
 	let cursor;
-	await sql.begin((sql) => {
-		cursor = sql`select generate_series(1, 3) as x`.cursor(1, ([row]) => {
+	await sql.begin((tx) => {
+		cursor = tx`select generate_series(1, 3) as x`.cursor(1, ([row]) => {
 			batches.push(row.x);
 		});
 		cursor.catch(() => {});
@@ -428,11 +428,9 @@ async function outlives(fn) {
 	await using sql = postgres({ ...options, max: 1 });
 	let cursor;
 	await sql
-		.begin((sql) => {
-			cursor = sql`select generate_series(1, 6) as x`.cursor(2, () =>
-				delay(100).then(() => fn(sql)),
-			);
-			return Promise.all([cursor, sql`select 1/0`]);
+		.begin((tx) => {
+			cursor = tx`select generate_series(1, 6) as x`.cursor(2, () => delay(100).then(() => fn(tx)));
+			return Promise.all([cursor, tx`select 1/0`]);
 		})
 		.catch(() => {});
 	const second = await sql.begin(async () => {
@@ -511,7 +509,7 @@ test("Aborting a cursor in a transaction stops it with 57014, which rejects the 
 	await using sql = postgres({ ...options, max: 1 });
 	let inside;
 	const outcome = await sql
-		.begin(async (sql) => (inside = await aborted(sql, "signal")))
+		.begin(async (tx) => (inside = await aborted(tx, "signal")))
 		.catch((e) => e.code);
 	expect([inside, outcome]).toEqual([["57014", 1], "57014"]);
 });

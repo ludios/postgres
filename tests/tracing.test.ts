@@ -163,10 +163,10 @@ test("Tracing: connect publishes per attempt, with the backend pid or the error"
 test("Tracing: a transaction publishes its outcome", async () => {
 	await using sql = postgres({ ...options, max: 1 });
 	const { events, stop } = record("postgres:transaction");
-	await sql.begin((sql) => sql`select 1`);
+	await sql.begin((tx) => tx`select 1`);
 	await sql
-		.begin("read only", async (sql) => {
-			await sql`select 1`;
+		.begin("read only", async (tx) => {
+			await tx`select 1`;
 			throw new Error("no");
 		})
 		.catch(() => {});

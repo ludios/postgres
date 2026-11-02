@@ -39,11 +39,11 @@ const kinds = {
 	insert: () => sql`insert into soak (x, s) values (${next}, ${"x".repeat(next % 100)})`,
 	begin: () =>
 		sql
-			.begin(async (sql) => {
-				await sql`insert into soak (x) values (${next})`;
-				await sql`select count(*) from soak`;
+			.begin(async (tx) => {
+				await tx`insert into soak (x) values (${next})`;
+				await tx`select count(*) from soak`;
 				if (next % 7 === 0) {
-					sql`select 1/0`.catch(() => {});
+					tx`select 1/0`.catch(() => {});
 				}
 			})
 			.catch(

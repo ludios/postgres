@@ -70,10 +70,10 @@ test("Copy from file", async () => {
 
 test("Copy from works in transaction", async () => {
 	await sql`create table test(x int)`;
-	const xs = await sql.begin(async (sql) => {
-		(await sql`copy test from stdin`.writable()).end("1\n2");
+	const xs = await sql.begin(async (tx) => {
+		(await tx`copy test from stdin`.writable()).end("1\n2");
 		await delay(20);
-		return sql`select 1 from test`;
+		return tx`select 1 from test`;
 	});
 
 	expect(xs.length).toBe(2);
@@ -112,8 +112,8 @@ test("Copy from settles instead of hanging when the server rejects the data", as
 	await sql`create table test (x int, y int)`;
 
 	const error = await sql
-		.begin(async (sql) => {
-			const writable = await sql`copy test from stdin`.writable();
+		.begin(async (tx) => {
+			const writable = await tx`copy test from stdin`.writable();
 			await new Promise((resolve, reject) => {
 				writable.on("error", reject);
 				writable.on("finish", resolve);
@@ -296,14 +296,14 @@ test("Canceling a copy to stdout that is being read fails its readable with 5701
 test("Canceling a copy to stdout whose readable was destroyed in a transaction stops it, and aborts the transaction", async () => {
 	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	const error = await sql
-		.begin(async (sql) => {
-			const query = sql.unsafe(SLOW_COPY),
+		.begin(async (tx) => {
+			const query = tx.unsafe(SLOW_COPY),
 				readable = await query.readable();
 			await new Promise((resolve) => readable.once("data", resolve));
 			// In a transaction block, the destroy only drops the rest, which would take a day
 			readable.destroy();
 			await query.cancel();
-			await sql`select 1`;
+			await tx`select 1`;
 		})
 		.catch((e) => e);
 	const [{ x }] = await sql`select 1 as x`;
@@ -392,13 +392,13 @@ test("Destroying a copy to stdout outside a transaction makes the server stop it
 
 test("Destroying a copy to stdout in a transaction only drops the rest, which keeps the transaction", async () => {
 	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
-	const x = await sql.begin(async (sql) => {
+	const x = await sql.begin(async (tx) => {
 		// Still running when destroyed, but only for about a second more
 		const readable =
-			await sql`copy (select i, case when i > 5000 then pg_sleep(0.01)::text end from generate_series(1, 5100) i) to stdout`.readable();
+			await tx`copy (select i, case when i > 5000 then pg_sleep(0.01)::text end from generate_series(1, 5100) i) to stdout`.readable();
 		await new Promise((resolve) => readable.once("data", resolve));
 		readable.destroy();
-		const [{ x: one }] = await sql`select 1 as x`;
+		const [{ x: one }] = await tx`select 1 as x`;
 		return one;
 	});
 	expect(x).toBe(1);

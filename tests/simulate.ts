@@ -346,9 +346,9 @@ async function simulate(seed) {
 		const scope = kind === "begin" ? 1000 + next++ : kind === "reserve" ? 2000 + next++ : 0;
 		if (kind === "begin") {
 			const ok = random.chance(0.8);
-			const tx = sql.begin(async (sql) => {
-				await query(sql, "query", scope);
-				await scoped(sql, scope);
+			const transaction = sql.begin(async (tx) => {
+				await query(tx, "query", scope);
+				await scoped(tx, scope);
 				if (!ok) {
 					throw Object.assign(new Error("rollback"), { code: "SIM_ROLLBACK" });
 				}
@@ -356,7 +356,7 @@ async function simulate(seed) {
 			return settle(
 				"begin",
 				scope,
-				tx.then(
+				transaction.then(
 					() =>
 						clock.timers.setTimeout(
 							() =>

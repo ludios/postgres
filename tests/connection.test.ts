@@ -1127,15 +1127,15 @@ test("A query cancelled while its connection starts up leaves the connection in 
 test("sql.begin works with max_pipeline: 0 and max: 1 (#1264)", async () => {
 	await using sql = postgres({ ...options, max: 1, max_pipeline: 0 });
 	const x = await sql
-		.begin((sql) => sql`select 1 as x`)
+		.begin((tx) => tx`select 1 as x`)
 		.then(
 			(rows) => rows[0].x,
 			(e) => e.code,
 		);
 	const y = await sql
-		.begin(async (sql) => {
-			await sql`select 1`;
-			return (await sql`select 2 as y`)[0].y;
+		.begin(async (tx) => {
+			await tx`select 1`;
+			return (await tx`select 2 as y`)[0].y;
 		})
 		.then(
 			(result) => result,
@@ -1374,17 +1374,17 @@ test("A cancel request on a TLS connection is sent over TLS", async () => {
 test("sql.close() lets a running transaction and a reserved connection finish first", async () => {
 	await using sql = postgres(options);
 	await sql`create table test (a int)`;
-	const tx = sql
-		.begin(async (sql) => {
-			await sql`insert into test values (1)`;
+	const transaction = sql
+		.begin(async (tx) => {
+			await tx`insert into test values (1)`;
 			await delay(200);
-			await sql`insert into test values (2)`;
+			await tx`insert into test values (2)`;
 			return "committed";
 		})
 		.catch((e) => e.code);
 	await delay(50);
 	const closed = sql.close();
-	const result = await tx;
+	const result = await transaction;
 	await closed;
 	const [{ n }] = await sql`select count(*)::int as n from test`;
 	using reserved = await sql.reserve();
@@ -1466,7 +1466,7 @@ test("Queries and transactions fail fast with the connection error while connect
 	}
 	for (let i = 0; i < 3; i++) {
 		const start = Date.now();
-		times.push(await sql.begin((sql) => sql`select 1`).catch((e) => e.code), Date.now() - start);
+		times.push(await sql.begin((tx) => tx`select 1`).catch((e) => e.code), Date.now() - start);
 	}
 	const codes = times.filter((x, i) => i % 2 === 0);
 	const slow = times.filter((x, i) => i % 2 === 1 && i > 3 && x > 200);
@@ -1576,7 +1576,7 @@ test("unref_sockets lets the process exit while connections are idle", async () 
 				JSON.stringify({ ...options, idle_timeout: 60, unref_sockets: idle }) +
 				")",
 			"await sql`select 1`",
-			"await sql.begin(sql => sql`select 2`)",
+			"await sql.begin(tx => tx`select 2`)",
 			'console.log("done")',
 		].join("\n");
 	const [unref, kept] = await Promise.all([exits(script(true)), exits(script(false))]);
@@ -1773,7 +1773,7 @@ test("queue_timeout applies to transactions and reserves waiting for a connectio
 	using reserved = await sql.reserve();
 	const codes = [
 		await sql
-			.begin((sql) => sql`select 1`)
+			.begin((tx) => tx`select 1`)
 			.then(
 				() => "ran",
 				(e) => e.code,

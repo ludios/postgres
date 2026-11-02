@@ -243,8 +243,8 @@ test("A stale prepared statement retried with a transaction queued behind it sta
 	await Promise.all([
 		insert("b"),
 		sql
-			.begin(async (sql) => {
-				await sql`select 1`;
+			.begin(async (tx) => {
+				await tx`select 1`;
 				throw new Error("rollback");
 			})
 			.catch(() => null),
@@ -299,9 +299,9 @@ test("Stale prepared statements in a transaction returning an array of queries r
 	await other`select id from test where id = ${1} and a > ${0}`;
 	await sql`alter table test add column b int`;
 	const error = await other
-		.begin((sql) => [
-			sql`select * from test where id = ${1}`,
-			sql`select id from test where id = ${1} and a > ${0}`,
+		.begin((tx) => [
+			tx`select * from test where id = ${1}`,
+			tx`select id from test where id = ${1} and a > ${0}`,
 		])
 		.catch((e) => e.code);
 	const [row] = await other`select * from test where id = ${1}`;
@@ -468,9 +468,9 @@ test("The same query in schemas of different shape gets the rows of its own sche
 		sql.unsafe("drop schema tenant_a cascade; drop schema tenant_b cascade"),
 	);
 	const tenant = (schema, hold) =>
-		sql.begin(async (sql) => {
-			await sql`select set_config('search_path', ${schema}, true)`;
-			const [row] = await sql`select * from t where id = ${1}`;
+		sql.begin(async (tx) => {
+			await tx`select set_config('search_path', ${schema}, true)`;
+			const [row] = await tx`select * from t where id = ${1}`;
 			await delay(hold);
 			return row;
 		});

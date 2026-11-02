@@ -91,12 +91,12 @@ test("Cancel piped query", async () => {
 
 test("Cancel queued query", async () => {
 	const query = sql`select pg_sleep(2) as nej`;
-	const tx = sql.begin((sql) => {
+	const transaction = sql.begin((tx) => {
 		query.cancel();
-		return sql`select pg_sleep(0.5) as hej, 'hejsa'`;
+		return tx`select pg_sleep(0.5) as hej, 'hejsa'`;
 	});
 	const error = await query.catch((x) => x);
-	await tx;
+	await transaction;
 	expect(error.code).toBe("57014");
 });
 

@@ -75,8 +75,8 @@
 		// a function that returns nothing hides that f()'s value is dropped.
 		"typescript/consistent-return": "error",
 		// https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-shadow.html
-		// Except the `sql` of `sql.begin(async (sql) => ...)`, which is how the
-		// queries of a transaction are written.
+		// Except `sql`, the name of every pool: a test that makes its own pool
+		// still names it `sql`, over the shared pool that tests/setup.ts exports.
 		"no-shadow": ["error", { "allow": ["sql"] }],
 		// https://oxc.rs/docs/guide/usage/linter/rules/unicorn/consistent-function-scoping.html
 		// A function that closes over nothing goes at module level, where it is
