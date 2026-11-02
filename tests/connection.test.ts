@@ -17,6 +17,7 @@ import {
 	port_of,
 	server_major,
 	terminate,
+	until_sleeping,
 } from "./setup.ts";
 
 test("Connects with no options", async () => {
@@ -1094,33 +1095,33 @@ test(
 	},
 );
 
-test(
-	"Queries keep working after the backend dies under a burst of pipelined writes (#1250)",
-	{ timeout: 10_000 },
-	async () => {
-		const sql = postgres({ ...options, max: 1 });
-		const [{ pid }] = await sql`select pg_backend_pid() as pid`;
-		const burst = Promise.all(
-			[...Array(200)].map((_, i) =>
-				sql`select ${i}::int as x`.then(
-					() => "ok",
-					(e) => e.code,
-				),
-			),
-		);
-		const other = postgres({ ...options, max: 1 });
-		await other`select pg_terminate_backend(${pid})`;
-		const settled = await burst;
-		while ((await other`select 1 from pg_stat_activity where pid = ${pid}`).length) {
-			await delay(10);
-		}
-		await delay(50);
-		await other.end();
-		const [{ x }] = await sql`select 1 as x`;
-		expect([settled.length, x]).toEqual([200, 1]);
-		await sql.end();
-	},
-);
+/**
+ * @param query - a query
+ * @returns a promise of "ok" if `query` resolves, or of the `code` of its error if it rejects
+ */
+function code_of(query) {
+	return query.then(
+		() => "ok",
+		(e) => e.code,
+	);
+}
+
+test("Queries keep working after the backend dies under a burst of pipelined writes (#1250)", async () => {
+	const sql = postgres({ ...options, max: 1, max_pipeline: 100 });
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
+	// The connection gets the sleep and the first 99 queries of the burst, which wait behind the
+	// sleep until the backend dies. The other 101 queries wait in the pool for the next connection.
+	const sleep = code_of(sql`select pg_sleep(10)`);
+	const burst = [...Array(200)].map((_, i) => code_of(sql`select ${i}::int as x`));
+	await until_sleeping(pid);
+	await terminate(pid);
+	expect(await Promise.all([sleep, ...burst])).toEqual([
+		"57P01",
+		...Array(99).fill("CONNECTION_CLOSED"),
+		...Array(101).fill("ok"),
+	]);
+	await sql.end();
+});
 
 function lyingServer(final) {
 	const i32 = (n) => {
