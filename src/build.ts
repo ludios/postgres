@@ -161,14 +161,14 @@ function call(first, rest, o) {
 		.join(",");
 }
 
-const clauses = {
-		in: "in",
-		values: "values",
-		select: "select",
-		returning: "select",
-		set: "update",
-		distinct: "select",
-	},
+const clauses = new Map([
+		["in", "in"],
+		["values", "values"],
+		["select", "select"],
+		["returning", "select"],
+		["set", "update"],
+		["distinct", "select"],
+	]),
 	stops = new Set([
 		"from",
 		"where",
@@ -245,7 +245,7 @@ function context(sql) {
 				if (words.length === 0)
 					return word === "in" || word === "values"
 						? word
-						: word && !clauses[word] && !stops.has(word)
+						: word && !clauses.has(word) && !stops.has(word)
 							? "call"
 							: "select";
 				return "select";
@@ -263,7 +263,9 @@ function context(sql) {
 			const end = i + 1;
 			while (i >= 0 && /[a-z_0-9$.]/i.test(sql[i])) i--;
 			const word = depth === 0 && sql.slice(i + 1, end).toLowerCase();
-			if (word && clauses[word]) return clauses[word];
+			if (word && clauses.has(word)) {
+				return clauses.get(word);
+			}
 			if (word === "into") return insert_into(words, sql, i) ? "insert" : null;
 			if (word && stops.has(word)) return null;
 			word && words.push(word);

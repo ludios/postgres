@@ -310,6 +310,24 @@ const cases: Case[] = [
 		[1],
 	],
 	[
+		"Named arguments for a function named like an Object.prototype property",
+		(sql) => sql`select constructor(${sql({ a: 1 })})`,
+		'select constructor("a" => $1)',
+		[1],
+	],
+	[
+		"Insert into a table named constructor",
+		(sql) => sql`insert into constructor ${sql({ a: 1 })}`,
+		'insert into constructor ("a")values($1)',
+		[1],
+	],
+	[
+		"Insert into a table named __proto__",
+		(sql) => sql`insert into __proto__ ${sql({ a: 1 })}`,
+		'insert into __proto__ ("a")values($1)',
+		[1],
+	],
+	[
 		"Columns in a function call stay identifiers",
 		(sql) => sql`select coalesce(${sql(["a", "b"])}) from t`,
 		'select coalesce("a","b") from t',
