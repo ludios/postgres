@@ -1720,9 +1720,9 @@ A query, savepoint or nested `sql.begin` was made after `sql.rollback()` in the 
 Arrays are typed from what they hold, so they need no helper. Add a cast where the server should treat it as something else, like `${ ids }::int[]`.
 
 ##### CASING_TRANSFORM_REMOVED
-> postgres.camel is removed in v4: pass your own functions as transform.column.to and transform.column.from instead
+> postgres.camel is removed in v4: pass your own functions as transform.column.to and transform.column.from instead, and as transform.value.from for the keys inside json and jsonb values
 
-Code read `postgres.camel`, `postgres.toCamel`, `postgres.fromCamel`, or the Pascal or kebab version of one of them. Write the transform as in [Custom Transform Functions](#custom-transform-functions).
+Code read `postgres.camel`, `postgres.toCamel`, `postgres.fromCamel`, or the Pascal or kebab version of one of them. Write the transform as in [Custom Transform Functions](#custom-transform-functions). The removed transforms also renamed the keys inside `json` and `jsonb` values (at every depth), so a `transform.value.from` of your own needs to do that too, for the values whose `column.type` is 114 (`json`) or 3802 (`jsonb`).
 
 ##### CONNECTION_CLOSED
 > write CONNECTION_CLOSED host:port

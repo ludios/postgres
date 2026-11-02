@@ -172,7 +172,7 @@ export function remove_casing_transforms(target) {
 					"CASING_TRANSFORM_REMOVED",
 					"postgres." +
 						name +
-						" is removed in v4: pass your own functions as transform.column.to and transform.column.from instead",
+						" is removed in v4: pass your own functions as transform.column.to and transform.column.from instead, and as transform.value.from for the keys inside json and jsonb values",
 				);
 			},
 		});
