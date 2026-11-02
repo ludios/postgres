@@ -776,7 +776,10 @@ test("A begin used again runs alone again, whether tagged, unsafe, prepared or n
 		}
 	}
 	const [{ n }] = await sql`select count(*)::int as n from test`;
-	expect([results, n]).toEqual([Array(8).fill(["UNSAFE_TRANSACTION", "INSERT"]), 8]);
+	expect([results, n]).toEqual([
+		Array.from({ length: 8 }, () => ["UNSAFE_TRANSACTION", "INSERT"]),
+		8,
+	]);
 	await sql`drop table test`;
 	await sql.end();
 });

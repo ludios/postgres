@@ -1705,7 +1705,7 @@ test("An empty query gives an empty result, simple or prepared", async () => {
 		await sql.unsafe("", [], { prepare: true }),
 		await sql.unsafe(" ; "),
 	];
-	expect(xs.map((x) => [x.length, x.command])).toEqual(Array(3).fill([0, null]));
+	expect(xs.map((x) => [x.length, x.command])).toEqual(Array.from({ length: 3 }, () => [0, null]));
 });
 
 test(

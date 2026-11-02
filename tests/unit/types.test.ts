@@ -113,13 +113,13 @@ test("Parse date as UTC midnight, like v3", async () => {
 test("Parse infinity for every date type (#728)", async () => {
 	expect(
 		[1082, 1114, 1184].map((oid) => [parse(oid, "infinity"), parse(oid, "-infinity")].map(show)),
-	).toEqual(Array(3).fill(["number:Infinity", "number:-Infinity"]));
+	).toEqual(Array.from({ length: 3 }, () => ["number:Infinity", "number:-Infinity"]));
 });
 
 test("Serialize infinity for every date type (#728)", async () => {
 	expect(
 		[1082, 1114, 1184].map((oid) => [serialize(oid, Infinity), serialize(oid, -Infinity)]),
-	).toEqual(Array(3).fill(["infinity", "-infinity"]));
+	).toEqual(Array.from({ length: 3 }, () => ["infinity", "-infinity"]));
 });
 
 test("Serialize dates as ISO, including before year 100", async () => {

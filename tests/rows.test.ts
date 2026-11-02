@@ -98,5 +98,7 @@ test("A column named __proto__ is an own property and does not become the protot
 			own.value.isAdmin,
 		]);
 	}
-	expect(results).toEqual(Array(2).fill(["undefined", true, ["name", "__proto__"], true]));
+	expect(results).toEqual(
+		Array.from({ length: 2 }, () => ["undefined", true, ["name", "__proto__"], true]),
+	);
 });
