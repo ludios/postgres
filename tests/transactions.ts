@@ -257,9 +257,9 @@ test("Catches type serialize errors in transactions", async () => {
 		},
 	});
 
-	expect(
-		await sql.begin((sql) => (sql`select 1`, sql`select ${"wat"}`)).catch((e) => e.message),
-	).toBe("watSerialize");
+	expect(await sql.begin((sql) => sql`select ${"wat"}`).catch((e) => e.message)).toBe(
+		"watSerialize",
+	);
 });
 
 test("Catches type parse errors in transactions", async () => {
@@ -277,9 +277,7 @@ test("Catches type parse errors in transactions", async () => {
 		},
 	});
 
-	expect(await sql.begin((sql) => (sql`select 1`, sql`select 'wat'`)).catch((e) => e.message)).toBe(
-		"watParse",
-	);
+	expect(await sql.begin((sql) => sql`select 'wat'`).catch((e) => e.message)).toBe("watParse");
 });
 
 test("Prevent premature end of connection in transaction", async () => {
