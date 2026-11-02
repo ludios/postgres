@@ -1009,12 +1009,20 @@ test("sql.begin works with max_pipeline: 0 and max: 1 (#1264)", async () => {
 });
 
 test("With max_pipeline: 0, a query that waits for the only connection runs once it is free", async () => {
+	// Without an idle timeout, the waiting query has to run on the same connection
 	const sql = postgres({ ...options, max: 1, max_pipeline: 0, idle_timeout: null });
 	await using _end = defer(() => sql.end({ timeout: 0 }));
-	const both = Promise.all([sql`select 1 as x`, sql`select 2 as x`]).then((xs) =>
+	await sql`select 1`;
+	const both = Promise.all([sql`select pg_sleep(0.2), 1 as x`, sql`select 2 as x`]).then((xs) =>
 		xs.map((x) => x[0].x),
 	);
-	expect(await Promise.race([both, delay(3000).then(() => "pending")])).toEqual([1, 2]);
+	await delay(50);
+	// The second query waits instead of being pipelined behind the first
+	const waiting = sql.stats.waiting;
+	expect([waiting, await Promise.race([both, delay(3000).then(() => "pending")])]).toEqual([
+		1,
+		[1, 2],
+	]);
 });
 
 test("onread: false reads through the socket stream instead of a shared buffer", async () => {
