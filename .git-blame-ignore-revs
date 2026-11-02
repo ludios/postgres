@@ -1,0 +1,7 @@
+# Commits that only reformatted code; `git blame` skips them when
+# blame.ignoreRevsFile is set to this file (GitHub reads it by default).
+
+# Format all JS with oxfmt
+6e4c55c2b9f155a05880c1ed03438fee4646cd9a
+# Format types/ with oxfmt too: tabs and semicolons in every .ts file
+04910db48e9a666c5a9b8a280b57fc9027663add
