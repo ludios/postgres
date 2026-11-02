@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import { expect, test } from "vitest";
 import { Types } from "../../src/types.ts";
 
@@ -18,8 +19,9 @@ const show = (x) =>
 						? "object:" + JSON.stringify(x)
 						: typeof x + ":" + x;
 
-const local = (year, ...rest) => {
-	const x = new Date(2000, ...rest);
+/** Like `new Date(year, month, ...)` (in local time), but without mapping the years 0 to 99 to 1900 to 1999 */
+const local = (year, month, day = 1, h = 0, m = 0, s = 0, ms = 0) => {
+	const x = new Date(2000, month, day, h, m, s, ms);
 	x.setFullYear(year);
 	return x;
 };

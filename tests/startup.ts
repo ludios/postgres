@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import net from "net";
 import { expect, test } from "vitest";
 import { postgres, login, login_md5, login_scram, pg_port, port_of } from "./setup.ts";
@@ -193,7 +194,7 @@ test("Startup with a throwing onnotice still connects", async () => {
 test("Startup destroys a TCP connection still in progress when connect_timeout passes", async () => {
 	const connect = net.connect,
 		sockets = [];
-	net.connect = (...xs) => {
+	net.connect = (...xs: [any, any?, any?]) => {
 		const socket = connect(...xs);
 		sockets.push(socket);
 		return socket;

@@ -143,8 +143,8 @@ export function value(x, o) {
 
 const builders = {
 	values,
-	in: (...xs) => {
-		const x = values(...xs);
+	in: (first, rest, o) => {
+		const x = values(first, rest, o);
 		return x === "()" ? "(null)" : x;
 	},
 	select,
