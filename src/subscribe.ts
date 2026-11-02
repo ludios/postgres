@@ -12,8 +12,8 @@ export default function Subscribe(postgres, options) {
 	const subscribers = new Map(),
 		persistent = !!options.slot,
 		slot = options.slot || "postgresjs_" + Math.random().toString(36).slice(2),
-		// The backend (its pid and secret key) that streams the replication, which `subscribe`
-		// returns to its caller.
+		// The pid and secret key of the backend that streams the replication. `subscribe`
+		// returns this object to its caller.
 		state: { pid?: number; secret?: number } = {},
 		timers = options.timers;
 
