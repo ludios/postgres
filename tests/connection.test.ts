@@ -1771,7 +1771,7 @@ test("An empty query gives an empty result, simple or prepared", async () => {
  *   the tests run with PREPARE=false.
  * @returns The number of milliseconds that the short query took.
  */
-async function waited(scheduler, retried = false) {
+async function short_query_ms(scheduler, retried = false) {
 	const sql = postgres({
 			...options,
 			max: 2,
@@ -1811,7 +1811,7 @@ test(
 	"A query is pipelined behind the work that should finish first, not behind a long query, unless the scheduler is off",
 	{ timeout: 20_000 },
 	async () => {
-		const [on, off] = [await waited(true), await waited(false)];
+		const [on, off] = [await short_query_ms(true), await short_query_ms(false)];
 		expect([on < 500, off > 800]).toEqual([true, true]);
 	},
 );
@@ -1820,7 +1820,7 @@ test(
 	"A query is pipelined behind the work that should finish first, even after each connection retried a statement",
 	{ timeout: 20_000 },
 	async () => {
-		expect(await waited(true, true)).toBeLessThan(500);
+		expect(await short_query_ms(true, true)).toBeLessThan(500);
 	},
 );
 
