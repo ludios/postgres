@@ -977,17 +977,20 @@ function parse_options(a, b) {
 		console.log("The timeout option is deprecated, use idle_timeout instead");
 		o.idle_timeout = o.timeout;
 	}
-	// Only "system" is supported. Any other sslrootcert, such as the path of a CA file, is sent to
-	// the server as a setting, which PostgreSQL refuses; connecting without checking the
-	// certificate against that CA would be worse. As in libpq, system makes verify-full the mode
-	// when neither the url nor PGSSLMODE gives one, and any other mode an error, which is checked
-	// below.
-	const system_roots = query.sslrootcert === "system";
-	if (system_roots) {
-		delete query.sslrootcert;
-		if (!Object.hasOwn(query, "ssl") && !Object.hasOwn(query, "sslmode") && !env.PGSSLMODE) {
-			query.ssl = "verify-full";
-		}
+	// As in libpq, the url's sslrootcert, or else PGSSLROOTCERT, names the certificate authorities
+	// that the server's certificate is checked against. "system" makes verify-full the mode when
+	// neither the url nor PGSSLMODE gives one, and any other mode an error. A file is not read here,
+	// so it is an error with a mode that libpq checks the certificate against it with, as checking
+	// against other certificate authorities would be worse. Both are checked below, once ssl is
+	// read.
+	const [roots_source, roots] = Object.hasOwn(query, "sslrootcert")
+		? ["The url parameter sslrootcert", query.sslrootcert]
+		: ["The environment variable PGSSLROOTCERT", env.PGSSLROOTCERT];
+	delete query.sslrootcert;
+	const mode_given =
+		Object.hasOwn(query, "ssl") || Object.hasOwn(query, "sslmode") || env.PGSSLMODE;
+	if (roots === "system" && !mode_given) {
+		query.ssl = "verify-full";
 	}
 
 	const options: Record<string, any> = {
@@ -1033,11 +1036,25 @@ function parse_options(a, b) {
 	};
 
 	// true checks the certificate as verify-full does
-	if (system_roots && options.ssl !== "verify-full" && options.ssl !== true) {
+	if (roots === "system" && options.ssl !== "verify-full" && options.ssl !== true) {
 		throw new Error(
-			'The url parameter sslrootcert is "system", which, as in libpq, needs the ssl mode ' +
-				'"verify-full", but ssl is ' +
+			roots_source +
+				' is "system", which, as in libpq, needs the ssl mode "verify-full", but ssl is ' +
 				shown(options.ssl),
+		);
+	}
+	// libpq checks the certificate against a file with require, verify-ca and verify-full, but not
+	// with allow or prefer; true checks it as verify-full does. TLS options give their own
+	// certificate authorities, and a Unix-domain socket has no TLS.
+	const checked =
+		options.ssl === true || options.ssl === "require" || options.ssl === "verify-full";
+	if (roots && roots !== "system" && checked && !options.path) {
+		throw new Error(
+			roots_source +
+				" is " +
+				shown(roots) +
+				", a file, which postgres.js does not read, so it cannot check the certificate " +
+				"against the certificate authorities in it. Pass them as ssl: { ca } instead",
 		);
 	}
 	// As in libpq, direct needs a mode that never connects without TLS

@@ -280,6 +280,53 @@ test("sslrootcert=system makes verify-full the ssl mode, and any other mode, als
 	]);
 });
 
+test("PGSSLROOTCERT=system acts as sslrootcert=system in the url, which comes first", async () => {
+	const must =
+		'The environment variable PGSSLROOTCERT is "system", which, as in libpq, needs the ssl mode ' +
+		'"verify-full", but ssl is "require"';
+	expect([
+		with_env({ PGSSLROOTCERT: "system" }, () => postgres({ max: 1 }).options.ssl),
+		with_env(
+			{ PGSSLROOTCERT: "system", PGSSLMODE: "require" },
+			() => thrown(() => postgres({ max: 1 })).message,
+		),
+		with_env(
+			{ PGSSLROOTCERT: "/etc/ca.pem" },
+			() => postgres("postgres://u@h/db?sslrootcert=system", { max: 1 }).options.ssl,
+		),
+	]).toEqual(["verify-full", must, "verify-full"]);
+});
+
+test("A file of certificate authorities, which is not read, throws when ssl is true, require or verify-full", async () => {
+	const must = (source) =>
+		"The " +
+		source +
+		' is "/etc/ca.pem", a file, which postgres.js does not read, so it cannot check the ' +
+		"certificate against the certificate authorities in it. Pass them as ssl: { ca } instead";
+	const tls = { ca: [] };
+	const unread = with_env({ PGSSLROOTCERT: "/etc/ca.pem" }, () => [
+		postgres({ max: 1 }).options.ssl,
+		postgres({ max: 1, ssl: tls }).options.ssl,
+		postgres({ max: 1, host: "/run/postgresql", ssl: "verify-full" }).options.ssl,
+		postgres({ max: 1, ssl: "prefer" }).options.ssl,
+	]);
+	expect([
+		unread,
+		postgres("postgres://u@h/db?sslrootcert=/etc/ca.pem", { max: 1 }).options.connection,
+		with_env(
+			{ PGSSLROOTCERT: "/etc/ca.pem", PGSSLMODE: "verify-full" },
+			() => thrown(() => postgres({ max: 1 })).message,
+		),
+		thrown(() => postgres("postgres://u@h/db?sslrootcert=/etc/ca.pem", { max: 1, ssl: true }))
+			.message,
+	]).toEqual([
+		[false, tls, "verify-full", "prefer"],
+		{ application_name: "postgres.js" },
+		must("environment variable PGSSLROOTCERT"),
+		must("url parameter sslrootcert"),
+	]);
+});
+
 test("sslnegotiation from options, the url and PGSSLNEGOTIATION; another value throws", async () => {
 	const read = with_env({ PGSSLNEGOTIATION: "postgres" }, () => [
 		postgres({ max: 1 }).options.sslnegotiation,
