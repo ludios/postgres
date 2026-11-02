@@ -298,8 +298,11 @@ export function Pool(options, types) {
 	}
 
 	/**
-	 * Whether the pool may give connection `c` one more query: `c` is usable() and has fewer than
-	 * `max_inflight` queries in flight.
+	 * Whether the pool may put one more query on connection `c`, behind the exchanges in flight:
+	 * `c` is usable() and has fewer than `max_inflight` exchanges in flight. A job that asks for a
+	 * lease, and an exclusive job, also need `c` to have nothing in flight (see pick()).
+	 *
+	 * @param c - One of `connections`, in any state.
 	 */
 	function has_room(c) {
 		return c.inflight < max_inflight && usable(c);
@@ -312,17 +315,13 @@ export function Pool(options, types) {
 		let best = null;
 
 		for (const c of connections) {
-			if (c.inflight === 0 && usable(c)) {
+			const room = has_room(c);
+			if (room && c.inflight === 0) {
 				if (any || c.prepared.has(statement.name)) {
 					return c;
 				}
 				best = best && best.inflight === 0 ? best : c;
-			} else if (
-				!job.lease &&
-				!job.exclusive &&
-				(!best || c.inflight < best.inflight) &&
-				has_room(c)
-			) {
+			} else if (room && !job.lease && !job.exclusive && (!best || c.inflight < best.inflight)) {
 				best = c;
 			}
 		}
@@ -346,8 +345,8 @@ export function Pool(options, types) {
 	 * fewest exchanges. It should when `job` isn't known to be quick, or when a connection that can
 	 * take `job` has a notable exchange that `job` could wait behind.
 	 *
-	 * A connection that can't take `job` (a reserved one, or a full one, with `max_inflight` or more
-	 * exchanges) can't make `job` wait, so it isn't scanned. Those are also the connections that
+	 * Only the connections where has_room() is true are scanned: any other connection can't take
+	 * `job`, so it can't make `job` wait. The connections skipped this way are also the ones that
 	 * would cost the most to scan: a reserved connection has no limit on its exchanges, and in a
 	 * saturated pool, most connections are full.
 	 *
