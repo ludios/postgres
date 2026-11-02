@@ -107,6 +107,7 @@ The open issues and pull requests were triaged into 33 correctness bugs, each wi
 - Array and domain types are fetched once per pool, on its first connection; if that query fails with a server error the pool carries on without them instead of asking again for every query.
 - COPY under back-pressure no longer stalls, and COPY TO STDOUT to a slow consumer is no slower with the shared read buffer than without it.
 - Destroying a `copy ... to stdout` readable partway through no longer hangs its connection; the connection reads and drops the rest of the COPY output.
+- `query.cancel()` cancels a COPY whose stream has already resolved; it used to do nothing and return a promise that never settled.
 
 ### Performance
 

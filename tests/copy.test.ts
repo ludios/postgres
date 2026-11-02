@@ -298,3 +298,40 @@ test(
 		expect(xs).toEqual([1, 2, 50, 500]);
 	},
 );
+
+/** A COPY TO STDOUT that sends 5000 rows at once, then one row a second for a day. */
+const SLOW_COPY =
+	"copy (select i, case when i > 5000 then pg_sleep(1)::text end from generate_series(1, 90000) i) to stdout";
+
+test(
+	"Canceling a copy to stdout that is being read fails its readable with 57014",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1 }),
+			query = sql.unsafe(SLOW_COPY),
+			readable = await query.readable(),
+			error = await new Promise<{ code: string }>((resolve) => {
+				readable.on("error", resolve);
+				readable.once("data", () => query.cancel());
+			}),
+			[{ x }] = await sql`select 1 as x`;
+		await sql.end();
+		expect([error.code, x]).toEqual(["57014", 1]);
+	},
+);
+
+test(
+	"Canceling a copy to stdout whose readable was destroyed lets the next query run",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1 }),
+			query = sql.unsafe(SLOW_COPY),
+			readable = await query.readable();
+		await new Promise((resolve) => readable.once("data", resolve));
+		readable.destroy();
+		await query.cancel();
+		const [{ x }] = await sql`select 1 as x`;
+		await sql.end();
+		expect(x).toBe(1);
+	},
+);

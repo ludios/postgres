@@ -522,7 +522,8 @@ export function Connection(ready, options, events) {
 		const x = sent.find((x) => x.query === query);
 		if (!x) return Promise.resolve();
 
-		return x === sent[0] && query.active
+		// A COPY's query resolves with its stream (which makes it inactive) while the server still runs it
+		return x === sent[0] && (query.active || query.streaming)
 			? ready.cancel()
 			: new Promise((resolve, reject) => (x.cancel = { resolve, reject }));
 	}
