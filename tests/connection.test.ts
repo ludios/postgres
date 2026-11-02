@@ -1106,7 +1106,7 @@ test(
 		await delay(50);
 		await other.end();
 		const [{ x }] = await sql`select 1 as x`;
-		expect(settled.length === 200 && x === 1).toBe(true);
+		expect([settled.length, x]).toEqual([200, 1]);
 		await sql.end();
 	},
 );

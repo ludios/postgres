@@ -151,9 +151,9 @@ test("The removed casing transforms throw when read, and Object.assign does not 
 	const names = "camel toCamel fromCamel pascal toPascal fromPascal kebab toKebab fromKebab",
 		codes = names.split(" ").map((name) => thrown(() => postgres[name]).code);
 	const copied = Object.assign({}, postgres);
-	expect([codes, names.split(" ").some((name) => name in copied)]).toEqual([
+	expect([codes, names.split(" ").filter((name) => name in copied)]).toEqual([
 		Array(9).fill("CASING_TRANSFORM_REMOVED"),
-		false,
+		[],
 	]);
 });
 

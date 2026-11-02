@@ -61,13 +61,15 @@ test("Transform undefined to null", async () => {
 
 test("Inspect hides text and parameters without debug", async () => {
 	const x = util.inspect(sql`select ${"secret"} as x`);
-	expect(x.includes("secret") || x.includes("select $1")).toBe(false);
+	expect(x).not.toContain("secret");
+	expect(x).not.toContain("select $1");
 });
 
 test("Inspect shows text and parameters with debug", async () => {
 	const sql = postgres({ host: "localhost", port: 1, debug: true });
 	const x = util.inspect(sql`select ${"secret"} as x`);
-	expect(x.includes("secret") && x.includes("select $1 as x")).toBe(true);
+	expect(x).toContain("secret");
+	expect(x).toContain("select $1 as x");
 });
 
 test("Building does not run the query", async () => {

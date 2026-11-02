@@ -104,7 +104,7 @@ test("Tracing: a store bound to start is current while the query is dispatched",
 	await sql`select 1`;
 	channel.start.unbindStore(store);
 	dc.unsubscribe("tracing:postgres:query:end", end);
-	expect(seen.length === 1 && seen[0].startsWith("span for")).toBe(true);
+	expect(seen).toEqual([expect.stringMatching(/^span for \d+$/)]);
 	await sql.end();
 });
 
@@ -123,7 +123,7 @@ test("Tracing: cursors and copy streams finish their trace", async () => {
 	stop();
 	const done = events.filter((x) => x.event === "asyncEnd").length,
 		started = events.filter((x) => x.event === "start").length;
-	expect(done === started && started === 3).toBe(true);
+	expect([done, started]).toEqual([3, 3]);
 	await sql.end();
 });
 

@@ -13,25 +13,25 @@ test("unsafe describe", async () => {
 test("Automatically creates prepared statements", async () => {
 	const sql = postgres(options);
 	const result = await sql`select * from pg_prepared_statements`;
-	expect(result.some((x) => x.name === result.statement.name)).toBe(true);
+	expect(result.map((x) => x.name)).toContain(result.statement.name);
 });
 
 test("no_prepare: true disables prepared statements (deprecated)", async () => {
 	const sql = postgres({ ...options, no_prepare: true });
 	const result = await sql`select * from pg_prepared_statements`;
-	expect(result.some((x) => x.name === result.statement.name)).toBe(false);
+	expect(result.map((x) => x.name)).not.toContain(result.statement.name);
 });
 
 test("prepare: false disables prepared statements", async () => {
 	const sql = postgres({ ...options, prepare: false });
 	const result = await sql`select * from pg_prepared_statements`;
-	expect(result.some((x) => x.name === result.statement.name)).toBe(false);
+	expect(result.map((x) => x.name)).not.toContain(result.statement.name);
 });
 
 test("prepare: true enables prepared statements", async () => {
 	const sql = postgres({ ...options, prepare: true });
 	const result = await sql`select * from pg_prepared_statements`;
-	expect(result.some((x) => x.name === result.statement.name)).toBe(true);
+	expect(result.map((x) => x.name)).toContain(result.statement.name);
 });
 
 test('prepares unsafe query when "prepare" option is true', async () => {
@@ -41,13 +41,13 @@ test('prepares unsafe query when "prepare" option is true', async () => {
 		["bla"],
 		{ prepare: true },
 	);
-	expect(result.some((x) => x.name === result.statement.name)).toBe(true);
+	expect(result.map((x) => x.name)).toContain(result.statement.name);
 });
 
 test("does not prepare unsafe query by default", async () => {
 	const sql = postgres({ ...options, prepare: true });
 	const result = await sql.unsafe("select * from pg_prepared_statements where name <> $1", ["bla"]);
-	expect(result.some((x) => x.name === result.statement.name)).toBe(false);
+	expect(result.map((x) => x.name)).not.toContain(result.statement.name);
 });
 
 test("Recreate prepared statements on transformAssignedExpr error", async () => {

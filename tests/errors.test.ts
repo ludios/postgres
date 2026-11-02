@@ -367,20 +367,22 @@ test("Query and parameters on errorare not enumerable if debug is not set", asyn
 	const sql = postgres({ ...options, debug: false });
 
 	expect(
-		await sql`selec ${1}`.catch(
-			(err) => err.propertyIsEnumerable("parameters") || err.propertyIsEnumerable("query"),
-		),
-	).toBe(false);
+		await sql`selec ${1}`.catch((err) => [
+			err.propertyIsEnumerable("parameters"),
+			err.propertyIsEnumerable("query"),
+		]),
+	).toEqual([false, false]);
 });
 
 test("Query and parameters are enumerable if debug is set", async () => {
 	const sql = postgres({ ...options, debug: true });
 
 	expect(
-		await sql`selec ${1}`.catch(
-			(err) => err.propertyIsEnumerable("parameters") && err.propertyIsEnumerable("query"),
-		),
-	).toBe(true);
+		await sql`selec ${1}`.catch((err) => [
+			err.propertyIsEnumerable("parameters"),
+			err.propertyIsEnumerable("query"),
+		]),
+	).toEqual([true, true]);
 });
 
 test("Postgres errors are of type PostgresError", async () => {
