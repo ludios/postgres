@@ -863,10 +863,10 @@ declare namespace postgres {
 			/** @default 0x00020000 | 0x00040000 */ mode?: number,
 		): Promise<LargeObject>;
 
-		begin<T>(cb: (sql: TransactionSql<TTypes>) => T | Promise<T>): Promise<UnwrapPromiseArray<T>>;
+		begin<T>(cb: (tx: TransactionSql<TTypes>) => T | Promise<T>): Promise<UnwrapPromiseArray<T>>;
 		begin<T>(
 			options: string,
-			cb: (sql: TransactionSql<TTypes>) => T | Promise<T>,
+			cb: (tx: TransactionSql<TTypes>) => T | Promise<T>,
 		): Promise<UnwrapPromiseArray<T>>;
 
 		/** A connection of your own until `release()` */
@@ -878,17 +878,17 @@ declare namespace postgres {
 
 	interface TransactionSql<TTypes extends Record<string, unknown> = {}> extends ISql<TTypes> {
 		/** A savepoint; a mode other than the transaction's throws NESTED_TRANSACTION_MODE */
-		begin<T>(cb: (sql: TransactionSql<TTypes>) => T | Promise<T>): Promise<UnwrapPromiseArray<T>>;
+		begin<T>(cb: (sp: TransactionSql<TTypes>) => T | Promise<T>): Promise<UnwrapPromiseArray<T>>;
 		begin<T>(
 			options: string,
-			cb: (sql: TransactionSql<TTypes>) => T | Promise<T>,
+			cb: (sp: TransactionSql<TTypes>) => T | Promise<T>,
 		): Promise<UnwrapPromiseArray<T>>;
 		savepoint<T>(
-			cb: (sql: TransactionSql<TTypes>) => T | Promise<T>,
+			cb: (sp: TransactionSql<TTypes>) => T | Promise<T>,
 		): Promise<UnwrapPromiseArray<T>>;
 		savepoint<T>(
 			name: string,
-			cb: (sql: TransactionSql<TTypes>) => T | Promise<T>,
+			cb: (sp: TransactionSql<TTypes>) => T | Promise<T>,
 		): Promise<UnwrapPromiseArray<T>>;
 
 		/** Ends with PREPARE TRANSACTION name instead of COMMIT */
