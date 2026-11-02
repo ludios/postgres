@@ -446,8 +446,8 @@ test("A cursor that throws in its failed transaction rejects with its own error,
 	expect([second, outcome]).toEqual(["committed", "late"]);
 });
 
-test("A cursor that closes in its failed transaction rejects with 25P02, and the next transaction commits", async () => {
-	const [second, outcome] = await outlives((tx) => tx.CLOSE);
+test("A cursor that goes on in its failed transaction rejects with 25P02, and the next transaction commits", async () => {
+	const [second, outcome] = await outlives(() => undefined);
 	expect([second, outcome]).toEqual(["committed", "25P02"]);
 });
 
