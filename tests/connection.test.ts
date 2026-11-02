@@ -608,10 +608,27 @@ const backendMessage = (type, body) => {
 	return Buffer.concat([header, body]);
 };
 
-const errorResponse = (severity, code) =>
+/**
+ * @param severity - such as "ERROR" or "FATAL"
+ * @param code - the SQLSTATE, which is also the message
+ * @param localized_only - whether to send the severity only in the localized S field, without the
+ *   V field, as PostgreSQL before 9.6 and some poolers do
+ * @returns an ErrorResponse message
+ */
+const errorResponse = (severity, code, localized_only = false) =>
 	backendMessage(
 		"E",
-		Buffer.from("S" + severity + "\0V" + severity + "\0C" + code + "\0M" + code + "\0\0"),
+		Buffer.from(
+			"S" +
+				severity +
+				"\0" +
+				(localized_only ? "" : "V" + severity + "\0") +
+				"C" +
+				code +
+				"\0M" +
+				code +
+				"\0\0",
+		),
 	);
 
 const authenticated = Buffer.concat([
@@ -762,6 +779,30 @@ test("A query refused with a FATAL error rejects with the peer error instead of 
 	await sql.end();
 
 	expect([code, attempts < 10, unhandled]).toEqual(["08P01", true, 0]);
+});
+
+test("A FATAL error with the severity only in the S field rejects the query and sql.begin with it", async () => {
+	const server = await listening(
+		net.createServer((socket) => {
+			let started = false;
+			socket.on("error", () => socket.destroy());
+			// Accepts the startup, and answers whatever comes next with the FATAL error
+			socket.on("data", () => {
+				if (started) {
+					socket.end(errorResponse("FATAL", "08P01", true));
+				} else {
+					started = true;
+					socket.write(authenticated);
+				}
+			});
+		}),
+	);
+	await using _close = defer(() => server.close());
+	await using pool = postgres({ ...options, host: "127.0.0.1", port: port_of(server) });
+	const query = await pool`select 1`.catch((e) => e.code),
+		begin = await pool.begin((tx) => tx`select 1`).catch((e) => e.code);
+
+	expect([query, begin]).toEqual(["08P01", "08P01"]);
 });
 
 test("Failed array type fetch on a live connection is not an unhandled rejection", async () => {

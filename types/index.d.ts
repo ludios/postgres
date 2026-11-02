@@ -86,6 +86,10 @@ declare namespace postgres {
 		constructor(message?: string | Partial<PostgresError>);
 		name: "PostgresError";
 		severity_local: string;
+		/**
+		 * Such as `ERROR` or `FATAL`, not localized; but when the server sends only the localized
+		 * `severity_local`, as PostgreSQL before 9.6 and some poolers do, that one
+		 */
 		severity: string;
 		code: string;
 		position: string;

@@ -406,11 +406,16 @@ const errorFields = {
 };
 
 export function error(x, start, end) {
-	const fields = {};
+	const fields: Record<string, string> = {};
 	for (let i = start + 5; i < end - 1;) {
 		const zero = x.indexOf(0, i + 1);
 		fields[errorFields[x[i]] || String.fromCharCode(x[i])] = x.toString("utf8", i + 1, zero);
 		i = zero + 1;
+	}
+	// The V field (the severity, not localized) is optional: PostgreSQL sends it since 9.6, and a
+	// pooler that makes its own errors may send only S
+	if (fields.severity === undefined) {
+		fields.severity = fields.severity_local;
 	}
 	return fields;
 }

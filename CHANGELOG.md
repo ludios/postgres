@@ -73,7 +73,7 @@ The README has an [upgrade guide](./README.md#upgrading-from-v3), with a query t
 The open issues and pull requests were triaged into 33 correctness bugs, each with a regression test in the v4 suite. Among them:
 
 - **One query on a cold pool opens one connection**, not one more for each connection that opens while the first loads types.
-- **Errors:** the server's data type field is `data_type_name`; v3 set it as `'data type_name'`, with a space, and typed it as `type_name`. `JSON.stringify` of a `PostgresError` includes its message (#767, #1132).
+- **Errors:** the server's data type field is `data_type_name`; v3 set it as `'data type_name'`, with a space, and typed it as `type_name`. `JSON.stringify` of a `PostgresError` includes its message (#767, #1132). `severity` is there also when the server sends only the localized `severity_local`, as PostgreSQL before 9.6 and some poolers, such as PgBouncer, do; v3 left it undefined.
 - **Cursors:** the callback of the last batch is awaited before the cursor resolves, and a rejection from it rejects the cursor; v3 resolved without waiting and left the rejection unhandled. A callback that throws synchronously on a cursor in a transaction or on a reserved connection rejects the cursor and leaves the connection as it was; v3 gave the next query a malformed result.
 - **Large objects:** `readable({ start, end })` stops at `end`; v3 ignored it and read to the end of the object.
 - **Bun:** error stacks point at the calling line, as on Node; library frames were recognised only as `file://` urls.

@@ -274,6 +274,20 @@ test("Decode ErrorResponse fields", async () => {
 	]);
 });
 
+test("Decode ErrorResponse with the severity only in the localized S field", async () => {
+	const e = decode(
+		p.error,
+		msg(
+			"E",
+			Buffer.from("SFATAL\0"),
+			Buffer.from("C08P01\0"),
+			Buffer.from("Mserver login has been failing, try again later (server_login_retry)\0"),
+			Buffer.from([0]),
+		),
+	);
+	expect([e.severity, e.severity_local, e.code]).toEqual(["FATAL", "FATAL", "08P01"]);
+});
+
 test("Decode RowDescription", async () => {
 	const columns = decode(
 		p.rowDescription,
