@@ -297,6 +297,14 @@ export function Pool(options, types) {
 		);
 	}
 
+	/**
+	 * Whether the pool may give connection `c` one more query: `c` is usable() and has fewer than
+	 * `max_inflight` queries in flight.
+	 */
+	function has_room(c) {
+		return c.inflight < max_inflight && usable(c);
+	}
+
 	function pick(job) {
 		const statement = job.statement,
 			any = !statement || !statement.name;
@@ -304,18 +312,16 @@ export function Pool(options, types) {
 		let best = null;
 
 		for (const c of connections) {
-			const free = usable(c);
-			if (free && c.inflight === 0) {
+			if (c.inflight === 0 && usable(c)) {
 				if (any || c.prepared.has(statement.name)) {
 					return c;
 				}
 				best = best && best.inflight === 0 ? best : c;
 			} else if (
-				free &&
 				!job.lease &&
 				!job.exclusive &&
-				c.inflight < max_inflight &&
-				(!best || c.inflight < best.inflight)
+				(!best || c.inflight < best.inflight) &&
+				has_room(c)
 			) {
 				best = c;
 			}
@@ -354,7 +360,7 @@ export function Pool(options, types) {
 		}
 
 		for (const c of connections) {
-			if (usable(c) && c.inflight < max_inflight && c.costly(notable)) {
+			if (has_room(c) && c.costly(notable)) {
 				return true;
 			}
 		}
@@ -396,10 +402,7 @@ export function Pool(options, types) {
 			ties = 0;
 
 		for (const c of connections) {
-			const v =
-				usable(c) && c.inflight < max_inflight && (!heavy || c.costly(slow))
-					? c.backlog(t)
-					: Infinity;
+			const v = has_room(c) && (!heavy || c.costly(slow)) ? c.backlog(t) : Infinity;
 			if (v <= most && v < value) {
 				((best = c), (value = v), (ties = 1));
 			} else if (v <= most && v === value && v !== Infinity && Math.random() * ++ties < 1) {
@@ -751,12 +754,7 @@ export function Pool(options, types) {
 			return c.close();
 		}
 
-		while (
-			waiting.length > connections.size &&
-			usable(c) &&
-			c.inflight < max_inflight &&
-			plain(waiting.peek())
-		) {
+		while (waiting.length > connections.size && has_room(c) && plain(waiting.peek())) {
 			run(c, waiting.shift());
 		}
 
