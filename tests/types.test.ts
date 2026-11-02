@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { postgres, sql, options, delay, thrown } from "./setup.ts";
+import { postgres, sql, options, delay, thrown, defer } from "./setup.ts";
 
 test("null", async () => {
 	expect((await sql`select ${null} as x`)[0].x).toBe(null);
@@ -27,19 +27,17 @@ test("Date", async () => {
 });
 
 test("infer: true types booleans, dates and arrays of them without a cast, as v3 did", async () => {
-	const sql = postgres({ ...options, infer: true });
+	await using sql = postgres({ ...options, infer: true });
 	const now = new Date();
 	const [x] =
 		await sql`select ${true} as a, ${false} as b, ${now} as c, ${[now, now]} as d, ${[true, false]} as e`;
 	expect(x).toEqual({ a: true, b: false, c: now, d: [now, now], e: [true, false] });
-	await sql.end();
 });
 
 test("infer: false leaves untyped parameters to the server, so they come back as text without a cast", async () => {
-	const sql = postgres({ ...options, infer: false });
+	await using sql = postgres({ ...options, infer: false });
 	const [x] = await sql`select ${true} as a, ${new Date(0)} as b`;
 	expect([typeof x.a, typeof x.b]).toEqual(["string", "string"]);
-	await sql.end();
 });
 
 test("Json", async () => {
@@ -113,7 +111,6 @@ test("Escape in arrays", async () => {
 test("null for int", async () => {
 	await sql`create table test (x int)`;
 	expect((await sql`insert into test values(${null})`).count).toBe(1);
-	await sql`drop table test`;
 });
 
 test("Null sets to null", async () => {
@@ -140,7 +137,6 @@ test("Point type", async () => {
 	await sql`create table test (x point)`;
 	await sql`insert into test (x) values (${sql.types.point([10, 20])})`;
 	expect((await sql`select x from test`)[0].x[1]).toBe(20);
-	await sql`drop table test`;
 });
 
 test("Point type array", async () => {
@@ -163,7 +159,6 @@ test("Point type array", async () => {
 	await sql`create table test (x point[])`;
 	await sql`insert into test (x) values (${[sql.types.point([10, 20]), sql.types.point([20, 30])]})`;
 	expect((await sql`select x from test`)[0].x[1][1]).toBe(30);
-	await sql`drop table test`;
 });
 
 test("bytea serializes and parses", async () => {
@@ -173,7 +168,6 @@ test("bytea serializes and parses", async () => {
 	await sql`insert into test values (${buf})`;
 
 	expect((await sql`select x from test`)[0].x).toEqual(buf);
-	await sql`drop table test`;
 });
 
 test("bigint is returned as String", async () => {
@@ -268,7 +262,7 @@ test("String NULL in array round trips", async () => {
 
 test("Null in array does not reach custom type parser", async () => {
 	const parsed = [];
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		types: {
 			text: {
@@ -281,7 +275,6 @@ test("Null in array does not reach custom type parser", async () => {
 	});
 
 	const x = (await sql`select array['a', null, 'NULL']::text[] as x`)[0].x;
-	await sql.end();
 	expect([x, parsed]).toStrictEqual([
 		["A", null, "NULL"],
 		["a", "NULL"],
@@ -305,14 +298,13 @@ test("-Infinity timestamp round-trips", async () => {
 });
 
 test("Date before year 100", async () => {
-	const sql = postgres({ ...options, connection: { TimeZone: "UTC" } });
+	await using sql = postgres({ ...options, connection: { TimeZone: "UTC" } });
 	const [{ x }] = await sql`select '0050-06-15 12:30:00+00'::timestamptz as x`;
 	expect(x.toISOString()).toBe("0050-06-15T12:30:00.000Z");
-	await sql.end();
 });
 
 test("Date with an offset in seconds", async () => {
-	const sql = postgres({ ...options, connection: { TimeZone: "Europe/Copenhagen" } });
+	await using sql = postgres({ ...options, connection: { TimeZone: "Europe/Copenhagen" } });
 	const [{ x, y }] = await sql`
     select '1850-06-15 12:30:00+00'::timestamptz as x, '0050-06-15 12:30:00+00'::timestamptz as y
   `;
@@ -320,24 +312,18 @@ test("Date with an offset in seconds", async () => {
 		"1850-06-15T12:30:00.000Z",
 		"0050-06-15T12:30:00.000Z",
 	]);
-	await sql.end();
 });
 
 test("Domain type wrapping an array resolves to the base type serializer, for a domain made before the pool starts", async () => {
 	await sql`drop domain if exists pg_test_domain_array cascade`;
 	await sql`create domain pg_test_domain_array as text[]`;
 	await sql`create table test (x pg_test_domain_array)`;
-	const fresh = postgres(options);
-	try {
-		expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x).toEqual([
-			"a",
-			"b",
-		]);
-	} finally {
-		await fresh.end();
-		await sql`drop table test`;
-		await sql`drop domain pg_test_domain_array`;
-	}
+	await using _drop = defer(() => sql.unsafe("drop table test; drop domain pg_test_domain_array"));
+	await using fresh = postgres(options);
+	expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x).toEqual([
+		"a",
+		"b",
+	]);
 });
 
 test("Nested domain types resolve through to their base type serializer, for a domain made before the pool starts", async () => {
@@ -346,26 +332,23 @@ test("Nested domain types resolve through to their base type serializer, for a d
 	await sql`create domain pg_test_domain_nested_parent as text[]`;
 	await sql`create domain pg_test_domain_nested_child as pg_test_domain_nested_parent`;
 	await sql`create table test (x pg_test_domain_nested_child)`;
-	const fresh = postgres(options);
-	try {
-		expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x).toEqual([
-			"a",
-			"b",
-		]);
-	} finally {
-		await fresh.end();
-		await sql`drop table test`;
-		await sql`drop domain pg_test_domain_nested_child`;
-		await sql`drop domain pg_test_domain_nested_parent`;
-	}
+	await using _drop = defer(() =>
+		sql.unsafe(
+			"drop table test; drop domain pg_test_domain_nested_child; drop domain pg_test_domain_nested_parent",
+		),
+	);
+	await using fresh = postgres(options);
+	expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x).toEqual([
+		"a",
+		"b",
+	]);
 });
 
 test("Built-in array types without fetch_types", async () => {
-	const sql = postgres({ ...options, fetch_types: false });
+	await using sql = postgres({ ...options, fetch_types: false });
 	const [{ x, y }] = await sql`select array['a', 'b']::text[] as x, array[1, 2]::int4[] as y`;
 	const [{ z }] = await sql`select ${["c", "d"]}::text[] as z`;
 	expect([x[1], y[1], z[1]]).toEqual(["b", 2, "d"]);
-	await sql.end();
 });
 
 test("Object with a type key in a jsonb array", async () => {
@@ -373,32 +356,28 @@ test("Object with a type key in a jsonb array", async () => {
 	await sql`insert into test ${sql({ nodes: [{ type: "a", v: 1 }] })}`;
 	const [{ nodes }] = await sql`select nodes from test`;
 	expect([nodes[0].type, nodes[0].v]).toEqual(["a", 1]);
-	await sql`drop table test`;
 });
 
 test("infer: false sends a boolean to a jsonb parameter", async () => {
-	const sql = postgres({ ...options, infer: false });
+	await using sql = postgres({ ...options, infer: false });
 	expect((await sql`select ${true}::jsonb as x`)[0].x).toBe(true);
-	await sql.end();
 });
 
 test("infer: false sends a boolean array", async () => {
-	const sql = postgres({ ...options, infer: false });
+	await using sql = postgres({ ...options, infer: false });
 	expect((await sql`select ${[true, false]}::bool[] as x`)[0].x).toEqual([true, false]);
-	await sql.end();
 });
 
 test("infer: false sends strings to boolean, bytea and date parameters as text", async () => {
-	const sql = postgres({ ...options, infer: false, max: 1 });
+	await using sql = postgres({ ...options, infer: false, max: 1 });
 	await sql`create temp table shapes (a boolean, b bytea, c timestamptz, d boolean[])`;
 	await sql`insert into shapes values (${"yes"}, ${"\\x4142"}, ${"2026-10-17T12:00:00Z"}, ${["t", false]})`;
 	const [x] = await sql`select a, encode(b, 'escape') as b, c, d from shapes`;
 	expect(x).toEqual({ a: true, b: "AB", c: new Date("2026-10-17T12:00:00Z"), d: [true, false] });
-	await sql.end();
 });
 
 test("infer: false writes a Date to a timestamp column as the instant it is, not in the session time zone", async () => {
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		infer: false,
 		max: 1,
@@ -408,11 +387,10 @@ test("infer: false writes a Date to a timestamp column as the instant it is, not
 	await sql`insert into stamps values (${new Date("2026-10-17T12:00:00Z")})`;
 	const [{ at }] = await sql`select at::text from stamps`;
 	expect(at).toBe("2026-10-17 12:00:00");
-	await sql.end();
 });
 
 test("infer: false reads a timestamp column back as the instant that was written", async () => {
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		infer: false,
 		max: 1,
@@ -423,12 +401,10 @@ test("infer: false reads a timestamp column back as the instant that was written
 	await sql`insert into test values (${date}, ${[date]})`;
 	const [{ at, ats }] = await sql`select at, ats from test`;
 	expect([at, ats]).toEqual([date, [date]]);
-	await sql`drop table test`;
-	await sql.end();
 });
 
 test("Custom type serializes values the server says are of a type in its from (#1129)", async () => {
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		max: 1,
 		types: {
@@ -444,10 +420,16 @@ test("Custom type serializes values the server says are of a type in its from (#
 	await sql`insert into points values (${[1, 2]})`;
 	const [{ p }] = await sql`select p from points`;
 	expect(p).toEqual([1, 2]);
-	await sql.end();
 });
 
-async function enumTable(name, rows?) {
+/**
+ * Creates the table `name`, whose column `m` has the new enum type `<name>_mood` ('a', 'b'), after
+ * dropping any table and type of those names that an earlier run left.
+ * @param name - the name of the table
+ * @param rows - the rows to insert, as the SQL after `values` (e.g. "('a'), ('b')"), if any
+ * @returns a disposer that drops the table and the type
+ */
+async function enum_table(name: string, rows?: string) {
 	await sql.unsafe(
 		[
 			"drop table if exists " + name,
@@ -457,19 +439,17 @@ async function enumTable(name, rows?) {
 			...(rows ? ["insert into " + name + " values " + rows] : []),
 		].join(";"),
 	);
-	return () => sql.unsafe("drop table " + name + "; drop type " + name + "_mood");
+	return defer(() => sql.unsafe("drop table " + name + "; drop type " + name + "_mood"));
 }
 
 test("A column of a type Postgres.js does not know returns its rows as text, empty or not", async () => {
-	const drop = await enumTable("test_enum_rows");
-	const fresh = postgres(options);
+	await using _drop = await enum_table("test_enum_rows");
+	await using fresh = postgres(options);
 	const empty = await fresh`select m from test_enum_rows`;
 	await sql`insert into test_enum_rows values ('a'), ('b')`;
 	const tagged = await fresh`select m from test_enum_rows order by m`,
 		simple = await fresh.unsafe("select m from test_enum_rows order by m"),
 		many = await fresh.unsafe("select m from test_enum_rows order by m; select 1 as n");
-	await fresh.end();
-	await drop();
 	expect([
 		empty.length,
 		tagged.map((x) => x.m),
@@ -480,22 +460,20 @@ test("A column of a type Postgres.js does not know returns its rows as text, emp
 });
 
 test("forEach and cursors get every row of a column of a type Postgres.js does not know", async () => {
-	const drop = await enumTable("test_enum_each", "('a'), ('b'), ('a')");
-	const fresh = postgres(options);
+	await using _drop = await enum_table("test_enum_each", "('a'), ('b'), ('a')");
+	await using fresh = postgres(options);
 	const seen = [],
 		batches = [];
 	await fresh`select m from test_enum_each`.forEach((row) => seen.push(row.m));
 	await fresh`select m from test_enum_each`.cursor(2, (rows) => {
 		batches.push(rows.length);
 	});
-	await fresh.end();
-	await drop();
 	expect([seen.length, batches]).toEqual([3, [2, 1]]);
 });
 
 test("A parameter of a type Postgres.js does not know keeps its place among the queries after it", async () => {
-	const drop = await enumTable("test_enum_order");
-	const fresh = postgres({ ...options, max: 1 });
+	await using _drop = await enum_table("test_enum_order");
+	await using fresh = postgres({ ...options, max: 1 });
 	await fresh`select 1`;
 	const [, select] = await fresh.begin((sql) => [
 		sql`insert into test_enum_order values (${"a"})`,
@@ -507,16 +485,13 @@ test("A parameter of a type Postgres.js does not know keeps its place among the 
 		fresh`rollback`,
 	]).then((x) => x.map((x) => x.command));
 	const [{ n }] = await fresh`select count(*)::int as n from test_enum_order`;
-	await fresh.end();
-	await drop();
 	expect([select[0].n, commands, n]).toEqual([1, ["BEGIN", "INSERT", "ROLLBACK"], 1]);
 });
 
 test("infer: false writes a Date for a text parameter as an ISO timestamp", async () => {
-	const sql = postgres({ ...options, infer: false, max: 1 });
+	await using sql = postgres({ ...options, infer: false, max: 1 });
 	const [{ x }] = await sql`select ${new Date("2026-06-01T12:00:00.123Z")}::text as x`;
 	expect(x).toBe("2026-06-01T12:00:00.123Z");
-	await sql.end();
 });
 
 test("An array in a values list is written as an array for a cast (#741)", async () => {
@@ -532,11 +507,10 @@ test("An object in a values list is written as json for a cast (#872, #765)", as
 });
 
 test("infer: false writes a boolean array to a jsonb parameter and a bigint to numeric (#931, #874)", async () => {
-	const sql = postgres({ ...options, infer: false });
+	await using sql = postgres({ ...options, infer: false });
 	const [{ j, n }] =
 		await sql`select ${[true, false]}::jsonb as j, ${1n << 255n}::numeric(78,0)::text as n`;
 	expect([j, n]).toEqual([[true, false], String(1n << 255n)]);
-	await sql.end();
 });
 
 test("A bigint array is written to an int8[] column (#837)", async () => {
@@ -547,7 +521,8 @@ test("A bigint array is written to an int8[] column (#837)", async () => {
 test("A custom type given by name is looked up, with its array type (#1115)", async () => {
 	await sql`drop type if exists pair_t cascade`;
 	await sql`create type pair_t as (a int, b int)`;
-	const sql2 = postgres({
+	await using _drop_type = defer(() => sql`drop type pair_t`);
+	await using sql2 = postgres({
 		...options,
 		types: {
 			pair: {
@@ -564,13 +539,11 @@ test("A custom type given by name is looked up, with its array type (#1115)", as
       array[${sql2.typed.pair([3, 4])}::pair_t] as xs,
       (${sql2.typed.pair([5, 6])}::pair_t).a as sum
   `;
-	await sql2.end();
-	await sql`drop type pair_t`;
 	expect([x, xs, sum]).toEqual([[1, 2], [[3, 4]], 5]);
 });
 
 test("Several custom type names that do not exist are named in one TYPE_NOT_FOUND", async () => {
-	const sql2 = postgres({
+	await using sql2 = postgres({
 		...options,
 		types: { a: { to: "no_such_a", serialize: String }, b: { to: "no_such_b", serialize: String } },
 	});
@@ -578,7 +551,6 @@ test("Several custom type names that do not exist are named in one TYPE_NOT_FOUN
 		() => "ran",
 		(e) => [e.code, e.message],
 	);
-	await sql2.end();
 	expect(message).toEqual([
 		"TYPE_NOT_FOUND",
 		"TYPE_NOT_FOUND: The types no_such_a, no_such_b do not exist",
@@ -586,7 +558,7 @@ test("Several custom type names that do not exist are named in one TYPE_NOT_FOUN
 });
 
 test("A custom type name that does not exist rejects with TYPE_NOT_FOUND", async () => {
-	const sql2 = postgres({
+	await using sql2 = postgres({
 		...options,
 		types: {
 			nope: { to: "no_such_type", from: ["no_such_type"], serialize: String, parse: String },
@@ -604,7 +576,6 @@ test("A custom type name that does not exist rejects with TYPE_NOT_FOUND", async
 				(e) => e.code,
 			),
 	];
-	await sql2.end();
 	expect(codes).toEqual(["TYPE_NOT_FOUND", "TYPE_NOT_FOUND"]);
 });
 
@@ -631,7 +602,7 @@ test("sql.end() resolves after the types fail to load for a waiting query", asyn
 
 test("A custom type created after a failed lookup is found on a later query", async () => {
 	await sql`drop type if exists later_t cascade`;
-	const sql2 = postgres({
+	await using sql2 = postgres({
 		...options,
 		types: {
 			later: { to: "later_t", from: ["later_t"], serialize: String, parse: (x) => "parsed " + x },
@@ -642,10 +613,9 @@ test("A custom type created after a failed lookup is found on a later query", as
 		(e) => e.code,
 	);
 	await sql`create type later_t as enum ('a')`;
+	await using _drop_type = defer(() => sql`drop type later_t`);
 	await delay(1100);
 	const [{ x }] = await sql2`select 'a'::later_t as x`;
-	await sql2.end();
-	await sql`drop type later_t`;
 	expect([first, x]).toEqual(["TYPE_NOT_FOUND", "parsed a"]);
 });
 
