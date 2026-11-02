@@ -1,0 +1,19 @@
+// Model-output: Claude Opus 5.5
+{
+	"compilerOptions": {
+		// Typecheck only; Node runs the .ts files itself by stripping the types.
+		"noEmit": true,
+		"target": "esnext",
+		"module": "nodenext",
+		"types": ["node"],
+		// Allow only the TypeScript syntax that Node's type stripping can run.
+		"allowImportingTsExtensions": true,
+		"erasableSyntaxOnly": true,
+		"verbatimModuleSyntax": true,
+		// Loose for now, so that converting the .js files to .ts changes little code.
+		"strict": false,
+		// Accept the .js files that are not converted yet, without checking them.
+		"allowJs": true
+	},
+	"include": ["src", "tests"]
+}

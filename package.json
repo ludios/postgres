@@ -23,6 +23,7 @@
     "coverage": "node tests/coverage.js",
     "test:types": "cd types && npm install && npm test",
     "test:cf": "sh tests/cf/run.sh",
+    "typecheck": "tsc",
     "lint": "eslint src tests"
   },
   "files": [
@@ -35,5 +36,9 @@
     "url": "https://github.com/sponsors/porsager"
   },
   "license": "Unlicense",
-  "repository": "porsager/postgres"
+  "repository": "porsager/postgres",
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "7.0.2"
+  }
 }
