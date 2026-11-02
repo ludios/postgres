@@ -50,7 +50,6 @@
 				"typescript/no-implied-eval": "warn",
 				"unicorn/prefer-string-starts-ends-with": "warn",
 				"typescript/no-misused-spread": "warn",
-				"curly": "warn",
 				"no-sequences": "warn"
 			}
 		}

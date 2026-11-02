@@ -137,7 +137,7 @@ When there are multiple good ways to implement something, especially involving s
 
 This is a fork of [porsager/postgres](https://github.com/porsager/postgres) (remote `origin`); ours is ludios/postgres (remote `gh`). Work happens on `prime`.
 
-We're reworking all of it to follow the code conventions above and to test with `vitest`. Most of the existing code is still in upstream's style: camelCase function names and local variables; `&&`, `||`, `?:` and comma expressions used as statements; and `if`, `else`, `for` and `while` bodies without curlies. Don't imitate upstream's style in new code, and convert the code you rework.
+We're reworking all of it to follow the code conventions above and to test with `vitest`. Most of the existing code is still in upstream's style: camelCase function names and local variables, and `&&`, `||`, `?:` and comma expressions used as statements. Don't imitate upstream's style in new code, and convert the code you rework.
 
 Renaming anything public (see `types/index.d.ts`) breaks users of the library; ask first.
 
