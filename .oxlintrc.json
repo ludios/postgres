@@ -47,7 +47,6 @@
 			// it, so that it is an error again.
 			"files": ["**/*.ts"],
 			"rules": {
-				"typescript/no-floating-promises": "warn",
 				"typescript/unbound-method": "warn",
 				"typescript/await-thenable": "warn",
 				"typescript/no-base-to-string": "warn",

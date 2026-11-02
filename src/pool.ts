@@ -1039,7 +1039,7 @@ export function Pool(options, types) {
 				clearTimeout(retryTimer);
 				retryTimer = null;
 			}
-			Promise.resolve().then(finishing);
+			queueMicrotask(finishing);
 		});
 
 		return ending;

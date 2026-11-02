@@ -932,7 +932,7 @@ export function Connection(ready, options, events) {
 					ErrorResponse(x, start, end);
 					break;
 				case 115:
-					PortalSuspended();
+					void PortalSuspended();
 					break;
 				case 73:
 					EmptyQueryResponse();

@@ -47,7 +47,7 @@ export async function socket(options, host, port) {
 			await raw.opened;
 			secure = true;
 		} else if (options.ssl !== "prefer" && options.ssl !== "allow") {
-			raw.close();
+			raw.close().catch(() => {});
 			throw Errors.generic("SSL_NOT_SUPPORTED", "The server does not support SSL connections");
 		}
 	}
@@ -112,7 +112,7 @@ function Stream(raw, secure, host, port) {
 		setNoDelay() {},
 	});
 
-	read();
+	void read();
 	return x;
 
 	function resumed() {

@@ -82,7 +82,7 @@ export class Query extends Promise<any> {
 		const kept = [...items].filter((x) => x !== false && x !== null && x !== undefined),
 			joined = new Query(joinStrings, [new Join(this, kept)], this.handler);
 
-		Object.defineProperty(joined, "length", { value: kept.length });
+		Reflect.defineProperty(joined, "length", { value: kept.length });
 		return joined;
 	}
 
@@ -196,13 +196,13 @@ export class Query extends Promise<any> {
 	}
 
 	async readable() {
-		this.simple();
+		void this.simple();
 		this.streaming = true;
 		return this;
 	}
 
 	async writable() {
-		this.simple();
+		void this.simple();
 		this.streaming = true;
 		return this;
 	}
@@ -254,7 +254,7 @@ export class Query extends Promise<any> {
 							reject(x);
 						};
 					});
-					this.execute();
+					void this.execute();
 					return promise;
 				},
 				return() {
