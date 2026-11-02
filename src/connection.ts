@@ -578,7 +578,9 @@ export function Connection(ready, options, events) {
 	function stop(x) {
 		// A cancel request for anything else would hit whatever the backend runs next
 		if (sent[0] !== x) {
-			throw new Error("Bug: stop() got an exchange that is not the head of sent");
+			const i = sent.indexOf(x);
+			const got = i === -1 ? "an exchange that is not in sent" : "sent[" + i + "]";
+			throw new Error("Bug: stop() needs sent[0], but got " + got);
 		}
 		if (!x.stopping) {
 			x.stopped = true;
