@@ -1204,7 +1204,7 @@ const sql = postgres('postgres://host/db?sslmode=require&sslnegotiation=direct')
 const sql = postgres({ ssl: 'require', sslnegotiation: 'direct' })
 ```
 
-On Node.js this is also the fastest encrypted connection, as it reads into the same shared buffer as a plain one. It needs a server that supports it, and is not available in Cloudflare Workers, whose sockets cannot send the ALPN it requires.
+On Node.js this is also the fastest encrypted connection, as it reads into the same shared buffer as a plain one. It needs a server that supports it, and is not available in Cloudflare Workers, whose sockets cannot send the ALPN it requires. As in libpq, it needs an `ssl` that always encrypts (`true`, `require`, `verify-full` or TLS options); with another, `postgres()` throws.
 
 #### Channel binding
 

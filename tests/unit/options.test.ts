@@ -265,7 +265,8 @@ test("sslrootcert=system makes verify-full the ssl mode, and any other mode thro
 test("sslnegotiation from options, the url and PGSSLNEGOTIATION; another value throws", async () => {
 	const read = with_env({ PGSSLNEGOTIATION: "postgres" }, () => [
 		postgres({ max: 1 }).options.sslnegotiation,
-		postgres("postgres://u@h/db?sslnegotiation=direct", { max: 1 }).options.sslnegotiation,
+		postgres("postgres://u@h/db?sslnegotiation=direct&sslmode=require", { max: 1 }).options
+			.sslnegotiation,
 		postgres({ max: 1, sslnegotiation: null }).options.sslnegotiation,
 	]);
 	expect([
@@ -274,6 +275,25 @@ test("sslnegotiation from options, the url and PGSSLNEGOTIATION; another value t
 	]).toEqual([
 		["postgres", "direct", null],
 		'The url parameter sslnegotiation must be one of null, "postgres", "direct", but it is "Direct"',
+	]);
+});
+
+test("sslnegotiation=direct needs an ssl that always encrypts, as in libpq", async () => {
+	const must = (shown) =>
+		'sslnegotiation is "direct", which, as in libpq, needs an ssl that always encrypts: true, ' +
+		'"require", "verify-full" or TLS options, but ssl is ' +
+		shown;
+	const direct = (ssl) => postgres({ max: 1, sslnegotiation: "direct", ssl }).options.ssl;
+	expect([
+		[true, "require", "verify-full", { ca: [] }].map(direct),
+		thrown(() => postgres("postgres://u@h/db?sslnegotiation=direct", { max: 1 })).message,
+		thrown(() => direct("prefer")).message,
+		thrown(() => direct("allow")).message,
+	]).toEqual([
+		[true, "require", "verify-full", { ca: [] }],
+		must("false"),
+		must('"prefer"'),
+		must('"allow"'),
 	]);
 });
 

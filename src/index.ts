@@ -1034,6 +1034,19 @@ function parse_options(a, b) {
 				shown(options.ssl),
 		);
 	}
+	// As in libpq, direct needs a mode that never connects without TLS
+	const always_tls =
+		options.ssl === true ||
+		options.ssl === "require" ||
+		options.ssl === "verify-full" ||
+		typeof options.ssl === "object";
+	if (options.sslnegotiation === "direct" && !always_tls) {
+		throw new Error(
+			'sslnegotiation is "direct", which, as in libpq, needs an ssl that always encrypts: true, ' +
+				'"require", "verify-full" or TLS options, but ssl is ' +
+				shown(options.ssl),
+		);
+	}
 	if (options.max === 1) {
 		options.scheduler = false;
 	}
