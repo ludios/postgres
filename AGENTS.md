@@ -61,7 +61,7 @@ npm sux; please use pnpm instead.
 
 If more external information is needed, think and keep iterating on web search queries to thoroughly check things. Tips: try site-specific searches e.g. site:github.com, reddit.com, news.ycombinator.com; try combinations of quoted items.
 
-If you can't fetch something, use google-chrome or curl_chrome150 on this machine.
+If you can't fetch something, use google-chrome or curl_chrome152 on this machine.
 
 # English
 
@@ -73,7 +73,7 @@ You can ask Astra via codex to rewrite stuff.
 
 For JavaScript, TypeScript, and Svelte-related code:
 
-- Use tabs to indent and spaces to align.
+- Use tabs to indent.
 - `snake_case` function names and local variables, except those imported from external libraries or in the platform itself.
 - Use semicolons after statements; no ASI.
 
@@ -98,7 +98,6 @@ Minutae:
 - Block contents should not be on the same line that opened the block.
 - Put `return`, `continue`, `break`, `throw`, `yield`, `await` statements on their own line so that they're obvious.
 - Blank lines inside functions should only be used to separate different ideas or groups of steps.
-- Use space-based alignment but only where it looks good: on adjacent lines with a very similar structure, add spaces after shorter identifiers (or the syntax to the right of them) to align things.
 
 # Libraries to use
 
