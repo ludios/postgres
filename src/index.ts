@@ -27,6 +27,29 @@ throw_on_casing_transforms(Postgres);
 
 export { PostgresError };
 
+/**
+ * @param types - the custom types (of `options.types`), by name
+ * @returns `sql.types`: a function that makes a Parameter of a type that is given by its OID, with
+ *   a function (for each custom type) that makes a Parameter of that custom type
+ */
+function typed_parameters(types: Record<string, PostgresType>) {
+	const typed = (value, type) => new Parameter(value, type);
+
+	// Defined, not assigned: assigning throws for `name` and `length` (read-only properties of
+	// every function; `name` is also a PostgreSQL type) and for `arguments` and `caller` (whose
+	// inherited setters throw in strict mode), and assigning `__proto__` would replace the
+	// prototype of `typed`.
+	Object.entries(types).forEach(([name, type]) =>
+		Object.defineProperty(typed, name, {
+			value: (x) => new Parameter(x, type.to),
+			writable: true,
+			enumerable: true,
+			configurable: true,
+		}),
+	);
+	return typed;
+}
+
 function Postgres(a?, b?) {
 	const options = parseOptions(a, b),
 		types = options.shared_types || Types(options),
@@ -44,7 +67,8 @@ function Postgres(a?, b?) {
 	options.parsers = view(types.parsers, types.parser);
 	options.serializers = view(types.serializers, types.serializer);
 
-	const sql = Sql(handler);
+	const typed = typed_parameters(options.types),
+		sql = Sql(handler);
 
 	Object.defineProperties(sql, {
 		parameters: { get: () => options.parameters, enumerable: true },
@@ -82,20 +106,6 @@ function Postgres(a?, b?) {
 		handler.debug = options.debug;
 		handler.options = options;
 		handler.cancel = handler.cancel || pool.cancel;
-
-		const typed = (value, type) => new Parameter(value, type);
-
-		// Defined, not assigned: assigning throws for the names that a function already has (such
-		// as `name`, which is also a PostgreSQL type, `length` and `arguments`), and assigning
-		// `__proto__` would replace the prototype of `typed`.
-		Object.entries<PostgresType>(options.types).forEach(([name, type]) =>
-			Object.defineProperty(typed, name, {
-				value: (x) => new Parameter(x, type.to),
-				writable: true,
-				enumerable: true,
-				configurable: true,
-			}),
-		);
 
 		Object.assign(sql, {
 			types: typed,
