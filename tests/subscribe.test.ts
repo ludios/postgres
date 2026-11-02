@@ -263,7 +263,10 @@ test("subscribe confirms the slot only as far as handlers have finished", async 
 		calls = 0;
 	const blocked = new Promise((r) => (release = r));
 
-	await sub.subscribe("insert:test", () => (calls++, blocked));
+	await sub.subscribe("insert:test", () => {
+		calls++;
+		return blocked;
+	});
 	const [{ lsn: before }] = await sql`select pg_current_wal_lsn() as lsn`;
 	await sql`insert into test (name) values ('a')`;
 	await until(() => calls === 1);

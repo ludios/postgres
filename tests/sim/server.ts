@@ -31,7 +31,10 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 		kill: (x) => x.fatal("57P01", "terminating connection due to administrator command"),
 		close: (x, reset) => (reset ? x.end.destroy() : x.end.end()),
 		stale: (x) => x.prepared.forEach((p) => (p.stale = true)),
-		deallocate: (x) => (x.prepared.forEach((p, name) => x.wiped.add(name)), x.prepared.clear()),
+		deallocate: (x) => {
+			x.prepared.forEach((p, name) => x.wiped.add(name));
+			x.prepared.clear();
+		},
 		retype: (x) => (x.shape = x.shape === "a" ? "b" : "a"),
 		commitRollback: (x) => (x.commitRollback = true),
 	};
@@ -298,7 +301,12 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 		function execute(portal, limit, simple) {
 			const { ast } = portal.p,
 				value = (v) => (v === null ? null : v[0] === "$" ? +portal.values[+v.slice(1) - 1] : +v),
-				done = () => simple && ((discard = false), reply(ready()));
+				done = () => {
+					if (simple) {
+						discard = false;
+						reply(ready());
+					}
+				};
 
 			if (ast.control) {
 				transaction(ast.control);
@@ -554,8 +562,14 @@ function error(severity, code, message) {
 function reader(b, i) {
 	return {
 		byte: () => String.fromCharCode(b[i++]),
-		i16: () => ((i += 2), b.readInt16BE(i - 2)),
-		i32: () => ((i += 4), b.readInt32BE(i - 4)),
+		i16: () => {
+			i += 2;
+			return b.readInt16BE(i - 2);
+		},
+		i32: () => {
+			i += 4;
+			return b.readInt32BE(i - 4);
+		},
 		i16s() {
 			return [...Array(this.i16())].map(() => this.i16());
 		},
@@ -567,7 +581,11 @@ function reader(b, i) {
 		},
 		bytes() {
 			const n = this.i32();
-			return n === -1 ? null : ((i += n), b.subarray(i - n, i));
+			if (n === -1) {
+				return null;
+			}
+			i += n;
+			return b.subarray(i - n, i);
 		},
 	};
 }

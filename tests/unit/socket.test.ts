@@ -7,8 +7,16 @@ function fake() {
 	// A fake net.Socket, which records what is written to it
 	const x: EventEmitter & Record<string, any> = new EventEmitter();
 	x.written = [];
-	x.write = (data) => (x.written.push(data), true);
-	x.end = (data) => (data && x.written.push(data), (x.ended = true));
+	x.write = (data) => {
+		x.written.push(data);
+		return true;
+	};
+	x.end = (data) => {
+		if (data) {
+			x.written.push(data);
+		}
+		x.ended = true;
+	};
 	x.destroy = () => x.emit("close", true);
 	x.pause = () => (x.paused = true);
 	x.resume = () => (x.paused = false);

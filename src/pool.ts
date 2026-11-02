@@ -151,15 +151,17 @@ export function Pool(options, types) {
 
 	function describeOnly(q, built, lease) {
 		const statement = { name: "", text: built.text, oids: built.oids, columns: null },
-			run = (c) => (
-				(q.connection = c),
+			run = (c) => {
+				q.connection = c;
 				c.describe(statement, built.oids).then(
 					({ params, columns }) =>
 						q.resolve({ string: built.text, types: params, name: "", columns }),
 					(error) => q.reject(queryError(error, q, options.debug)),
-				),
-				q.onwrite && q.onwrite()
-			);
+				);
+				if (q.onwrite) {
+					q.onwrite();
+				}
+			};
 		place({ run, q, reject: (error) => q.reject(queryError(error, q, options.debug)) }, lease);
 	}
 
@@ -464,7 +466,10 @@ export function Pool(options, types) {
 			}
 			const wait = nextAttempt - now();
 			return wait > 0
-				? (retryTimer = setTimeout(() => ((retryTimer = null), grow()), wait))
+				? (retryTimer = setTimeout(() => {
+						retryTimer = null;
+						grow();
+					}, wait))
 				: connect();
 		}
 
@@ -553,7 +558,10 @@ export function Pool(options, types) {
 
 		typesError = null;
 		connections.forEach((x) => (x.loading = true));
-		[...connections].some((x) => !x.closed && (loadTypes(x), true));
+		const first_open = [...connections].find((x) => !x.closed);
+		if (first_open) {
+			loadTypes(first_open);
+		}
 		return null;
 	}
 
@@ -981,7 +989,14 @@ export function Pool(options, types) {
 	}
 
 	function cancel(q) {
-		if (waiting.remove((x) => x.q === q && (started(x), true))) {
+		const removed = waiting.remove((x) => {
+			if (x.q !== q) {
+				return false;
+			}
+			started(x);
+			return true;
+		});
+		if (removed) {
 			q.reject(queryError(Errors.canceled(), q, options.debug));
 			return Promise.resolve();
 		}
@@ -1066,7 +1081,13 @@ export function Pool(options, types) {
 		return Promise.all(
 			[...connections].map((c) =>
 				c.lease
-					? new Promise<void>((r) => ((c.retiring = true), (c.retired || (c.retired = [])).push(r)))
+					? new Promise<void>((r) => {
+							c.retiring = true;
+							if (!c.retired) {
+								c.retired = [];
+							}
+							c.retired.push(r);
+						})
 					: c.close(),
 			),
 		);
@@ -1104,7 +1125,8 @@ export function Queue() {
 		remove(fn) {
 			for (let i = head; i < xs.length; i++) {
 				if (fn(xs[i])) {
-					return (xs.splice(i, 1), true);
+					xs.splice(i, 1);
+					return true;
 				}
 			}
 			return false;
@@ -1189,7 +1211,8 @@ function Statements(scheduler) {
 			cached = tagged && tagged.get(built.types);
 
 		if (cached && cached.live) {
-			return ((cached.used = clock++), cached);
+			cached.used = clock++;
+			return cached;
 		}
 
 		const key = built.types + "\0" + built.text;

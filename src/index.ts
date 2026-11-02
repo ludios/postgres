@@ -215,7 +215,10 @@ function Postgres(a?, b?) {
 		start(channels.transaction, context, () => (promise = transaction(mode, fn, context)));
 
 		return promise.then(
-			(result) => (finish(channels.transaction, context, null, result), result),
+			(result) => {
+				finish(channels.transaction, context, null, result);
+				return result;
+			},
 			(error) => {
 				finish(channels.transaction, context, error);
 				throw error;

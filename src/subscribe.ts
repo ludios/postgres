@@ -236,7 +236,10 @@ export default function Subscribe(postgres, options) {
 		function commit(done) {
 			acked = max(acked, done.end);
 			if (persistent && !soon) {
-				soon = timers.setImmediate(() => ((soon = null), status()));
+				soon = timers.setImmediate(() => {
+					soon = null;
+					status();
+				});
 			}
 		}
 
@@ -328,7 +331,10 @@ export default function Subscribe(postgres, options) {
 			}
 			stop();
 			if (!stream.destroyed) {
-				await new Promise((r) => (stream.once("close", r), stream.end()));
+				await new Promise((r) => {
+					stream.once("close", r);
+					stream.end();
+				});
 			}
 		}
 

@@ -431,7 +431,10 @@ async function outlives(fn) {
 			return Promise.all([cursor, sql`select 1/0`]);
 		})
 		.catch(() => {});
-	const second = await sql.begin(async () => (await delay(300), "committed"));
+	const second = await sql.begin(async () => {
+		await delay(300);
+		return "committed";
+	});
 	const outcome = await cursor.then(
 		(x) => "resolved " + x.length,
 		(e) => e.code || e.message,

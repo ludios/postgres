@@ -209,13 +209,11 @@ test("A query on a reserved connection during its COPY is rejected and the COPY 
 		() => "ran",
 		(e) => e.code,
 	);
-	await new Promise(
-		(resolve, reject) => (
-			writable.on("finish", resolve),
-			writable.on("error", reject),
-			writable.end("2\n")
-		),
-	);
+	await new Promise((resolve, reject) => {
+		writable.on("finish", resolve);
+		writable.on("error", reject);
+		writable.end("2\n");
+	});
 	const [{ n }] = await reserved`select count(*)::int as n from test`;
 	expect([code, n]).toEqual(["COPY_IN_PROGRESS", 2]);
 });

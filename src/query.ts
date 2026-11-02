@@ -217,7 +217,8 @@ export class Query extends Promise<any> {
 		this.cursorRows = rows;
 
 		if (typeof fn === "function") {
-			return ((this.cursorFn = fn), this);
+			this.cursorFn = fn;
+			return this;
 		}
 
 		let prev;
@@ -236,18 +237,22 @@ export class Query extends Promise<any> {
 							resolve({ value, done: false });
 							return new Promise((r) => (prev = r));
 						};
-						this.resolve = (x) => (
-							(this.active = false),
-							(this.settled = true),
-							this.trace && traced(this, null, x),
-							resolve({ done: true })
-						);
-						this.reject = (x) => (
-							(this.active = false),
-							(this.settled = true),
-							this.trace && traced(this, x),
-							reject(x)
-						);
+						this.resolve = (x) => {
+							this.active = false;
+							this.settled = true;
+							if (this.trace) {
+								traced(this, null, x);
+							}
+							resolve({ done: true });
+						};
+						this.reject = (x) => {
+							this.active = false;
+							this.settled = true;
+							if (this.trace) {
+								traced(this, x);
+							}
+							reject(x);
+						};
 					});
 					this.execute();
 					return promise;

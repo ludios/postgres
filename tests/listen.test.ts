@@ -332,7 +332,10 @@ test("Unlisten while reconnecting keeps only the other listener", async () => {
 
 	await sql.listen(
 		"test",
-		() => (callbacks.push("first"), received()),
+		() => {
+			callbacks.push("first");
+			return received();
+		},
 		() => ++first === 2 && b.unlisten().then(released),
 	);
 	const b = await sql.listen(

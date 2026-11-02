@@ -147,7 +147,10 @@ test("An ssl object without a ca builds a TLS context per connection, and with o
 		ssl: { rejectUnauthorized: boolean; ca?: readonly string[] } = { rejectUnauthorized: false };
 	await using sql = postgres({ ...options, ssl, max: 6 });
 	let built = 0;
-	tls.createSecureContext = (...xs) => (built++, create(...xs));
+	tls.createSecureContext = (...xs) => {
+		built++;
+		return create(...xs);
+	};
 	onTestFinished(() => {
 		tls.createSecureContext = create;
 	});
@@ -378,7 +381,11 @@ test("requests works after single connect_timeout", async () => {
 		...login_scram,
 		connect_timeout: {
 			valueOf() {
-				return first ? ((first = false), 0.0001) : 1;
+				if (first) {
+					first = false;
+					return 0.0001;
+				}
+				return 1;
 			},
 		},
 	});
@@ -593,7 +600,12 @@ test("Multiple hosts rejects within connect_timeout × hosts when every host tim
 
 test("prefer-standby tries every host for a standby before accepting a primary", async () => {
 	let probe = 0;
-	const server = await listening(net.createServer((socket) => (probe++, socket.destroy())));
+	const server = await listening(
+		net.createServer((socket) => {
+			probe++;
+			socket.destroy();
+		}),
+	);
 	await using _close = defer(() => server.close());
 	await using sql = postgres({
 		...options,
@@ -678,7 +690,10 @@ test("Query runs on a new connection if the backend dies while fetching array ty
 test("Clean closes during startup reject queries and reserves instead of reconnecting forever", async () => {
 	let attempts = 0;
 
-	const server = net.createServer((socket) => (attempts++, socket.end()));
+	const server = net.createServer((socket) => {
+		attempts++;
+		socket.end();
+	});
 	await new Promise<void>((r) => server.listen(0, "localhost", r));
 	await using _close = defer(() => server.close());
 	await using sql = postgres({ ...options, max: 2, host: "localhost", port: port_of(server) });
@@ -769,11 +784,14 @@ test("A query refused with a FATAL error rejects with the peer error instead of 
 		let started = false;
 		attempts++;
 		socket.on("error", () => socket.destroy());
-		socket.on("data", () =>
-			started
-				? socket.end(errorResponse("FATAL", "08P01"))
-				: ((started = true), socket.write(authenticated)),
-		);
+		socket.on("data", () => {
+			if (started) {
+				socket.end(errorResponse("FATAL", "08P01"));
+			} else {
+				started = true;
+				socket.write(authenticated);
+			}
+		});
 	});
 
 	await new Promise<void>((r) => server.listen(0, "localhost", r));
@@ -1402,7 +1420,10 @@ test("A failed connection attempt does not give up on queries a connection still
 			(e) => e.code,
 		),
 		sql.reserve().then(
-			(r) => (r.release(), "reserved"),
+			(r) => {
+				r.release();
+				return "reserved";
+			},
 			(e) => e.code,
 		),
 	]);
@@ -1560,7 +1581,14 @@ function listening(server) {
 
 test("user can be a function, called for each connection", async () => {
 	let calls = 0;
-	await using sql = postgres({ ...options, max: 2, user: async () => (calls++, login.user) });
+	await using sql = postgres({
+		...options,
+		max: 2,
+		user: async () => {
+			calls++;
+			return login.user;
+		},
+	});
 	const users = await Promise.all([
 		sql`select current_user as u, pg_sleep(0.05)`,
 		sql`select current_user as u, pg_sleep(0.05)`,

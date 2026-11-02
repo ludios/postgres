@@ -653,7 +653,10 @@ test("Savepoint names are quoted", async () => {
 
 test("A prepared transaction name cannot close its quote", async () => {
 	const name = "tx'; create table test_injected (a int); --";
-	await sql.begin((sql) => (sql.prepare(name), sql`select 1`));
+	await sql.begin((sql) => {
+		sql.prepare(name);
+		return sql`select 1`;
+	});
 	const [{ gid }] = await sql`select gid from pg_prepared_xacts where gid like 'tx%'`;
 	await sql.unsafe("rollback prepared '" + gid.replace(/'/g, "''") + "'");
 	const [{ injected }] = await sql`select to_regclass('test_injected') is not null as injected`;
@@ -917,8 +920,14 @@ test("sql.rollback() in a savepoint or nested begin rolls back only that, and th
 	await sql`create table test (x int)`;
 	await sql.begin(async (sql) => {
 		await sql`insert into test values (1)`;
-		await sql.savepoint(async (sql) => (await sql`insert into test values (2)`, sql.rollback()));
-		await sql.begin(async (sql) => (await sql`insert into test values (3)`, sql.rollback()));
+		await sql.savepoint(async (sql) => {
+			await sql`insert into test values (2)`;
+			return sql.rollback();
+		});
+		await sql.begin(async (sql) => {
+			await sql`insert into test values (3)`;
+			return sql.rollback();
+		});
 		await sql`insert into test values (4)`;
 	});
 	const [{ xs }] = await sql`select string_agg(x::text, ',' order by x) as xs from test`;
@@ -1049,7 +1058,10 @@ test("A savepoint or nested begin rejects when the connection is lost while its 
 						() => "fulfilled",
 						(e) => e.code,
 					)
-					.then((x) => (settled(x), x)),
+					.then((x) => {
+						settled(x);
+						return x;
+					}),
 			)
 			.catch((e) => e.code);
 		const backend = await pid;

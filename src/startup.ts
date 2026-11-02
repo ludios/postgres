@@ -39,7 +39,8 @@ export async function open(
 					(x) => [true, x],
 				);
 			if (!failed && fits(want, ready.attributes)) {
-				return ((ready.index = i), ready);
+				ready.index = i;
+				return ready;
 			}
 			if (!failed) {
 				ready.socket.end(p.Terminate());
@@ -149,7 +150,8 @@ function attempt(options, host, port, signal) {
 		async function session() {
 			socket = await Socket(options, host, port, (x) => (raw = x));
 			if (settled || signal.aborted) {
-				return (socket.destroy(), done(true, fail("CONNECTION_DESTROYED")));
+				socket.destroy();
+				return done(true, fail("CONNECTION_DESTROYED"));
 			}
 
 			signal.sockets.add(socket);
@@ -180,7 +182,10 @@ function attempt(options, host, port, signal) {
 					}),
 					parameters = {},
 					backend = { pid: null, secret: null },
-					frames = p.Frames(frame, false, (error) => (reject(error), socket.destroy())),
+					frames = p.Frames(frame, false, (error) => {
+						reject(error);
+						socket.destroy();
+					}),
 					rows = [];
 
 				let probing = false,
@@ -227,7 +232,10 @@ function attempt(options, host, port, signal) {
 
 				function authenticate(x) {
 					authing = authing.then(() => auth(x)).then((reply) => reply && socket.write(reply));
-					authing.catch((error) => (reject(error), socket.destroy()));
+					authing.catch((error) => {
+						reject(error);
+						socket.destroy();
+					});
 				}
 
 				function settled(x, rest) {
@@ -442,7 +450,10 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 		const res = x
 				.toString("utf8", 9)
 				.split(",")
-				.reduce((acc, x) => ((acc[x[0]] = x.slice(2)), acc), {}),
+				.reduce((acc, x) => {
+					acc[x[0]] = x.slice(2);
+					return acc;
+				}, {}),
 			key = sha256(pass + "\0" + res.s + "\0" + res.i).toString("base64");
 
 		if (!res.r.startsWith(nonce)) {

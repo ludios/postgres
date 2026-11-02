@@ -409,7 +409,10 @@ async function simulate(seed) {
 				"cursor",
 				id,
 				sql`select ${id}::int as id, ${0}::int as scope from rows(${k}::int)`
-					.cursor(random.int(1, 3), (rows) => ((n += rows.length), check(rows)))
+					.cursor(random.int(1, 3), (rows) => {
+						n += rows.length;
+						return check(rows);
+					})
 					.then(
 						() => n !== k && violations.push("cursor " + id + " got " + n + " rows, expected " + k),
 					),

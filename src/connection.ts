@@ -144,7 +144,8 @@ export function Connection(ready, options, events) {
 	function flush() {
 		flushing = false;
 		if (closed) {
-			return (out.take(), true);
+			out.take();
+			return true;
 		}
 
 		return out.length ? socket.write(out.take()) : true;
@@ -198,7 +199,8 @@ export function Connection(ready, options, events) {
 		} else if (blocker || cancelling || pending.length) {
 			pending.push(x);
 		} else {
-			return (write(x), schedule());
+			write(x);
+			return schedule();
 		}
 
 		release();
@@ -1116,11 +1118,12 @@ export function Connection(ready, options, events) {
 		const item = sent[0],
 			{ query, columns } = item,
 			raw = query.isRaw,
-			from = raw !== true ? transform.value.from : null,
-			shape =
-				item.shaped === columns
-					? item.reader
-					: ((item.shaped = columns), (item.reader = Rows(columns))),
+			from = raw !== true ? transform.value.from : null;
+		if (item.shaped !== columns) {
+			item.shaped = columns;
+			item.reader = Rows(columns);
+		}
+		const shape = item.reader,
 			fast = raw !== true && read(shape, !!raw, text, from),
 			n = columns.length,
 			result = item.result;
@@ -1214,7 +1217,10 @@ export function Connection(ready, options, events) {
 		item.own = error();
 		sent.forEach((x) => x.kind !== "local" && (x.own = error()));
 		pending.unshift(
-			Exchange("internal", null, null, (x) => (p.query(out, "rollback"), (x.synced = true))),
+			Exchange("internal", null, null, (x) => {
+				p.query(out, "rollback");
+				x.synced = true;
+			}),
 		);
 	}
 
@@ -1387,7 +1393,8 @@ export function Connection(ready, options, events) {
 		}
 
 		if (entry.owner === x && entry.state === "parsing") {
-			return (drop(entry), settleError(x, x.error));
+			drop(entry);
+			return settleError(x, x.error);
 		}
 
 		if (x.error.code === "26000") {

@@ -60,9 +60,13 @@ export function build(query, options) {
 			dynamic: !query.tagged,
 		};
 
-	const text = query.tagged
-		? stringify(query, o)
-		: (query.args.forEach((x) => value(x, o)), "" + query.strings[0]);
+	let text;
+	if (query.tagged) {
+		text = stringify(query, o);
+	} else {
+		query.args.forEach((x) => value(x, o));
+		text = "" + query.strings[0];
+	}
 
 	if (values.length >= 65534) {
 		throw Errors.generic("MAX_PARAMETERS_EXCEEDED", "Max number of parameters (65534) exceeded");

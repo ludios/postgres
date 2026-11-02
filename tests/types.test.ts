@@ -269,7 +269,10 @@ test("Null in array does not reach custom type parser", async () => {
 				to: 25,
 				from: [25],
 				serialize: (x) => x,
-				parse: (x) => (parsed.push(x), x.toUpperCase()),
+				parse: (x) => {
+					parsed.push(x);
+					return x.toUpperCase();
+				},
 			},
 		},
 	});

@@ -497,7 +497,10 @@ test("A late 26000 does not make the connection forget a statement prepared agai
 	await query();
 	const deallocated = sql.unsafe("deallocate all").execute();
 	let third;
-	const first = query().catch((e) => ((third = code(query())), e.code));
+	const first = query().catch((e) => {
+		third = code(query());
+		return e.code;
+	});
 	const sleep = sql.unsafe("select pg_sleep(0.1)").execute();
 	const second = query().execute();
 	const before = [

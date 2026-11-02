@@ -3,9 +3,13 @@ import vm from "vm";
 import { expect, test } from "vitest";
 import { Queue } from "../../src/pool.ts";
 
-const gc = globalThis.Bun
-	? () => globalThis.Bun.gc(true)
-	: (v8.setFlagsFromString("--expose-gc"), vm.runInNewContext("gc"));
+/** @returns Node's gc(), which --expose-gc makes */
+function exposed_gc() {
+	v8.setFlagsFromString("--expose-gc");
+	return vm.runInNewContext("gc");
+}
+
+const gc = globalThis.Bun ? () => globalThis.Bun.gc(true) : exposed_gc();
 
 test("Queue hands items back in order across compaction", async () => {
 	const q = Queue(),

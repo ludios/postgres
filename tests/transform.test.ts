@@ -97,7 +97,14 @@ test("Insert array with undefined transform", async () => {
 test("transform.row applies to .values() rows too, as in v3", async () => {
 	await using sql = postgres({
 		...options,
-		transform: { row: { from: (row) => ((row.transformed = true), row) } },
+		transform: {
+			row: {
+				from: (row) => {
+					row.transformed = true;
+					return row;
+				},
+			},
+		},
 	});
 	const [row] = await sql`select 1 as a`.values();
 	expect([row[0], row.transformed]).toEqual([1, true]);

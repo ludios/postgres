@@ -48,8 +48,7 @@
 				"typescript/require-array-sort-compare": "warn",
 				"typescript/no-implied-eval": "warn",
 				"unicorn/prefer-string-starts-ends-with": "warn",
-				"typescript/no-misused-spread": "warn",
-				"no-sequences": ["warn", { "allowInParentheses": false }]
+				"typescript/no-misused-spread": "warn"
 			}
 		}
 	],

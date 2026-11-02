@@ -196,11 +196,11 @@ test("Frames on a shared read buffer keeps what it has not framed when paused, a
 				frames.pause();
 			}
 		}, true),
-		read = (from, to) => (
-			stream.copy(shared, 0, from, to),
-			frames.push(shared.subarray(0, to - from)),
-			shared.fill(0)
-		);
+		read = (from, to) => {
+			stream.copy(shared, 0, from, to);
+			frames.push(shared.subarray(0, to - from));
+			shared.fill(0);
+		};
 	read(0, 20);
 	read(20, 40);
 	read(40, stream.length);
@@ -219,11 +219,11 @@ test("Frames owning a shared read buffer hands over messages that stay intact af
 				frames.own(true);
 			}
 		}, true),
-		read = (from, to) => (
-			stream.copy(shared, 0, from, to),
-			frames.push(shared.subarray(0, to - from)),
-			shared.fill(0)
-		);
+		read = (from, to) => {
+			stream.copy(shared, 0, from, to);
+			frames.push(shared.subarray(0, to - from));
+			shared.fill(0);
+		};
 	read(0, 7);
 	read(7, 20);
 	read(20, stream.length);

@@ -32,9 +32,11 @@ export function listened(channel) {
 }
 
 export function start(t, context, fn) {
-	return typeof t.start.runStores === "function"
-		? t.start.runStores(context, run)
-		: (t.start.publish(context), run());
+	if (typeof t.start.runStores === "function") {
+		return t.start.runStores(context, run);
+	}
+	t.start.publish(context);
+	return run();
 
 	function run() {
 		try {
