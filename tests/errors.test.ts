@@ -216,11 +216,23 @@ test("Queries on a reserved connection that has closed each get their own error"
 		reserved = await sql.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	await terminate(pid);
+	// A query on the reserved connection fails once the client has seen the connection close (or
+	// once the query reaches the backend, which is terminating)
+	await vi.waitUntil(() =>
+		reserved`select 1`.then(
+			() => false,
+			() => true,
+		),
+	);
 	const errors = [];
 	for (const x of ["a", "b", "c"]) {
 		errors.push(await failures(reserved, [x])[0]);
 	}
-	expect(errors.map((e) => e.args)).toEqual([["a"], ["b"], ["c"]]);
+	expect(errors.map((e) => [e.code, e.args])).toEqual([
+		["CONNECTION_CLOSED", ["a"]],
+		["CONNECTION_CLOSED", ["b"]],
+		["CONNECTION_CLOSED", ["c"]],
+	]);
 	await sql.end();
 });
 
