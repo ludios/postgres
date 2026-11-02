@@ -21,16 +21,14 @@ test("Insert and update helpers with no columns throw (#644)", async () => {
 			() => sql`insert into x ${sql({})}`,
 			() => sql`insert into x ${sql({ a: 1 }, [])}`,
 			() => sql`update x set ${sql({})}`,
-		]
-			.map((fn) => {
-				try {
-					fn().text;
-				} catch (e) {
-					return e.code;
-				}
-			})
-			.join(" "),
-	).toBe("NO_COLUMNS NO_COLUMNS NO_COLUMNS");
+		].map((fn) => {
+			try {
+				fn().text;
+			} catch (e) {
+				return e.code;
+			}
+		}),
+	).toEqual(["NO_COLUMNS", "NO_COLUMNS", "NO_COLUMNS"]);
 });
 
 test("Undefined values in any row of a multi row insert throw, whatever the order (#889)", async () => {
@@ -46,22 +44,18 @@ test("Undefined values in any row of a multi row insert throw, whatever the orde
 					{ a: 2, b: undefined },
 					{ a: 1, b: 1 },
 				])}`,
-		]
-			.map((fn) => {
-				try {
-					fn().text;
-				} catch (e) {
-					return e.code;
-				}
-			})
-			.join(" "),
-	).toBe("UNDEFINED_VALUE UNDEFINED_VALUE");
+		].map((fn) => {
+			try {
+				fn().text;
+			} catch (e) {
+				return e.code;
+			}
+		}),
+	).toEqual(["UNDEFINED_VALUE", "UNDEFINED_VALUE"]);
 });
 
 test("A join has the length of the items it kept", async () => {
-	expect(sql`and`.join([sql`a`, false, sql`b`]).length + " " + sql`and`.join([]).length).toBe(
-		"2 0",
-	);
+	expect([sql`and`.join([sql`a`, false, sql`b`]).length, sql`and`.join([]).length]).toEqual([2, 0]);
 });
 
 test("Transform column names in helpers", async () => {

@@ -30,7 +30,7 @@ test("Socket passes data, drain and writes through", async () => {
 	raw.emit("data", Buffer.from("a"));
 	raw.emit("drain");
 	socket.write(Buffer.from("b"));
-	expect(got.join() + "|" + raw.written.join()).toBe("a,drain|b");
+	expect([got, raw.written]).toEqual([["a", "drain"], [Buffer.from("b")]]);
 });
 
 test("Socket closes once with the error that came before", async () => {
@@ -41,16 +41,18 @@ test("Socket closes once with the error that came before", async () => {
 	raw.emit("error", Object.assign(new Error("reset"), { code: "ECONNRESET" }));
 	raw.emit("close", true);
 	raw.emit("close", true);
-	expect(closes.join()).toBe("ECONNRESET");
+	expect(closes).toEqual(["ECONNRESET"]);
 });
 
 test("Socket does not write after close", async () => {
 	const raw = fake(),
 		socket = await Socket({ socket: () => raw });
 	raw.emit("close", false);
-	expect([socket.write(Buffer.from("x")), raw.written.length, socket.closed].join()).toBe(
-		"false,0,true",
-	);
+	expect([socket.write(Buffer.from("x")), raw.written.length, socket.closed]).toEqual([
+		false,
+		0,
+		true,
+	]);
 });
 
 test("Socket pause and resume reach the user socket", async () => {
@@ -59,7 +61,7 @@ test("Socket pause and resume reach the user socket", async () => {
 	socket.pause();
 	const paused = raw.paused;
 	socket.resume();
-	expect(paused + "," + raw.paused).toBe("true,false");
+	expect([paused, raw.paused]).toEqual([true, false]);
 });
 
 test("Socket rejects when the user socket fails", async () => {
@@ -82,5 +84,5 @@ test("Socket reads plain TCP through a shared buffer unless onread is false", as
 	shared.destroy();
 	stream.destroy();
 	server.close();
-	expect([shared.shared, stream.shared].join()).toBe("true,false");
+	expect([shared.shared, stream.shared]).toEqual([true, false]);
 });

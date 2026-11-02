@@ -76,7 +76,7 @@ test("disable and false in the query of a url turn an option off", async () => {
 	const x = postgres("postgres://u@h/db?prepare=false&ssl=disable&fetch_types=false", {
 		max: 1,
 	}).options;
-	expect([x.prepare, x.ssl, x.fetch_types].join(" ")).toBe("false false false");
+	expect([x.prepare, x.ssl, x.fetch_types]).toEqual([false, false, false]);
 });
 
 test("An unsupported target_session_attrs throws", async () => {
@@ -108,9 +108,10 @@ test("A custom type can have the name of a property of functions, such as name o
 		type = { to: 19, from: [19], parse: (x) => x, serialize: (x) => x },
 		sql = postgres({ max: 1, types: Object.fromEntries(names.map((name) => [name, type])) });
 	const prototype = Object.getPrototypeOf(sql.types) === Function.prototype;
-	expect(names.map((name) => sql.types[name]("x").type).join() + " " + prototype).toBe(
-		"19,19,19,19,19 true",
-	);
+	expect([names.map((name) => sql.types[name]("x").type), prototype]).toEqual([
+		Array(5).fill(19),
+		true,
+	]);
 });
 
 test("The removed casing transforms throw when read, and Object.assign does not copy them", async () => {
@@ -123,9 +124,10 @@ test("The removed casing transforms throw when read, and Object.assign does not 
 			}
 		});
 	const copied = Object.assign({}, postgres);
-	expect(codes.join() + " " + names.split(" ").some((name) => name in copied)).toBe(
-		Array(9).fill("CASING_TRANSFORM_REMOVED").join() + " false",
-	);
+	expect([codes, names.split(" ").some((name) => name in copied)]).toEqual([
+		Array(9).fill("CASING_TRANSFORM_REMOVED"),
+		false,
+	]);
 });
 
 test("channel_binding from options, the url and PGCHANNELBINDING, as libpq reads it", async () => {
@@ -149,18 +151,17 @@ test("channel_binding from options, the url and PGCHANNELBINDING, as libpq reads
 			return e.message;
 		}
 	})();
-	expect(read.join() + " " + invalid).toBe(
-		"disable,require,prefer, channel_binding yes is not supported",
-	);
+	expect([read, invalid]).toEqual([
+		["disable", "require", "prefer", undefined],
+		"channel_binding yes is not supported",
+	]);
 });
 
 test("The scheduler is on by default, and off with scheduler: false, scheduler=false in the url, or max: 1", async () => {
-	expect(
-		[
-			postgres({ max: 2 }).options.scheduler,
-			postgres({ max: 2, scheduler: false }).options.scheduler,
-			postgres("postgres://u@h/db?scheduler=false", { max: 2 }).options.scheduler,
-			postgres({ max: 1 }).options.scheduler,
-		].join(" "),
-	).toBe("true false false false");
+	expect([
+		postgres({ max: 2 }).options.scheduler,
+		postgres({ max: 2, scheduler: false }).options.scheduler,
+		postgres("postgres://u@h/db?scheduler=false", { max: 2 }).options.scheduler,
+		postgres({ max: 1 }).options.scheduler,
+	]).toEqual([true, false, false, false]);
 });

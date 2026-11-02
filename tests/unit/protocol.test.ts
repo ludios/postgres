@@ -153,30 +153,35 @@ const stream = Buffer.concat([
 	msg("Z", Buffer.from("I")),
 ]);
 
+/**
+ * @param chunks - buffers to push to a Frames, in order
+ * @returns each message that the Frames hands over, as its type character followed by its length in
+ * bytes (including the type byte)
+ */
 function collect(chunks) {
 	const out = [],
 		frames = p.Frames((type, buffer, start, end) =>
 			out.push(String.fromCharCode(type) + (end - start)),
 		);
 	chunks.forEach((x) => frames.push(x));
-	return out.join();
+	return out;
 }
 
 test("Frames splits one chunk into messages with their full length", async () => {
-	expect(collect([stream])).toBe("15,T27,D12,C14,Z6");
+	expect(collect([stream])).toEqual(["15", "T27", "D12", "C14", "Z6"]);
 });
 
 test("Frames gives the same messages for every two-way split", async () => {
 	const expected = collect([stream]);
 	for (let i = 1; i < stream.length; i++) {
 		const got = collect([stream.subarray(0, i), stream.subarray(i)]);
-		expect(got, "split at " + i).toBe(expected);
+		expect(got, "split at " + i).toEqual(expected);
 	}
 });
 
 test("Frames handles one byte at a time", async () => {
 	const expected = collect([stream]);
-	expect(collect([...stream].map((x) => Buffer.from([x])))).toBe(expected);
+	expect(collect([...stream].map((x) => Buffer.from([x])))).toEqual(expected);
 });
 
 test("Frames on a shared read buffer keeps what it has not framed when paused, and what comes while paused", async () => {
@@ -196,7 +201,7 @@ test("Frames on a shared read buffer keeps what it has not framed when paused, a
 	read(20, 40);
 	read(40, stream.length);
 	frames.resume();
-	expect(out.join()).toBe(expected);
+	expect(out).toEqual(expected);
 });
 
 test("Frames owning a shared read buffer hands over messages that stay intact after the buffer is reused", async () => {
@@ -235,9 +240,12 @@ test("Frames pauses mid-chunk and resumes without a new push", async () => {
 		type === 84 && frames.pause();
 	});
 	frames.push(stream);
-	const paused = out.join("");
+	const paused = [...out];
 	frames.resume();
-	expect(paused + "|" + out.join("")).toBe("1T|1TDCZ");
+	expect([paused, out]).toEqual([
+		["1", "T"],
+		["1", "T", "D", "C", "Z"],
+	]);
 });
 
 const decode = (fn, x) => fn(x, 0, x.length);
@@ -256,9 +264,13 @@ test("Decode ErrorResponse fields", async () => {
 			Buffer.from([0]),
 		),
 	);
-	expect([e.severity, e.code, e.message, e.position, e.routine].join("|")).toBe(
-		'ERROR|42601|syntax error at or near "selec"|1|scannerYYerror',
-	);
+	expect([e.severity, e.code, e.message, e.position, e.routine]).toEqual([
+		"ERROR",
+		"42601",
+		'syntax error at or near "selec"',
+		"1",
+		"scannerYYerror",
+	]);
 });
 
 test("Decode RowDescription", async () => {
@@ -283,41 +295,49 @@ test("Decode RowDescription", async () => {
 			i16(0),
 		),
 	);
-	expect(columns.map((x) => [x.name, x.table, x.number, x.type].join(":")).join()).toBe(
-		"id:16384:1:23,name:16384:2:25",
-	);
+	expect(columns.map((x) => [x.name, x.table, x.number, x.type])).toEqual([
+		["id", 16384, 1, 23],
+		["name", 16384, 2, 25],
+	]);
 });
 
 test("Decode ParameterDescription", async () => {
-	expect(decode(p.parameterDescription, msg("t", i16(3), i32(23), i32(25), i32(0))).join()).toBe(
-		"23,25,0",
-	);
+	expect(decode(p.parameterDescription, msg("t", i16(3), i32(23), i32(25), i32(0)))).toEqual([
+		23, 25, 0,
+	]);
 });
 
 test("Decode CommandComplete", async () => {
 	expect(
 		["INSERT 0 3", "SELECT 5", "BEGIN", "CREATE TABLE", "COPY 2"]
 			.map((x) => decode(p.commandComplete, msg("C", str(x))))
-			.map((x) => x.command + ":" + x.count)
-			.join("|"),
-	).toBe("INSERT:3|SELECT:5|BEGIN:null|CREATE TABLE:null|COPY:2");
+			.map((x) => [x.command, x.count]),
+	).toEqual([
+		["INSERT", 3],
+		["SELECT", 5],
+		["BEGIN", null],
+		["CREATE TABLE", null],
+		["COPY", 2],
+	]);
 });
 
 test("Decode ReadyForQuery status", async () => {
-	expect(
-		["I", "T", "E"].map((x) => decode(p.readyForQuery, msg("Z", Buffer.from(x)))).join(""),
-	).toBe("ITE");
+	expect(["I", "T", "E"].map((x) => decode(p.readyForQuery, msg("Z", Buffer.from(x))))).toEqual([
+		"I",
+		"T",
+		"E",
+	]);
 });
 
 test("Decode NotificationResponse", async () => {
 	const x = decode(p.notification, msg("A", i32(42), str("chan"), str("hello")));
-	expect([x.pid, x.channel, x.payload].join(":")).toBe("42:chan:hello");
+	expect([x.pid, x.channel, x.payload]).toEqual([42, "chan", "hello"]);
 });
 
 test("Decode ParameterStatus and BackendKeyData", async () => {
 	const [name, value] = decode(p.parameterStatus, msg("S", str("TimeZone"), str("UTC"))),
 		key = decode(p.backendKeyData, msg("K", i32(99), i32(-7)));
-	expect(name + "=" + value + " " + key.pid + "/" + key.secret).toBe("TimeZone=UTC 99/-7");
+	expect([name, value, key.pid, key.secret]).toEqual(["TimeZone", "UTC", 99, -7]);
 });
 
 test("A message that fails to encode leaves nothing behind for the next one", async () => {
@@ -332,8 +352,7 @@ test("A message that fails to encode leaves nothing behind for the next one", as
 	} catch (e) {
 		error = e.message;
 	}
-	const expected = "wat " + p.Sync().toString("hex");
-	expect(error + " " + p.Sync().toString("hex")).toBe(expected);
+	expect([error, p.Sync()]).toEqual(["wat", Buffer.from("5300000004", "hex")]);
 });
 
 test("Column table oids, numbers and type oids are read unsigned, as in v3", async () => {
@@ -347,7 +366,7 @@ test("Column table oids, numbers and type oids are read unsigned, as in v3", asy
 	const x = Buffer.concat([Buffer.from("T"), Buffer.alloc(4), body]);
 	x.writeInt32BE(body.length + 4, 1);
 	const [c] = p.rowDescription(x, 0, x.length);
-	expect([c.table, c.number, c.type].join(" ")).toBe("4294967280 65535 2147483649");
+	expect([c.table, c.number, c.type]).toEqual([4294967280, 65535, 2147483649]);
 });
 
 test("A parameter type oid above 2^31 is written as its four bytes", async () => {

@@ -24,9 +24,7 @@ test("Queue removes, peeks and takes what is left", async () => {
 	q.shift();
 	const removed = q.remove((x) => x === 3),
 		missing = q.remove((x) => x === 9);
-	expect([removed, missing, q.peek(), q.take().join(), q.length].join(" ")).toBe(
-		"true false 2 2,4 0",
-	);
+	expect([removed, missing, q.peek(), q.take(), q.length]).toEqual([true, false, 2, [2, 4], 0]);
 });
 
 test("Queue shifts a long queue in linear time", async () => {
@@ -54,5 +52,5 @@ test("Queue stays small when items cycle through it without it ever draining (#7
 	const before = process.memoryUsage().heapUsed;
 	for (let i = 0; i < 1000000; i++) q.push(q.shift());
 	gc();
-	expect(q.length + " " + (process.memoryUsage().heapUsed - before < 1024 * 1024)).toBe("3 true");
+	expect([q.length, process.memoryUsage().heapUsed - before < 1024 * 1024]).toEqual([3, true]);
 });
