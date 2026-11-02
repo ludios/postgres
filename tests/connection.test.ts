@@ -113,7 +113,8 @@ test("Connect using SSL direct", async ({ skip }) => {
 });
 
 test("Connect using SSL prefer to a server without SSL", async () => {
-	// The second server has `ssl` off (tests/global_setup.ts turns it on only on the first server)
+	// The second server has `ssl` off: tests/bootstrap.ts turns it on, and tests/global_setup.ts runs
+	// tests/bootstrap.ts only on the first server
 	const sql = postgres({
 		ssl: "prefer",
 		idle_timeout,
