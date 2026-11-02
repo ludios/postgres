@@ -216,11 +216,11 @@ test("Another ssl throws, and so does verify-ca, which libpq refuses with the sy
 		shown;
 	expect([
 		thrown(() => postgres("postgres://u@h/db?ssl=foo", { max: 1 })).message,
-		thrown(() => postgres({ max: 1, ssl: null })).message,
+		thrown(() => postgres({ max: 1, ssl: 1 })).message,
 		thrown(() => postgres("postgres://u@h/db?sslmode=verify-ca", { max: 1 })).message,
 	]).toEqual([
 		must("url parameter ssl", '"foo"'),
-		must("option ssl", "null"),
+		must("option ssl", "1"),
 		expect.stringMatching(/^The url parameter sslmode is "verify-ca", which checks only that /),
 	]);
 });
@@ -371,28 +371,31 @@ test("max, min and max_pipeline must be integers of at least 1, 0 and 0", async 
 	]);
 });
 
-test("An option that is on or off is true or false, or the text true, false or disable; anything else throws", async () => {
+test("An option that is on or off is true, false or null, or the text true, false or disable; anything else throws", async () => {
 	const must = (source, shown) => "The " + source + " must be true or false, but it is " + shown;
 	const from_variable = with_env(
 		{ PGFETCH_TYPES: "off" },
 		() => thrown(() => postgres({ max: 1 })).message,
 	);
 	const read = postgres("postgres://u@h/db?infer=true&prepare=disable", {
-		max: 1,
+		max: 2,
 		fetch_types: "false",
+		scheduler: null,
+		ssl: null,
+		debug: null,
 	}).options;
 	expect([
-		[read.infer, read.prepare, read.fetch_types],
+		[read.infer, read.prepare, read.fetch_types, read.scheduler, read.ssl, read.debug],
 		from_variable,
 		thrown(() => postgres("postgres://u@h/db?prepare=0", { max: 1 })).message,
 		thrown(() => postgres({ max: 1, infer: "yes" })).message,
-		thrown(() => postgres({ max: 2, scheduler: null })).message,
+		thrown(() => postgres({ max: 2, scheduler: 0 })).message,
 	]).toEqual([
-		[true, false, false],
+		[true, false, false, false, false, false],
 		must("environment variable PGFETCH_TYPES", '"off"'),
 		must("url parameter prepare", '"0"'),
 		must("option infer", '"yes"'),
-		must("option scheduler", "null"),
+		must("option scheduler", "0"),
 	]);
 });
 

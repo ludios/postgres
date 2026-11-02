@@ -664,9 +664,13 @@ function off(value) {
 
 /**
  * @param value - the value of an option that is on or off, among other things that it may be
- * @returns `true` for the text `true`; otherwise what `off` returns for `value`
+ * @returns `true` for the text `true`; `false` for `null`, which turns an option off, as it turns
+ *          off an option that is a number of seconds; otherwise what `off` returns for `value`
  */
 function on_or_off(value) {
+	if (value === null) {
+		return false;
+	}
 	return value === "true" ? true : off(value);
 }
 
@@ -764,7 +768,7 @@ function on_off_or(other, described) {
 
 /**
  * Reads an option that is on or off: `true` for `true` and the text `true`, and `false` for
- * `false` and the texts `false` and `disable`
+ * `false`, `null`, and the texts `false` and `disable`
  */
 const boolean = on_off_or(() => false, "true or false");
 
