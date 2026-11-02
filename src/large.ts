@@ -1,4 +1,3 @@
-// @ts-nocheck
 import Stream from "stream";
 
 export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {

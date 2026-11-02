@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { t } from "./test.ts";
 import { postgres, sql, options, delay, rel } from "./setup.ts";
 

@@ -1,5 +1,4 @@
 // Model-output: Claude Opus 5.5
-// @ts-nocheck
 import { spawnSync } from "child_process";
 
 /**

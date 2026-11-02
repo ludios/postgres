@@ -1,4 +1,3 @@
-// @ts-nocheck
 export default class Result extends Array {
 	#count = null;
 	#state = null;

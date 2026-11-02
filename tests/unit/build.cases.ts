@@ -1,4 +1,3 @@
-// @ts-nocheck
 export default [
 	["Parameters are numbered", (sql) => sql`select ${1}, ${"a"}`, "select $1, $2", [1, "a"]],
 	["No parameters", (sql) => sql`select 1`, "select 1", []],

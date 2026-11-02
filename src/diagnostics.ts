@@ -1,4 +1,3 @@
-// @ts-nocheck
 import dc from "diagnostics_channel";
 
 export const channels = {

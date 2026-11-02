@@ -1,4 +1,3 @@
-// @ts-nocheck
 export class PostgresError extends Error {
 	constructor(x) {
 		super(typeof x === "string" ? x : x && x.message);

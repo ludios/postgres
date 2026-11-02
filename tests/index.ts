@@ -1,4 +1,3 @@
-// @ts-nocheck
 import "./queries.ts";
 import "./types.ts";
 import "./rows.ts";

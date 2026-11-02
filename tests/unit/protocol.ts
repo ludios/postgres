@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { t } from "../test.ts";
 import * as p from "../../src/protocol.ts";
 
