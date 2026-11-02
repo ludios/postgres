@@ -403,16 +403,17 @@ function Listen(options) {
 		 */
 		channels = new Map();
 	let sql = null,
+		// The promise that end() returns (null until end() is called)
 		closing = null;
 
 	return {
 		listen,
 		end() {
 			channels.forEach((channel) => clearTimeout(channel.timer));
-			if (!closing && sql) {
-				closing = sql.end({ timeout: 0 });
+			if (!closing) {
+				closing = sql ? sql.end({ timeout: 0 }) : Promise.resolve();
 			}
-			return closing || Promise.resolve();
+			return closing;
 		},
 	};
 
@@ -556,6 +557,10 @@ function Listen(options) {
 	 * @returns the channel's `state` (see `channels`) and `unlisten()`, which removes this listener
 	 */
 	async function listen(name, fn, onlisten) {
+		if (closing) {
+			throw Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]);
+		}
+
 		const listener = { fn, onlisten };
 		if (!channels.has(name)) {
 			const channel = {

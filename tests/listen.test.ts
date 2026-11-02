@@ -382,6 +382,24 @@ test("unlisten after end resolves without a query", async () => {
 	expect(await unlisten().then(() => "done")).toBe("done");
 });
 
+test("listen after end rejects with CONNECTION_ENDED, with or without a listener connection", async () => {
+	const unused = postgres(options),
+		used = postgres(options);
+	await used.listen("test", () => {});
+	await Promise.all([unused.end(), used.end()]);
+	const codes = await Promise.all(
+		[unused, used].map((sql) =>
+			sql
+				.listen("test", () => {})
+				.then(
+					() => "ok",
+					(e) => e.code,
+				),
+		),
+	);
+	expect(codes).toEqual(["CONNECTION_ENDED", "CONNECTION_ENDED"]);
+});
+
 test("A close while a LISTEN is in flight starts no second retry chain", async () => {
 	// The proxy drops its second connection as soon as the client sends a LISTEN on it
 	let dropped = false;
