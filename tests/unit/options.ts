@@ -1,6 +1,15 @@
+// Model-output: Claude Opus 5.5
 // @ts-nocheck
 import { t } from "../test.ts";
 import postgres from "../../src/index.ts";
+
+// Options that are not given default to the PG* variables (as in libpq), so remove any that this
+// process was started with, which would replace the defaults that these tests expect
+for (const name of Object.keys(process.env)) {
+	if (name.startsWith("PG")) {
+		delete process.env[name];
+	}
+}
 
 const parsed = (url, o) => {
 	const x = postgres(url, { max: 1, ...o }).options;
