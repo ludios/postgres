@@ -184,7 +184,7 @@ test("Tracing: the pool publishes open, lease, release, idle and close", async (
 	const { messages, stop } = listen("postgres:pool");
 	await using sql = postgres({ ...options, max: 1 });
 	await sql`select 1`;
-	using reserved = await sql.reserve();
+	const reserved = await sql.reserve();
 	reserved.release();
 	await sql.end();
 	stop();
@@ -197,7 +197,10 @@ test("Tracing: the pool publishes open, lease, release, idle and close", async (
 
 test("Tracing: the pool publishes idle only for a connection with nothing in flight and no lease", async () => {
 	const { messages, stop } = listen("postgres:pool");
-	await using sql = postgres({ ...options, max: 1 });
+	const sql = postgres({ ...options, max: 1 });
+	// Not end() without a timeout: if the first iteration below throws, that end() would wait forever
+	// for the second lease, which nothing releases
+	await using _end = defer(() => sql.end({ timeout: 0 }));
 	await sql`select 1`;
 	const before_pipelining = messages.length;
 	// Both queries are in flight on the one connection, so the first to finish leaves it busy
@@ -209,7 +212,6 @@ test("Tracing: the pool publishes idle only for a connection with nothing in fli
 	for (const reserve of reserves) {
 		using reserved = await reserve;
 		await reserved`select 1`;
-		reserved.release();
 	}
 	const reserving = messages.slice(before_reserving).map((x) => x.event);
 	await sql.end();

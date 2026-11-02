@@ -1001,7 +1001,10 @@ test("A transaction terminated between statements rejects with the FATAL error, 
 test("A savepoint or nested begin rejects when the connection is lost while its callback runs (#1281)", async () => {
 	const outcomes = [];
 	for (const method of ["savepoint", "begin"]) {
-		await using sql = postgres({ ...options, max: 1 });
+		const sql = postgres({ ...options, max: 1 });
+		// Not end() without a timeout: if a step fails before release(), that end() would wait forever
+		// for the transaction, which waits on `gate`
+		await using _end = defer(() => sql.end({ timeout: 0 }));
 		let started, release, settled;
 		const pid = new Promise<number>((r) => (started = r)),
 			gate = new Promise((r) => (release = r)),

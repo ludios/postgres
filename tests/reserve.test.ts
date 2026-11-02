@@ -81,7 +81,10 @@ test("end() resolves when a reserved connection is released after end was called
 });
 
 test("reserve queued behind a terminated connection", async () => {
-	await using pool = postgres(options);
+	const pool = postgres(options);
+	// Not end() without a timeout: if a step fails before the backend is terminated, that end() would
+	// wait forever for the lease of `reserved`, which this test never releases
+	await using _end = defer(() => pool.end({ timeout: 0 }));
 	const reserved = await pool.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	const pending = pool.reserve();
@@ -95,7 +98,10 @@ test("reserve queued behind a terminated connection", async () => {
 });
 
 test("reserve after a terminated query", async () => {
-	await using pool = postgres(options);
+	const pool = postgres(options);
+	// Not end() without a timeout: if a step fails before the backend is terminated, that end() would
+	// wait forever for the lease of `reserved`, which this test never releases
+	await using _end = defer(() => pool.end({ timeout: 0 }));
 	const reserved = await pool.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	const query = reserved`select pg_sleep(30)`.catch((e) => e);
