@@ -29,7 +29,22 @@ function hold_session(port: number): () => void {
 		env: pg_env(port),
 		stdio: ["pipe", "ignore", "inherit"],
 	});
+	let ending = false;
+	const report = (what: string) => {
+		if (!ending) {
+			console.error(
+				"The psql that holds a session to the server at port " +
+					port +
+					" " +
+					what +
+					", so pg_tmp will stop that server at its next check for a connected client",
+			);
+		}
+	};
+	psql.on("error", (error) => report("failed: " + error.message));
+	psql.on("exit", (code, signal) => report("exited (code " + code + ", signal " + signal + ")"));
 	return () => {
+		ending = true;
 		psql.stdin.end();
 	};
 }
@@ -43,8 +58,8 @@ function hold_session(port: number): () => void {
  */
 export async function setup(project: TestProject): Promise<() => void> {
 	const [first, second] = await Promise.all([start_pg_tmp(), start_pg_tmp()]);
-	const end_sessions = [first, second].map((server) => hold_session(server.port));
 	bootstrap(pg_env(first.port));
+	const end_sessions = [first, second].map((server) => hold_session(server.port));
 
 	project.provide("pg_vars", pg_vars(first.port));
 	project.provide("second_pg_port", second.port);
