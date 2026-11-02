@@ -420,7 +420,7 @@ test("A message with an invalid length after startup rejects the query and close
 		max: 1,
 	});
 	const error = await sql.unsafe("select 1").catch((e) => e.code + " " + (e.cause && e.cause.code));
-	expect(/PROTOCOL_ERROR/.test(error)).toBe(true);
+	expect(error).toMatch(/PROTOCOL_ERROR/);
 });
 
 test("channel_binding: require sends no password when the server asks for cleartext or MD5", async () => {

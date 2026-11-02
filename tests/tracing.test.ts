@@ -317,5 +317,5 @@ test("Tracing: without subscribers a query carries no trace", async () => {
 	await using sql = postgres({ ...options, max: 1 });
 	const q = sql`select 1`;
 	await q;
-	expect(q.trace).toBe(null);
+	expect((q as any).trace).toBe(null);
 });

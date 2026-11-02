@@ -478,16 +478,23 @@ declare namespace postgres {
 		xid: number | undefined;
 	}
 
+	// Every event has `old` (undefined but for an update), so that a handler can destructure it from any
 	type ReplicationEvent = TransactionInfo &
 		(
-			| { command: "insert"; relation: RelationInfo }
+			| { command: "insert"; relation: RelationInfo; old?: undefined }
 			| { command: "update"; relation: RelationInfo; key: boolean; old: Row | null }
-			| { command: "delete"; relation: RelationInfo; key: boolean }
-			| { command: "truncate"; relation: RelationInfo; cascade: boolean; restartIdentity: boolean }
+			| { command: "delete"; relation: RelationInfo; key: boolean; old?: undefined }
+			| {
+					command: "truncate";
+					relation: RelationInfo;
+					cascade: boolean;
+					restartIdentity: boolean;
+					old?: undefined;
+			  }
 		);
 
 	interface SubscriptionHandle {
-		unsubscribe(): void;
+		unsubscribe: () => void;
 		state: { pid: number | undefined; secret: number | undefined };
 		sql: Sql;
 	}
@@ -597,8 +604,8 @@ declare namespace postgres {
 		simple(): this;
 		/** For `copy ... to stdout` */
 		readable(): Promise<Readable>;
-		/** For `copy ... from stdin` */
-		writable(): Promise<Writable>;
+		/** For `copy ... from stdin`; once the stream has finished, its `count` is the number of rows copied */
+		writable(): Promise<Writable & { count?: number; command?: string }>;
 
 		/** Sends it now instead of when awaited */
 		execute(): this;
@@ -664,7 +671,7 @@ declare namespace postgres {
 	interface ListenRequest extends Promise<ListenMeta> {}
 	interface ListenMeta {
 		state: State;
-		unlisten(): Promise<void>;
+		unlisten: () => Promise<void>;
 	}
 
 	interface Helper<T, U extends readonly any[] = T[]> extends NotAPromise {
@@ -898,7 +905,7 @@ declare namespace postgres {
 	}
 
 	interface ReservedSql<TTypes extends Record<string, unknown> = {}> extends ISql<TTypes> {
-		release(): void;
+		release: () => void;
 		/** `using reserved = await sql.reserve()` releases it when it goes out of scope */
 		[Symbol.dispose](): void;
 		[Symbol.asyncDispose](): Promise<void>;

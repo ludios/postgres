@@ -67,7 +67,7 @@ test("Array returns rows as arrays of columns", async () => {
 test("Execute", async () => {
 	const result = await new Promise((resolve) => {
 		const sql = postgres({ ...options, fetch_types: false, debug: (id, query) => resolve(query) });
-		sql`select 1`.execute();
+		void sql`select 1`.execute();
 	});
 
 	expect(result).toBe("select 1");
@@ -93,7 +93,7 @@ test("Cancel piped query", async () => {
 test("Cancel queued query", async () => {
 	const query = sql`select pg_sleep(2) as nej`;
 	const transaction = sql.begin((tx) => {
-		query.cancel();
+		void query.cancel();
 		return tx`select pg_sleep(0.5) as hej, 'hejsa'`;
 	});
 	const error = await query.catch((x) => x);
@@ -157,13 +157,13 @@ test("Large object tell, size, truncate, and ranges for readable and writable", 
 		};
 	await using _close = defer(() => lo.close());
 	await lo.write(Buffer.from("0123456789"));
-	const [tell] = await lo.tell(),
+	const [tell] = (await lo.tell()) as any,
 		[size] = await lo.size();
 	await lo.seek(0);
 	const range = await read({ start: 2, end: 6 }),
 		rest = await read({ highWaterMark: 4 }),
 		writable = await lo.writable({ start: 3 });
-	await new Promise((r) => writable.end("abc", r));
+	await new Promise<void>((r) => writable.end("abc", () => r()));
 	await lo.seek(0);
 	const all = await read();
 	await lo.truncate(4);
@@ -245,7 +245,7 @@ test("Too many parameters in a pipelined query rejects only that query", async (
 			sql`select 4 as x`,
 		].map((x) =>
 			x.then(
-				([row]) => row.x,
+				(rows) => rows[0].x,
 				(e) => e.code,
 			),
 		),
@@ -427,7 +427,7 @@ test("result.statement and query.statement have the documented name, string, typ
 		r.statement.string,
 		r.statement.types,
 		r.statement.columns.map((x) => x.name),
-		q.statement.string === r.statement.string,
+		(q as any).statement.string === r.statement.string,
 		s.statement.name,
 		s.statement.string,
 		s.statement.columns.map((x) => x.name),
@@ -458,7 +458,9 @@ test("Inspecting a query with debug shows why it can not be built", async () => 
 });
 
 test(".stream() says it is now .forEach()", async () => {
-	expect(thrown(() => sql`select 1`.stream()).message).toBe(".stream has been renamed to .forEach");
+	expect(thrown(() => (sql`select 1` as any).stream()).message).toBe(
+		".stream has been renamed to .forEach",
+	);
 });
 
 test(".finally() runs the query", async () => {

@@ -55,7 +55,7 @@ test("Rows apply value and column transforms across many rows", async () => {
 		...options,
 		transform: {
 			column: { from: (x) => x.toUpperCase() },
-			value: { from: (x, column) => (column.type === 23 && x !== null ? x * 10 : x) },
+			value: { from: (x, column) => (column.type === 23 && x !== null ? Number(x) * 10 : x) },
 		},
 	});
 	const rows = await sql`select 1 as a, 'x' as b, null::int as c from generate_series(1, 40)`;

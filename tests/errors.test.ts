@@ -66,7 +66,7 @@ test("Throws if more than 65534 parameters", async () => {
 test("await sql() throws not tagged error", async () => {
 	let error;
 	try {
-		await sql("select 1");
+		await (sql("select 1") as any);
 	} catch (e) {
 		error = e;
 	}
@@ -74,15 +74,15 @@ test("await sql() throws not tagged error", async () => {
 });
 
 test("sql().then throws not tagged error", async () => {
-	expect(thrown(() => sql("select 1").then(() => {})).code).toBe("NOT_TAGGED_CALL");
+	expect(thrown(() => (sql("select 1") as any).then(() => {})).code).toBe("NOT_TAGGED_CALL");
 });
 
 test("sql().catch throws not tagged error", async () => {
-	expect(thrown(() => sql("select 1").catch(() => {})).code).toBe("NOT_TAGGED_CALL");
+	expect(thrown(() => (sql("select 1") as any).catch(() => {})).code).toBe("NOT_TAGGED_CALL");
 });
 
 test("sql().finally throws not tagged error", async () => {
-	expect(thrown(() => sql("select 1").finally(() => {})).code).toBe("NOT_TAGGED_CALL");
+	expect(thrown(() => (sql("select 1") as any).finally(() => {})).code).toBe("NOT_TAGGED_CALL");
 });
 
 test("little bobby tables", async () => {
@@ -421,7 +421,7 @@ test("Catches query format errors", async () => {
 				toString: () => {
 					throw new Error("wat");
 				},
-			})
+			} as any)
 			.catch((e) => e.message),
 	).toBe("wat");
 });
@@ -433,13 +433,15 @@ test("A query that fails to encode leaves the connection usable", async () => {
 			toString: () => {
 				throw new Error("wat");
 			},
-		})
+		} as any)
 		.catch((e) => e.message);
-	const huge = await sql`select ${{
-		toJSON() {
-			throw new Error("json");
-		},
-	}}::json`.catch((e) => e.message);
+	const huge = await sql`select ${
+		{
+			toJSON() {
+				throw new Error("json");
+			},
+		} as any
+	}::json`.catch((e) => e.message);
 	const [{ x }] = await sql`select 1 as x`;
 	expect([error, huge, x]).toEqual(["wat", "json", 1]);
 });
@@ -449,7 +451,7 @@ test("Catches type serialize errors", async () => {
 		idle_timeout,
 		types: {
 			text: {
-				from: 25,
+				from: [25],
 				to: 25,
 				parse: (x) => x,
 				serialize: () => {
@@ -467,7 +469,7 @@ test("Catches type parse errors", async () => {
 		idle_timeout,
 		types: {
 			text: {
-				from: 25,
+				from: [25],
 				to: 25,
 				parse: () => {
 					throw new Error("watParse");

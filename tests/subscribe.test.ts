@@ -35,7 +35,7 @@ test("subscribe", async () => {
 	await sql`update test set name = 'Rothbard'`;
 	await sql`delete from test`;
 	await until(() => result.length === 7);
-	await unsubscribe();
+	unsubscribe();
 	await sql`insert into test (name) values ('Oh noes')`;
 	await delay(50);
 	expect(result).toEqual([
@@ -87,7 +87,7 @@ test("subscribe with transform", async () => {
 	await sql`update test set name_in_camel = 'Rothbard'`;
 	await sql`delete from test`;
 	await until(() => result.length === 6);
-	await unsubscribe();
+	unsubscribe();
 	await sql`insert into test (name_in_camel) values ('Oh noes')`;
 	await delay(50);
 	expect(result).toEqual([
@@ -121,7 +121,7 @@ test("subscribe reconnects and calls onsubscribe", async () => {
 		"*",
 		(row, { command, old }) => result.push([command, row.name || row.id, old && old.name]),
 		() => onsubscribes++,
-		(error) => errors.push(error.code || error.message),
+		(error: Error & { code?: string }) => errors.push(error.code || error.message),
 	);
 
 	await sql`
@@ -137,7 +137,7 @@ test("subscribe reconnects and calls onsubscribe", async () => {
 	await until(() => onsubscribes === 2, 5000, state);
 	await sql`delete from test`;
 	await until(() => result.length === 2, 5000, state);
-	await unsubscribe();
+	unsubscribe();
 	expect([onsubscribes, result]).toEqual([
 		2,
 		[
@@ -377,7 +377,7 @@ test("subscribe does not pile up listeners across reconnects (#1087)", async () 
 
 	await sql`insert into test (name) values ('after')`;
 	await wait_for(() => result.length);
-	await unsubscribe();
+	unsubscribe();
 	expect([seen.subscribes, result, warnings]).toEqual([13, ["after"], []]);
 }, 20_000);
 
@@ -404,7 +404,7 @@ test("subscribe parses custom array types and domains like queries do", async ()
 	await sql`insert into test (moods, p) values ('{a,b}', 5)`;
 	const [queried] = await sql`select moods, p from test`;
 	await until(() => result.length);
-	await unsubscribe();
+	unsubscribe();
 	expect([result, queried]).toEqual([
 		[{ id: 1, moods: ["a", "b"], p: 5 }],
 		{ moods: ["a", "b"], p: 5 },
@@ -449,7 +449,7 @@ let logged;
 async function failing(onerror) {
 	await using fixture = await replicating();
 	const { sql } = fixture,
-		{ user } = sql.options,
+		user = sql.options.user as string,
 		seen = [],
 		errors = [];
 	let fail = false,
@@ -504,10 +504,10 @@ test("subscribe confirms its position to the server on an interval", async () =>
 		database: options.db,
 		publications: "alltables",
 		timers: {
-			...sql.options.timers,
+			...(sql.options as any).timers,
 			setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms === 10000 ? 50 : ms),
 		},
-	});
+	} as any);
 	const seen = [];
 	// The start of the commit record of the inserted row's transaction
 	let commit_lsn;
@@ -537,7 +537,9 @@ test("subscribe gives unchanged TOAST values as undefined, transforms values and
 		database: options.db,
 		publications: "alltables",
 		transform: {
-			value: { from: (x, column) => (column.name === "name" && x ? x.toUpperCase() : x) },
+			value: {
+				from: (x, column) => (column.name === "name" && x ? (x as string).toUpperCase() : x),
+			},
 		},
 	});
 

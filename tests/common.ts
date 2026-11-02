@@ -3,7 +3,9 @@
 export * from "./helpers.ts";
 
 /** The library that the tests test: src/, or the module that POSTGRES_JS names (e.g. dist/index.js) */
-export const library = (await import(process.env.POSTGRES_JS || "../src/index.ts")).default;
+export const library: typeof import("../types/index.js").default = (
+	await import(process.env.POSTGRES_JS || "../src/index.ts")
+).default;
 
 /**
  * The library's default export (with all its properties, such as the getters that throw

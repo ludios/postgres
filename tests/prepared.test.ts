@@ -285,7 +285,7 @@ test("Does not retry a cancelled stale prepared statement", async () => {
 	await using sql = postgres(options);
 	await sql`select 1 as x`;
 	await sql`deallocate all`;
-	sql`select pg_sleep(0.5)`.execute();
+	void sql`select pg_sleep(0.5)`.execute();
 	const query = sql`select 1 as x`.execute();
 	setTimeout(() => query.cancel(), 100);
 	expect((await query.catch((e) => e)).code).toBe("26000");

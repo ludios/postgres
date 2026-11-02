@@ -144,7 +144,7 @@ test("Reconnect using SSL", async () => {
 
 test("An ssl object without a ca builds a TLS context per connection, and with one a context its connections share until a value changes", async () => {
 	const create = tls.createSecureContext,
-		ssl: { rejectUnauthorized: boolean; ca?: readonly string[] } = { rejectUnauthorized: false };
+		ssl: { rejectUnauthorized: boolean; ca?: string[] } = { rejectUnauthorized: false };
 	await using sql = postgres({ ...options, ssl, max: 6 });
 	let built = 0;
 	tls.createSecureContext = (...xs) => {
@@ -156,7 +156,7 @@ test("An ssl object without a ca builds a TLS context per connection, and with o
 	});
 	const reserved = [await sql.reserve(), await sql.reserve(), await sql.reserve()],
 		without = built;
-	ssl.ca = tls.rootCertificates;
+	ssl.ca = tls.rootCertificates as string[];
 	reserved.push(await sql.reserve(), await sql.reserve());
 	const shared = built;
 	ssl.ca = [...tls.rootCertificates];
@@ -256,7 +256,7 @@ test("Connection destroyed with query before", async () => {
 	const sql = postgres(options),
 		error = sql`select pg_sleep(0.2)`.catch((err) => err.code);
 
-	sql.end({ timeout: 0 });
+	void sql.end({ timeout: 0 });
 	expect(await error).toBe("CONNECTION_DESTROYED");
 });
 
@@ -387,7 +387,7 @@ test("requests works after single connect_timeout", async () => {
 				}
 				return 1;
 			},
-		},
+		} as any,
 	});
 
 	const first_outcome = await sql`select 1 as x`.then(
@@ -406,7 +406,7 @@ test("Catches connection config errors", async () => {
 			toString: () => {
 				throw new Error("wat");
 			},
-		},
+		} as any,
 		database: "prut",
 	});
 
@@ -420,7 +420,7 @@ test("Catches connection config errors with end", async () => {
 			toString: () => {
 				throw new Error("wat");
 			},
-		},
+		} as any,
 		database: "prut",
 	});
 
@@ -1053,7 +1053,7 @@ test("Cancel query while its connection is opening", async () => {
 	const query = sql`select 1 as x`;
 	const error = query.catch((x) => x);
 	await delay(10);
-	query.cancel();
+	void query.cancel();
 	const next = sql`select 2 as x`.execute();
 	open();
 	const [{ x }] = await next;
@@ -1911,7 +1911,7 @@ test("A query rejected during a COPY on a reserved connection doesn't leave the 
 		writable.end("1\n");
 	});
 	// `costly` is internal: the pool asks it whether a quick query needs the scheduler
-	expect([code, rejected.connection.costly(notable)]).toEqual(["COPY_IN_PROGRESS", false]);
+	expect([code, (rejected as any).connection.costly(notable)]).toEqual(["COPY_IN_PROGRESS", false]);
 });
 
 test("An identifier that looks like many comments after start does not stall the event loop", async () => {

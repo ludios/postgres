@@ -46,12 +46,12 @@ test("Json", async () => {
 });
 
 test("implicit json", async () => {
-	const x = (await sql`select ${{ a: "hello", b: 42 }}::json as x`)[0].x;
+	const x = (await sql`select ${{ a: "hello", b: 42 } as any}::json as x`)[0].x;
 	expect([x.a, x.b]).toEqual(["hello", 42]);
 });
 
 test("implicit jsonb", async () => {
-	const x = (await sql`select ${{ a: "hello", b: 42 }}::jsonb as x`)[0].x;
+	const x = (await sql`select ${{ a: "hello", b: 42 } as any}::jsonb as x`)[0].x;
 	expect([x.a, x.b]).toEqual(["hello", 42]);
 });
 
@@ -505,7 +505,7 @@ test("An array in a values list is written as an array for a cast (#741)", async
 
 test("An object in a values list is written as json for a cast (#872, #765)", async () => {
 	const [{ j }] =
-		await sql`select (v.j)::jsonb as j from (values ${sql([[1, { a: 1, b: [true, null] }]])}) as v(id, j)`;
+		await sql`select (v.j)::jsonb as j from (values ${sql([[1, { a: 1, b: [true, null] }]] as any)}) as v(id, j)`;
 	expect(j).toEqual({ a: 1, b: [true, null] });
 });
 
@@ -548,7 +548,10 @@ test("A custom type given by name is looked up, with its array type (#1115)", as
 test("Several custom type names that do not exist are named in one TYPE_NOT_FOUND", async () => {
 	await using sql2 = postgres({
 		...options,
-		types: { a: { to: "no_such_a", serialize: String }, b: { to: "no_such_b", serialize: String } },
+		types: {
+			a: { to: "no_such_a", serialize: String },
+			b: { to: "no_such_b", serialize: String },
+		} as any,
 	});
 	const message = await sql2`select 1`.then(
 		() => "ran",
@@ -587,8 +590,8 @@ test("sql.end() resolves after the types fail to load for a waiting query", asyn
 	const sql2 = postgres({
 		...options,
 		max: 1,
-		idle_timeout: null,
-		types: { nope: { to: "no_such_type", serialize: String } },
+		idle_timeout: undefined,
+		types: { nope: { to: "no_such_type", serialize: String } } as any,
 	});
 	const code = sql2`select 1`.then(
 		() => "ran",

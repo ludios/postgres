@@ -298,7 +298,7 @@ test("A pool cursor whose parameter serializer returns a number rejects and free
 	await using sql = postgres({
 		...options,
 		max: 1,
-		types: { ms: { to: 20, from: [], serialize: (x) => x.getTime() } },
+		types: { ms: { to: 20, from: [], serialize: (x) => x.getTime() } as any },
 	});
 	const run = () =>
 		sql`select ${sql.types.ms(new Date(0))}::int8 as x`
@@ -381,7 +381,7 @@ test("A pool cursor whose column parser throws rejects and frees the connection"
 					}
 					return +x;
 				},
-			},
+			} as any,
 		},
 	});
 	const error = await sql`select generate_series(1, 6)::int as x`

@@ -1,4 +1,5 @@
 import type net from "net";
+import type { TransactionSql } from "../types/index.js";
 import { expect, onTestFinished, test } from "vitest";
 import {
 	postgres,
@@ -104,7 +105,7 @@ test("Prepared transaction", async () => {
 
 	await sql.begin(async (tx) => {
 		await tx`insert into test values(1)`;
-		await tx.prepare("tx1");
+		tx.prepare("tx1");
 	});
 
 	await sql`commit prepared 'tx1'`;
@@ -234,7 +235,7 @@ test("Catches type serialize errors in transactions", async () => {
 		idle_timeout,
 		types: {
 			text: {
-				from: 25,
+				from: [25],
 				to: 25,
 				parse: (x) => x,
 				serialize: () => {
@@ -252,7 +253,7 @@ test("Catches type parse errors in transactions", async () => {
 		idle_timeout,
 		types: {
 			text: {
-				from: 25,
+				from: [25],
 				to: 25,
 				parse: () => {
 					throw new Error("watParse");
@@ -614,7 +615,9 @@ async function with_disconnected_transaction(fn) {
 		finish();
 		await new Promise((resolve) => setImmediate(resolve));
 	});
-	const connected = new Promise((resolve) => (ready = resolve));
+	const connected = new Promise<{ disconnected: TransactionSql; pid: number }>(
+		(resolve) => (ready = resolve),
+	);
 	const failed = pool
 		.begin(async (tx) => {
 			const [{ pid }] = await tx`select pg_backend_pid() as pid`;
@@ -850,7 +853,7 @@ test("A nested sql.begin can not be prepared", async () => {
 });
 
 test("A tagged savepoint runs its query in a savepoint", async () => {
-	const [x] = await sql.begin((tx) => tx.savepoint`select 1 as x`);
+	const [x] = await sql.begin((tx) => (tx as any).savepoint`select 1 as x`);
 	expect(x.x).toBe(1);
 });
 

@@ -98,7 +98,7 @@ test("query during copy error", async () => {
 	await sql`create table test (id serial primary key, name text)`;
 	const copy = await sql`copy test from stdin`.writable();
 	const error = await sql`select 1`.catch((e) => e);
-	await copy.end();
+	await new Promise<void>((r) => copy.end(() => r()));
 
 	expect(error.code).toBe("COPY_IN_PROGRESS");
 });
@@ -140,7 +140,7 @@ test("Copy read with back-pressure", async () => {
 		new Promise((r) => readable.on("end", r)),
 		new Promise<void>((r) =>
 			readable.on("readable", () => {
-				if (readable.readableBuffer.length === bufferSize) {
+				if ((readable as any).readableBuffer.length === bufferSize) {
 					readable.removeAllListeners("readable");
 					r();
 				}
@@ -331,7 +331,7 @@ test("Canceling a copy from stdin that waits for data fails its writable with 57
 	// The server holds back a cancel request while it waits for COPY data
 	const error = await new Promise<{ code: string }>((resolve) => {
 			writable.on("error", resolve);
-			query.cancel();
+			void query.cancel();
 		}),
 		[{ n }] = await sql`select count(*)::int as n from test`;
 	expect([error.code, n]).toEqual(["57014", 0]);
@@ -346,7 +346,7 @@ test("Canceling a copy to stdout while back-pressure has paused it fails its rea
 	}
 	const error = await new Promise<{ code: string }>((resolve) => {
 			readable.on("error", resolve);
-			query.cancel();
+			void query.cancel();
 		}),
 		[{ x }] = await sql`select 1 as x`;
 	expect([error.code, x]).toEqual(["57014", 1]);

@@ -104,7 +104,7 @@ test("double listen", async () => {
 			.catch(reject),
 	).then(() => count++);
 
-	sql.listen("weee", () => {}).then(sql.end);
+	void sql.listen("weee", () => {}).then(() => sql.end());
 
 	expect(count).toBe(2);
 });
@@ -490,7 +490,7 @@ test("The last unlisten during an outage clears the retry timer and sends no UNL
 		port: proxy.port,
 		backoff: () => 10,
 		timers,
-	});
+	} as any);
 	const { state, unlisten } = await sql.listen("test", () => {});
 	await terminate(state.pid);
 	// The dropped LISTEN fails, and the channel waits 10 seconds to send it again
@@ -514,7 +514,7 @@ test("A listen() that joins a channel that waits to retry its LISTEN sends the L
 		port: proxy.port,
 		backoff: () => 10,
 		timers,
-	});
+	} as any);
 	let first = 0,
 		second = 0;
 	const { state } = await sql.listen(
@@ -551,7 +551,7 @@ test("A failed LISTEN of a listen() that joins a retrying channel counts as one 
 			return 10;
 		},
 		timers,
-	});
+	} as any);
 	const { state } = await sql.listen("test", () => {});
 	await terminate(state.pid);
 	await until(() => dropped === 1 && pending.size === 1);
