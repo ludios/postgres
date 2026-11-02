@@ -878,12 +878,12 @@ console.log(data) // [ { a_test: null } ]
 
 ### Custom Transform Functions
 
-To specify your own transformation functions, you can use the `column`, `value` and `row` options inside of `transform`, each an object possibly including `to` and `from` keys:
+To specify your own transformation functions, use the `column`, `value` and `row` options inside of `transform`. Each of them is either a function (which works as its `from`) or an object with these keys:
 
-* `to`: The function that transforms each column name that is given to the `sql()` helper, before the name goes into the query: with the example below, `SELECT ${ sql('aName') }` becomes `SELECT "a_name"`.
-* `from`: The function that transforms each column name (or value, or row) in the results of a query.
+* `column.from`, `value.from` and `row.from`: the functions that transform each column name, each value and each row in the results of a query. A `value.from` gets the column (with the OID of its type in `type`) as its second argument.
+* `column.to`: the function that transforms each column name that is given to the `sql()` helper, before the name goes into the query: with the example below, `SELECT ${ sql('aName') }` becomes `SELECT "a_name"`.
 
-> Both keys are optional; a key that is not given leaves its names (or values, or rows) as they are.
+> Every key is optional; a key that is not given leaves its column names (or values, or rows) as they are.
 
 ```js
 // Column names in camelCase in JavaScript, and in snake_case in the database
@@ -891,7 +891,7 @@ const sql = postgres({
   transform: {
     column: {
       to: x => x.replace(/[A-Z]/g, c => '_' + c.toLowerCase()),
-      from: x => x.replace(/_(.)/g, (_, c) => c.toUpperCase())
+      from: x => x.replace(/(?!^)_(.)/g, (_, c) => c.toUpperCase())
     }
   }
 })
@@ -1881,7 +1881,7 @@ If it returns no columns, or the time zone is `UTC` and so is your Node.js proce
 
 - **Runtimes.** Node.js 22 or later, Bun and Cloudflare Workers; Deno runs the npm package. Postgres.js is an ES module; `require('postgres').default` works on Node.js 22.12 and later.
 - **`sql.array()` is removed.** Pass the array as it is, with a cast where the query doesn't decide its type: `${ ids }::int[]`.
-- **The casing transforms are removed:** `postgres.camel`, `postgres.toCamel` and `postgres.fromCamel`, and the same for Pascal and kebab case. Pass your own functions as `transform.column.to` and `transform.column.from`, as in [Custom Transform Functions](#custom-transform-functions). A `transform: postgres.camel` that is left in JavaScript code now transforms nothing, without an error.
+- **The casing transforms are removed:** `postgres.camel`, `postgres.toCamel` and `postgres.fromCamel`, and the same for Pascal and kebab case. Pass your own functions as `transform.column.to` and `transform.column.from`, as in [Custom Transform Functions](#custom-transform-functions). Two things that the removed transforms did need more than that: they renamed the keys inside `json` and `jsonb` values too (at every depth), which needs a `transform.value.from` of your own; and `postgres.toCamel`, `postgres.toPascal` and `postgres.toKebab` converted the names given to the `sql()` helpers back to snake_case, as a `transform.column.to` does. A `transform: postgres.camel` that is left in JavaScript code now transforms nothing, without an error.
 - **Transactions are stricter.** A `COMMIT` the server answers with `ROLLBACK` rejects with `TRANSACTION_ROLLED_BACK`, a query on a transaction or reserved connection after it ended rejects, a query that can't be built inside a transaction aborts it, and a `begin` sent outside `sql.begin`, a reserved connection or `max: 1` rejects with `UNSAFE_TRANSACTION` and is rolled back.
 - **Domains** are read and written as their base type, so a domain over `int[]` comes back as an array of numbers.
 - **`infinity` timestamps** are `Infinity` and `-Infinity` instead of an invalid `Date`.
