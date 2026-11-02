@@ -1,10 +1,12 @@
+// Model-output: Claude Opus 5.5
 import { EventEmitter } from "events";
 import { expect, test } from "vitest";
 import { Socket } from "../../src/socket.ts";
 import { port_of } from "../common.ts";
 
 function fake() {
-	const x = new EventEmitter();
+	// A fake net.Socket, which records what is written to it
+	const x: EventEmitter & Record<string, any> = new EventEmitter();
 	x.written = [];
 	x.write = (data) => (x.written.push(data), true);
 	x.end = (data) => (data && x.written.push(data), (x.ended = true));

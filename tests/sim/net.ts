@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import { EventEmitter } from "events";
 
 export function Random(seed) {
@@ -33,10 +34,10 @@ export function Clock(
 			unref: () => id,
 			hasRef: () => true,
 			[Symbol.toPrimitive]: () => id.seq,
+			seq: ++seq,
+			at: now + Math.max(0, +ms || 0),
+			fn: () => fn(...args),
 		};
-		id.seq = ++seq;
-		id.at = now + Math.max(0, +ms || 0);
-		id.fn = () => fn(...args);
 		timers.set(id.seq, id);
 		return id;
 	};
@@ -98,7 +99,8 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 	return { client, server };
 
 	function end() {
-		const x = new EventEmitter();
+		// A fake net.Socket: the Object.assign below adds its properties.
+		const x: EventEmitter & Record<string, any> = new EventEmitter();
 		let last = 0,
 			paused = false,
 			held = [];

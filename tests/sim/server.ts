@@ -72,6 +72,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				return status;
 			},
 			fatal,
+			cancel: () => sleeping && sleeping.cancel(true),
 		};
 
 		end.on("data", (data) => {
@@ -117,7 +118,6 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 
 			sessions.add(x);
 			peak = Math.max(peak, [...sessions].filter((x) => x.end.writable).length);
-			x.cancel = () => sleeping && sleeping.cancel(true);
 			end.write(
 				Buffer.concat([
 					msg("R", i32(0)),

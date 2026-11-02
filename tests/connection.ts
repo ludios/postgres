@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import net from "net";
 import tls from "tls";
 import crypto from "crypto";
@@ -942,7 +943,8 @@ test(
 			["auth", { fetch_types: false }],
 		]) {
 			const held = [];
-			let holding = phase === "auth";
+			let holding = phase === "auth",
+				release = null;
 
 			const proxy = net.createServer((client) => {
 				const server = net.connect(pg_port, "localhost");
@@ -955,7 +957,7 @@ test(
 				server.on("error", () => client.destroy());
 				client.on("close", () => server.destroy());
 				server.on("close", () => client.destroy());
-				proxy.release = () => ((holding = false), held.splice(0).forEach((x) => client.write(x)));
+				release = () => ((holding = false), held.splice(0).forEach((x) => client.write(x)));
 			});
 
 			await new Promise<void>((r) => proxy.listen(0, "localhost", r));
@@ -974,7 +976,7 @@ test(
 
 			await delay(100);
 			await query.cancel();
-			proxy.release();
+			release();
 			const started = performance.now();
 			const [{ x }] = await sql`select 2 as x`;
 			results.push(

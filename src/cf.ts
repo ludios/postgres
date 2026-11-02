@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import { connect } from "cloudflare:sockets";
 import { EventEmitter } from "node:events";
 import { Buffer } from "node:buffer";
@@ -55,7 +56,8 @@ const sslRequest = Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]),
 	chunk = 16384;
 
 function Stream(raw, secure, host, port) {
-	const x = new EventEmitter(),
+	// Looks like a net.Socket: the Object.assign below adds its properties.
+	const x: EventEmitter & Record<string, any> = new EventEmitter(),
 		writer = raw.writable.getWriter(),
 		reader = raw.readable.getReader();
 

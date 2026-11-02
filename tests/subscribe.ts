@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import { expect, test } from "vitest";
 import { postgres, delay } from "./setup.ts";
 
@@ -478,6 +479,9 @@ test(
 	},
 );
 
+/** The message of the error that the last console.error (when stubbed by a test below) logged */
+let logged;
+
 async function failing(onerror) {
 	const { sql, done } = await replicating(),
 		{ user } = sql.options,
@@ -504,14 +508,14 @@ async function failing(onerror) {
 	);
 	fail = true;
 	await replication.close();
-	await until(() => (onerror ? errors.length : console.error.calls));
+	await until(() => (onerror ? errors.length : logged));
 	fail = false;
 	await until(() => subscribes === 2);
 	await sql`insert into test (name) values ('after')`;
 	await until(() => seen.length);
 	await sub.end();
 	await done();
-	return seen.join() + " " + (errors[0] || console.error.calls);
+	return seen.join() + " " + (errors[0] || logged);
 }
 
 test(
@@ -527,7 +531,7 @@ test(
 	{ timeout: 10_000 },
 	async () => {
 		const error = console.error;
-		console.error = (...xs) => (console.error.calls = xs[1] && xs[1].message);
+		console.error = (...xs) => (logged = xs[1] && xs[1].message);
 		try {
 			expect(await failing(false)).toBe("after no user now");
 		} finally {
