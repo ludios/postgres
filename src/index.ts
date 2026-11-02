@@ -562,8 +562,9 @@ function Listen(options) {
 		}
 
 		const listener = { fn, onlisten };
-		if (!channels.has(name)) {
-			const channel = {
+		let channel = channels.get(name);
+		if (!channel) {
+			channel = {
 				listeners: new Set(),
 				state: {},
 				result: null,
@@ -573,9 +574,14 @@ function Listen(options) {
 			// Not stored if the LISTEN cannot be sent, which connection() may throw for
 			send_listen(channel, name);
 			channels.set(name, channel);
+		} else if (channel.timer !== null) {
+			// The channel's latest LISTEN failed, and the channel waits to send it again. Sending it
+			// now gives this listen() the result of a LISTEN sent after the call, instead of the
+			// failed LISTEN's error.
+			clearTimeout(channel.timer);
+			relisten(channel, name);
 		}
 
-		const channel = channels.get(name);
 		channel.listeners.add(listener);
 		try {
 			await channel.result;

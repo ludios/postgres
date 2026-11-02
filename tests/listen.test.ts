@@ -43,6 +43,32 @@ function sends_listen(chunk: Buffer) {
 	return chunk.includes('listen "test"') && !chunk.includes('unlisten "test"');
 }
 
+/**
+ * @returns `timers`, to give as `options.timers`, and `pending`, the set of the timers that were
+ *   set through `timers` and have neither been cleared nor run yet
+ */
+function tracked_timers() {
+	const pending = new Set(),
+		timers = {
+			setTimeout(fn, ms, ...args) {
+				const timer = setTimeout(() => {
+					pending.delete(timer);
+					fn(...args);
+				}, ms);
+				pending.add(timer);
+				return timer;
+			},
+			clearTimeout(timer) {
+				pending.delete(timer);
+				clearTimeout(timer);
+			},
+			setImmediate,
+			clearImmediate,
+			now: () => performance.now(),
+		};
+	return { pending, timers };
+}
+
 const until = async (fn, ms = 5000) => {
 	const end = Date.now() + ms;
 	while (!(await fn())) {
@@ -473,25 +499,7 @@ test("A listener that joins while a reconnect's LISTEN is in flight gets onliste
 });
 
 test("The last unlisten during an outage clears the retry timer and sends no UNLISTEN", async () => {
-	// The timers that `sql` has set and has neither cleared nor run yet
-	const pending = new Set(),
-		timers = {
-			setTimeout(fn, ms, ...args) {
-				const timer = setTimeout(() => {
-					pending.delete(timer);
-					fn(...args);
-				}, ms);
-				pending.add(timer);
-				return timer;
-			},
-			clearTimeout(timer) {
-				pending.delete(timer);
-				clearTimeout(timer);
-			},
-			setImmediate,
-			clearImmediate,
-			now: () => performance.now(),
-		};
+	const { pending, timers } = tracked_timers();
 	// The proxy drops its second connection as soon as the client sends a LISTEN on it
 	let dropped = false,
 		connections = 0;
@@ -524,4 +532,47 @@ test("The last unlisten during an outage clears the retry timer and sends no UNL
 	}
 	// No third connection: the LISTEN failed, so there was nothing to UNLISTEN
 	expect([pending.size, connections]).toEqual([0, 2]);
+});
+
+test("A listen() that joins a channel that waits to retry its LISTEN sends the LISTEN at once", async () => {
+	const { pending, timers } = tracked_timers();
+	// The proxy drops its second connection as soon as the client sends a LISTEN on it
+	let dropped = false;
+	const proxy = await proxy_to_server((x, connection, client, server) => {
+			if (connection === 2 && sends_listen(x)) {
+				dropped = true;
+				server.destroy();
+				client.destroy();
+				return true;
+			}
+			return false;
+		}),
+		sql = postgres({
+			...options,
+			host: "localhost",
+			port: port_of(proxy),
+			backoff: () => 10,
+			timers,
+		});
+	let first = 0,
+		second = 0;
+	try {
+		const { state } = await sql.listen(
+			"test",
+			() => {},
+			() => first++,
+		);
+		await terminate(state.pid);
+		// The dropped LISTEN fails, and the channel waits 10 seconds to send it again
+		await until(() => dropped && pending.size === 1);
+		await sql.listen(
+			"test",
+			() => {},
+			() => second++,
+		);
+		expect([first, second, pending.size]).toEqual([2, 1, 0]);
+	} finally {
+		await sql.end();
+		proxy.close();
+	}
 });
