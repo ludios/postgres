@@ -218,8 +218,8 @@ export function bind(w, portal, name, values = [], formats = [], resultFormats =
 	return w.end();
 }
 
-export function run(w, portal, name, values, rows, flushing) {
-	bind(w, portal, name, values);
+export function run(w, portal, name, values, rows, flushing, result_formats = null) {
+	bind(w, portal, name, values, [], result_formats || []);
 	execute(w, portal, rows);
 	return flushing ? flush(w) : sync(w);
 }

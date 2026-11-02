@@ -391,8 +391,11 @@ export function Connection(ready, options, events) {
 		}
 
 		if (current && current !== x.previous && usable(current, statement)) {
+			// raw() gets the bytes of the text
+			const binary = query.isRaw === true ? null : current.binary;
 			x.entry = current;
-			x.columns = current.columns;
+			x.columns = binary ? binary.columns : current.columns;
+			x.formats = binary ? binary.formats : null;
 			x.values = serialize(current.oids, built, current);
 			return run(x, name);
 		}
@@ -431,7 +434,7 @@ export function Connection(ready, options, events) {
 	function run(x, name) {
 		const mark = out.length;
 		try {
-			p.run(out, x.portal, name, x.values, x.rows, x.flushing);
+			p.run(out, x.portal, name, x.values, x.rows, x.flushing, x.formats);
 		} catch (error) {
 			out.truncate(mark);
 			throw error;
@@ -455,6 +458,27 @@ export function Connection(ready, options, events) {
 			statement.shape = shape;
 		}
 		entry.version = statement.version;
+		entry.binary = binary_columns(entry.columns);
+	}
+
+	/**
+	 * @param columns - the columns of a prepared statement, as RowDescription describes them
+	 * @returns for the queries that run the statement: the columns, with a decoder of the binary
+	 *   format for each column that is read in binary, and the result format of each column for
+	 *   Bind (1 for binary, 0 for text); or null, if no column is read in binary
+	 */
+	function binary_columns(columns) {
+		const formats = new Array(columns.length);
+		let binary = null;
+		for (let i = 0; i < columns.length; i++) {
+			const decode = events.binary(columns[i].type);
+			formats[i] = decode ? 1 : 0;
+			if (decode) {
+				binary = binary || columns.slice();
+				binary[i] = { ...columns[i], decode };
+			}
+		}
+		return binary && { columns: binary, formats };
 	}
 
 	function inferred(built) {
@@ -1588,6 +1612,8 @@ function Exchange(kind, query, lease, write) {
 		values: null,
 		params: null,
 		columns: null,
+		// The result format of each column for Bind, or null for text
+		formats: null,
 		shaped: null,
 		reader: null,
 		result: new Result(),
@@ -1641,7 +1667,17 @@ function Exchange(kind, query, lease, write) {
  * @returns the connection's cache entry for a prepared statement
  */
 function Entry(name, owner, oids) {
-	return { name, owner, oids, columns: null, serializers: null, state: "parsing", version: -1 };
+	return {
+		name,
+		owner,
+		oids,
+		columns: null,
+		// What binary_columns() gives for `columns`, once they are known
+		binary: null,
+		serializers: null,
+		state: "parsing",
+		version: -1,
+	};
 }
 
 function Rows(columns) {

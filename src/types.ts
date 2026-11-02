@@ -224,6 +224,75 @@ function utc_time(x, start, end) {
 	return Number.isNaN(t) ? parseDate(x.toString("latin1", start, end)) : new Date(t);
 }
 
+/**
+ * @param x - the bytes
+ * @param i - where the integer starts in `x`
+ * @returns the signed 32-bit big-endian integer at `x[i]`
+ */
+function int32(x, i) {
+	return (x[i] << 24) | (x[i + 1] << 16) | (x[i + 2] << 8) | x[i + 3];
+}
+
+/**
+ * @param read - `(x, i) => element` reads the element of the array at `x[i]` in the binary format
+ * @returns a decoder `(x, start) => array` of an array in the binary format at `x[start]`, which
+ *   gives what the text parser of the array gives: nested arrays for more dimensions than one,
+ *   null for a NULL element, and nothing of the lower bounds
+ */
+function binary_array(read) {
+	return (x, start) => {
+		const dimensions = int32(x, start);
+		if (dimensions === 0) {
+			return [];
+		}
+
+		// After the number of dimensions come a flag that says whether there are NULLs and the
+		// type of the elements, and then each dimension's size and lower bound
+		const sizes = [];
+		for (let d = 0; d < dimensions; d++) {
+			sizes.push(int32(x, start + 12 + d * 8));
+		}
+		let at = start + 12 + dimensions * 8;
+		return level(0);
+
+		function level(d) {
+			// oxlint-disable-next-line unicorn/no-new-array -- a length; filling it in place is faster than push()
+			const xs = new Array(sizes[d]);
+			for (let k = 0; k < xs.length; k++) {
+				if (d < dimensions - 1) {
+					xs[k] = level(d + 1);
+					continue;
+				}
+				const length = int32(x, at);
+				at += 4;
+				if (length === -1) {
+					xs[k] = null;
+				} else {
+					xs[k] = read(x, at);
+					at += length;
+				}
+			}
+			return xs;
+		}
+	};
+}
+
+/**
+ * For each built-in array type that is read in binary: the type of its elements, and the decoder of
+ * the array, which gives the elements as their built-in text parsers do. Not int8[]: its elements
+ * are kept as text, and making that text from the binary takes longer than reading it.
+ */
+const binary_arrays = {
+	1000: [16, binary_array((x, i) => x[i] === 1)],
+	1005: [21, binary_array((x, i) => ((x[i] << 24) | (x[i + 1] << 16)) >> 16)],
+	1007: [23, binary_array(int32)],
+};
+
+/** Decodes a bytea in the binary format, its bytes, by copying them out of the reused read buffer */
+function binary_bytea(x, start, end) {
+	return Buffer.from(x.subarray(start, end));
+}
+
 const shaped = (is, serialize) => (x) => (is(x) ? serialize(x) : string(x));
 
 const shapedTypes = {
@@ -257,11 +326,15 @@ export function Types(options: Record<string, any> = {}) {
 
 	register(custom.filter((x) => !named.includes(x)));
 
+	/** The types that options.types names, whose values only their own parsers read */
+	const own = new Set(custom.flatMap((x) => [x.to].concat(x.from || [])));
+
 	const bases = {};
 
 	return {
 		parser,
 		decoder,
+		binary,
 		serializer,
 		load,
 		infer,
@@ -300,6 +373,21 @@ export function Types(options: Record<string, any> = {}) {
 			return utc_time;
 		}
 		return null;
+	}
+
+	/**
+	 * @param oid - the type of a column
+	 * @returns a decoder `(x, start, end) => value` of the column's values in the binary format,
+	 *   which gives what the built-in text parser of the type gives; or null, if the column is read
+	 *   as text: a type without such a decoder, or one that options.types parses itself, or whose
+	 *   elements it parses itself
+	 */
+	function binary(oid) {
+		const array = binary_arrays[oid];
+		if (own.has(oid) || (array && own.has(array[0]))) {
+			return null;
+		}
+		return oid === 17 ? binary_bytea : array ? array[1] : null;
 	}
 
 	function register(xs: Record<string, PostgresType> | PostgresType[]) {
@@ -391,9 +479,13 @@ export function Types(options: Record<string, any> = {}) {
 					: "The type " + missing[0] + " does not exist",
 			);
 		}
-		register(
-			named.map((x) => ({ ...x, to: resolve(x.to), from: [].concat(x.from || []).map(resolve) })),
-		);
+		const resolved = named.map((x) => ({
+			...x,
+			to: resolve(x.to),
+			from: [].concat(x.from || []).map(resolve),
+		}));
+		register(resolved);
+		resolved.forEach((x) => [x.to].concat(x.from).forEach((oid) => own.add(oid)));
 	}
 
 	function fetched(run) {

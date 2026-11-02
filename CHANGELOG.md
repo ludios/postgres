@@ -121,6 +121,7 @@ The open issues and pull requests were triaged into 33 correctness bugs, each wi
 
 - A statement whose parameter types are all known is prepared, described and run in one round trip; one with parameters only the server can type is described first, once per connection, as in v3.
 - `int2`, `int4`, `oid` and `bool` columns are decoded straight from the bytes when they use the built-in parsers; a custom parser still gets the text. So are `timestamptz` columns, and `timestamp` and `date` columns read as UTC (as they are unless `infer` is on), from the year 1000 to 9999, in about 40% less time per value than parsing their text; a value outside those years, BC, `infinity`, or with an offset that has seconds, still goes to the text parser.
+- `bytea`, `int2[]`, `int4[]` and `bool[]` columns are fetched in binary from the second time that a prepared statement runs on a connection (so not with `prepare: false`), when the type and its elements have the built-in parsers. The values are the same as from the text, and are read in about half the time for a `bytea` or a `bool[]`, and a sixth for an `int4[]`. A custom parser, and `raw()`, still get the text, as does `int8[]`, whose elements stay text.
 - A query on its way to a free connection goes straight to it, without the waiting queue.
 - Queries hold no more per-query state than they need, so almost nothing outlives a scavenge.
 - One growing buffer per connection, encoded in place and written once at the end of the tick.

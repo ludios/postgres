@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { postgres, sql, options, delay, thrown, defer } from "./setup.ts";
+import { postgres, sql, options, delay, thrown, defer, proxy_to_server } from "./setup.ts";
 
 test("null", async () => {
 	expect((await sql`select ${null} as x`)[0].x).toBe(null);
@@ -630,4 +630,111 @@ test("Custom types by name need fetch_types", async () => {
 			}),
 		).code,
 	).toBe("TYPE_NOT_FOUND");
+});
+
+/**
+ * @param pool - the `sql` of a pool
+ * @returns the rows of a query of a bytea and of arrays of each type that is read in binary (and
+ *   of int8, which is not), with NULLs, two dimensions, no elements, and lower bounds other than 1
+ */
+function binaries(pool) {
+	return pool`select ${1}::int as k, '\\x00ff10'::bytea as b,
+		array[1, -2, null, 2147483647, -2147483648]::int4[] as i4,
+		array[[1, 2], [3, -32768]]::int2[] as i2,
+		array['9223372036854775807', '-9223372036854775808', null]::int8[] as i8,
+		array[true, false, null]::bool[] as bo,
+		'{}'::int[] as e, '[0:1]={5,6}'::int[] as lb, null::int[] as n`;
+}
+
+/**
+ * @param bytes - what a client sent on a connection without TLS, from its startup message on
+ * @returns the result formats of each Bind message in `bytes`, in order
+ */
+function bind_result_formats(bytes) {
+	const formats = [];
+	// The startup message has no type byte
+	for (let i = bytes.readInt32BE(0); i < bytes.length; i += 1 + bytes.readInt32BE(i + 1)) {
+		if (bytes[i] !== 66) {
+			continue;
+		}
+		// After the length: the portal's name, the statement's name, the parameter formats, and the
+		// parameters, each with its length (-1 for NULL)
+		let at = bytes.indexOf(0, bytes.indexOf(0, i + 5) + 1) + 1;
+		at += 2 + bytes.readInt16BE(at) * 2;
+		const values = bytes.readInt16BE(at);
+		at += 2;
+		for (let v = 0; v < values; v++) {
+			at += 4 + Math.max(bytes.readInt32BE(at), 0);
+		}
+		const n = bytes.readInt16BE(at);
+		formats.push(Array.from({ length: n }, (_, k) => bytes.readInt16BE(at + 2 + 2 * k)));
+	}
+	return formats;
+}
+
+test("bytea and int2, int4 and bool arrays are read in binary once their statement is prepared, with the same values", async () => {
+	const sent = [];
+	await using proxy = await proxy_to_server({
+		from_client: (chunk) => {
+			sent.push(chunk);
+			return false;
+		},
+	});
+	await using pool = postgres({ ...options, host: proxy.host, port: proxy.port, ssl: false });
+	const results = [await binaries(pool), await binaries(pool), await binaries(pool)].map((x) =>
+			Array.from(x),
+		),
+		row = {
+			k: 1,
+			b: Buffer.from("00ff10", "hex"),
+			i4: [1, -2, null, 2147483647, -2147483648],
+			i2: [
+				[1, 2],
+				[3, -32768],
+			],
+			i8: ["9223372036854775807", "-9223372036854775808", null],
+			bo: [true, false, null],
+			e: [],
+			lb: [5, 6],
+			n: null,
+		},
+		binary = [0, 1, 1, 1, 0, 1, 1, 1, 1];
+
+	expect(results).toEqual([[row], [row], [row]]);
+	expect(bind_result_formats(Buffer.concat(sent))).toEqual(
+		options.prepare === false ? [[], [], []] : [[], binary, binary],
+	);
+});
+
+test("A custom parser for an int4 array still gets the text once its statement is prepared", async () => {
+	await using pool = postgres({
+		...options,
+		types: { ints: { to: 1007, from: [1007], serialize: (x) => x, parse: (x) => "text " + x } },
+	});
+	const query = async () => (await pool`select array[1, 2]::int4[] as x, ${1}::int as k`)[0].x;
+	expect([await query(), await query()]).toEqual(["text {1,2}", "text {1,2}"]);
+});
+
+test("A custom parser for int4 still gets the text of an int4 array's elements once its statement is prepared", async () => {
+	await using pool = postgres({
+		...options,
+		types: { int: { to: 23, from: [23], serialize: (x) => "" + x, parse: (x) => "n" + x } },
+	});
+	const query = async () => (await pool`select array[1, 2]::int4[] as x, ${1}::int8 as k`)[0].x;
+	expect([await query(), await query()]).toEqual([
+		["n1", "n2"],
+		["n1", "n2"],
+	]);
+});
+
+test("raw() gets the text of a bytea and of an array once their statement is prepared", async () => {
+	await using pool = postgres(options);
+	const query = async () =>
+		(await pool`select '\\x01'::bytea as b, array[1]::int[] as a, ${1}::int as k`.raw())[0].map(
+			String,
+		);
+	expect([await query(), await query()]).toEqual([
+		["\\x01", "{1}", "1"],
+		["\\x01", "{1}", "1"],
+	]);
 });

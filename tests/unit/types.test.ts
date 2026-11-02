@@ -421,3 +421,159 @@ test("Read a timestamp as local time with its text parser, which has no decoder"
 		null,
 	]);
 });
+
+/**
+ * @param n - an integer
+ * @returns `n` as a signed 32-bit big-endian integer
+ */
+function int32_bytes(n) {
+	const x = Buffer.alloc(4);
+	x.writeInt32BE(n);
+	return x;
+}
+
+/**
+ * @param xs - an array, nested for each dimension after the first, with as many elements at each
+ *   depth; or empty
+ * @param write - `(element) => Buffer` gives the binary format of an element
+ * @returns the array in PostgreSQL's binary format, with lower bounds of 1
+ */
+function binary_array_bytes(xs, write) {
+	const sizes = [];
+	for (let a = xs; Array.isArray(a) && a.length > 0; a = a[0]) {
+		sizes.push(a.length);
+	}
+	const flat = xs.flat(Math.max(sizes.length - 1, 0));
+	return Buffer.concat([
+		int32_bytes(sizes.length),
+		int32_bytes(flat.includes(null) ? 1 : 0),
+		// The type of the elements, which the decoders don't read
+		int32_bytes(0),
+		...sizes.flatMap((n) => [int32_bytes(n), int32_bytes(1)]),
+		...flat.map((x) =>
+			x === null ? int32_bytes(-1) : Buffer.concat([int32_bytes(write(x).length), write(x)]),
+		),
+	]);
+}
+
+/**
+ * @param xs - an array, nested for each dimension after the first
+ * @param show - `(element) => string` gives the text of an element
+ * @returns the text that PostgreSQL sends for the array
+ */
+function array_text(xs, show) {
+	return Array.isArray(xs)
+		? "{" + xs.map((x) => array_text(x, show)).join(",") + "}"
+		: xs === null
+			? "NULL"
+			: show(xs);
+}
+
+/**
+ * @param element - an arbitrary of the elements
+ * @returns an arbitrary of arrays of `element` and NULLs, with one dimension (and maybe no
+ *   elements) or two
+ */
+function arrays_of(element) {
+	const item = fc.option(element, { nil: null });
+	return fc.oneof(
+		fc.array(item, { maxLength: 8 }),
+		fc
+			.integer({ min: 1, max: 4 })
+			.chain((n) =>
+				fc.array(fc.array(item, { minLength: n, maxLength: n }), { minLength: 1, maxLength: 4 }),
+			),
+	);
+}
+
+/** For each array type that is read in binary: its elements, their binary format, and their text */
+const binary_cases = [
+	{
+		oid: 1000,
+		element: fc.boolean(),
+		write: (x) => Buffer.from([x ? 1 : 0]),
+		show: (x) => (x ? "t" : "f"),
+	},
+	{
+		oid: 1005,
+		element: fc.integer({ min: -32768, max: 32767 }),
+		write: (x) => {
+			const b = Buffer.alloc(2);
+			b.writeInt16BE(x);
+			return b;
+		},
+		show: String,
+	},
+	{ oid: 1007, element: fc.integer(), write: int32_bytes, show: String },
+];
+
+test("Decode int2, int4 and bool arrays in binary as their text parsers parse the text", async () => {
+	for (const { oid, element, write, show } of binary_cases) {
+		fc.assert(
+			fc.property(arrays_of(element), (xs) => {
+				const bytes = binary_array_bytes(xs, write),
+					x = Buffer.concat([Buffer.from("12345"), bytes, Buffer.from("67890")]);
+				expect(utc_types.binary(oid)(x, 5, 5 + bytes.length)).toEqual(
+					utc_types.parser(oid)(array_text(xs, show)),
+				);
+			}),
+			{ numRuns: 500 },
+		);
+	}
+});
+
+test("Decode bytea in binary as its text parser parses the hex text", async () => {
+	fc.assert(
+		fc.property(fc.uint8Array({ maxLength: 64 }), (bytes) => {
+			const x = Buffer.concat([Buffer.from("12345"), bytes, Buffer.from("67890")]),
+				value = utc_types.binary(17)(x, 5, 5 + bytes.length);
+			// A copy, as the read buffer is reused
+			x.fill(0);
+			expect(value).toEqual(utc_types.parser(17)("\\x" + Buffer.from(bytes).toString("hex")));
+		}),
+		{ numRuns: 500 },
+	);
+});
+
+test("Decode arrays with a lower bound other than 1 without the bounds, as their text parser does", async () => {
+	const bytes = Buffer.concat(
+		[int32_bytes(1), int32_bytes(0), int32_bytes(23), int32_bytes(2), int32_bytes(0)].concat(
+			[5, 6].flatMap((n) => [int32_bytes(4), int32_bytes(n)]),
+		),
+	);
+	expect([
+		utc_types.binary(1007)(bytes, 0, bytes.length),
+		utc_types.parser(1007)("[0:1]={5,6}"),
+	]).toEqual([
+		[5, 6],
+		[5, 6],
+	]);
+});
+
+/**
+ * @param oid - a type
+ * @returns the types of a pool whose options.types parses `oid` itself
+ */
+function custom_types(oid) {
+	return Types({ types: { x: { to: oid, from: [oid], serialize: String, parse: String } } });
+}
+
+test("Read as text the types without a binary decoder, and those that options.types parses, or whose elements it parses", async () => {
+	const named = Types({
+			types: { x: { to: "ints", from: ["ints"], serialize: String, parse: String } },
+		}),
+		row = { oid: 1007, array: 0, delimiter: ",", name: "ints", schema: "public", visible: true };
+	// Answers only the query that looks up the named types
+	await named.load(async (text) => (text.includes("t.typname in") ? [row] : []));
+	expect([
+		utc_types.binary(25),
+		utc_types.binary(23),
+		utc_types.binary(1009),
+		utc_types.binary(1016),
+		custom_types(1007).binary(1007),
+		custom_types(23).binary(1007),
+		custom_types(17).binary(17),
+		named.binary(1007),
+		typeof custom_types(23).binary(1005),
+	]).toEqual([null, null, null, null, null, null, null, null, "function"]);
+});
