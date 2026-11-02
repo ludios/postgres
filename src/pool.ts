@@ -64,9 +64,8 @@ export function Pool(options, types) {
 			ontimed,
 		},
 		work = { fast: 0, slow: 0, at: 0 },
-		// How many queries a connection may have in flight before the pool sends it no more. A
-		// connection with nothing in flight takes a query even with max_pipeline: 0, which turns
-		// pipelining off, as it did in v3.
+		// How many queries a connection may have in flight before the pool places no more queries on
+		// it: max_pipeline, but at least 1. A lease's queries go to its connection without this limit.
 		max_inflight = Math.max(1, options.max_pipeline);
 
 	const signal: Signal = { aborted: false, sockets: new Set() },

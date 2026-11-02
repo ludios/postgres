@@ -645,7 +645,7 @@ const result = await query
 await sql`select * from report()`.signal(AbortSignal.timeout(5000))
 ```
 
-A query waits for a connection when every connection is reserved, in a transaction or has `max_pipeline` queries in flight. `queue_timeout` (in seconds) rejects it with `QUEUE_TIMEOUT` if it waits longer, without ever sending it, and the same goes for `sql.begin` and `sql.reserve`. Once a query is sent, PostgreSQL's own `statement_timeout` is the limit.
+A query waits for a connection when every connection is reserved, in a transaction or has `max_pipeline` queries in flight (or 1 query, with `max_pipeline: 0`). `queue_timeout` (in seconds) rejects it with `QUEUE_TIMEOUT` if it waits longer, without ever sending it, and the same goes for `sql.begin` and `sql.reserve`. Once a query is sent, PostgreSQL's own `statement_timeout` is the limit.
 
 ### Execute
 
@@ -1109,7 +1109,7 @@ const sql = postgres('postgres://username:password@host:port/database', {
   channel_binding      : 'prefer',      // SCRAM-SHA-256-PLUS over TLS: 'disable', 'prefer' or 'require'
   max                  : 10,            // Max number of connections (3 on Cloudflare Workers)
   min                  : 0,             // Connections kept open once the pool is used
-  max_pipeline         : 100,           // Max number of queries pipelined on one connection
+  max_pipeline         : 100,           // Max number of queries in flight on one connection; 0 acts as 1
   scheduler            : true,          // Pipeline where a query should be done soonest (more info below)
   max_lifetime         : null,          // Max lifetime in seconds (more info below)
   idle_timeout         : 0,             // Idle connection timeout in seconds
@@ -1262,7 +1262,7 @@ Since this library automatically creates prepared statements, it also has a defa
 
 What a statement takes and returns is learned once for the whole pool, not once per connection, so a new connection never has to ask about a query the pool already knows. Each connection still prepares a statement itself the first time it runs it.
 
-Up to `max_pipeline` queries (100 by default) are sent on one connection before the answers come back, which is what makes many small queries fast. A query that waits on a lock holds up those behind it on the same connection; lower `max_pipeline` if that matters more to you than throughput. With `max_pipeline: 1`, or 0 as in v3, each connection has at most one query in flight.
+Up to `max_pipeline` queries (100 by default) are sent on one connection before the answers come back, which is what makes many small queries fast. A query that waits on a lock holds up those behind it on the same connection; lower `max_pipeline` if that matters more to you than throughput. With `max_pipeline: 1` (or 0), the pool gives a connection a query only once it has none in flight. The queries of a transaction or of a reserved connection go to its connection without this limit.
 
 #### Scheduling
 

@@ -210,7 +210,11 @@ declare namespace postgres {
 		max?: number | undefined;
 		/** Connections kept open once the pool is used, even when idle @default 0 */
 		min?: number | undefined;
-		/** Most queries pipelined on one connection @default 100 */
+		/**
+		 * Most queries that the pool lets one connection have in flight; 0 acts as 1, which turns
+		 * pipelining off. The queries of a transaction or a reserved connection are not limited.
+		 * @default 100
+		 */
 		max_pipeline?: number | undefined;
 		/**
 		 * Pipeline a query on the busy connection where it should be done soonest, keeping slow queries together
