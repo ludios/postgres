@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 export class PostgresError extends Error {
 	// The fields of the ErrorResponse that PostgreSQL sent, then `query`, `parameters`,
 	// and `types`, which this library adds to some errors.

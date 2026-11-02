@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import dc from 'node:diagnostics_channel'
 import postgres, { type Sql, type TransactionSql, type Row, type PendingQuery, type ReplicationEvent, type QueryTrace, type PoolEvent } from './index.js'
 

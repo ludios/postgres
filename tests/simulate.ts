@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import path from "path";
 import { Clock, Random } from "./sim/net.ts";
 import { Server } from "./sim/server.ts";

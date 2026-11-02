@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { EventEmitter } from "events";
 import { expect, test } from "vitest";
 import { Socket } from "../../src/socket.ts";

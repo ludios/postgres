@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import os from "os";
 import fs from "fs";
 

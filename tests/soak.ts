@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { bootstrap } from "./bootstrap.ts";
 import { postgres, options, delay } from "./common.ts";
 import { pg_vars, replace_pg_vars } from "./pg_env.ts";

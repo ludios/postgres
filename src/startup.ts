@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import crypto from "crypto";
 import fs from "fs";
 import * as p from "./protocol.ts";

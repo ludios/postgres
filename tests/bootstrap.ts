@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { spawnSync } from "child_process";
 
 /**

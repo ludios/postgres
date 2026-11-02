@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import util from "util";
 import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";

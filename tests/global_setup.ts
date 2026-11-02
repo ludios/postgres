@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { spawn } from "child_process";
 import type { TestProject } from "vitest/node";
 import { bootstrap } from "./bootstrap.ts";

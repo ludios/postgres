@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import Stream from "stream";
 import * as p from "./protocol.ts";
 import { Errors, queryError } from "./errors.ts";

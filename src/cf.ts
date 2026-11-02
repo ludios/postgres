@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { connect } from "cloudflare:sockets";
 import { EventEmitter } from "node:events";
 import { Buffer } from "node:buffer";

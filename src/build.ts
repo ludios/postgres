@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { Errors } from "./errors.ts";
 import { Parameter, infer } from "./types.ts";
 

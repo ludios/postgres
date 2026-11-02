@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 // The PG* environment variables choose the server, the user, and other settings of PostgreSQL
 // client programs, and also the defaults of this library's options.
 

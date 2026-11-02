@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 // The part of the Cloudflare Workers module "cloudflare:sockets" that src/cf.ts uses; see
 // https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/
 declare module "cloudflare:sockets" {

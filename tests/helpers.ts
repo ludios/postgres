@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 // Helpers for the unit tests and the integration tests alike. Importing this module has no side
 // effects (unlike tests/common.ts, which imports the library).
 import type net from "net";

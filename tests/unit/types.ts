@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { expect, test } from "vitest";
 import { Types } from "../../src/types.ts";
 

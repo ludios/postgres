@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { open as startup } from "./startup.ts";
 import type { Signal } from "./startup.ts";
 import { Connection, slow, notable } from "./connection.ts";

@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { Pipe } from "./net.ts";
 
 const select =

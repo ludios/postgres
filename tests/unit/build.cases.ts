@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 /** Each case: its name, a function that makes a query with `sql`, and the query's text and parameters */
 type Case = [name: string, query: (sql: any) => any, text: string, parameters: any[]];
 

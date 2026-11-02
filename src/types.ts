@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { Errors } from "./errors.ts";
 
 /** How to parse and serialize a PostgreSQL type, as in `options.types` */

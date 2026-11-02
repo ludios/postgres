@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { EventEmitter } from "events";
 
 export function Random(seed) {

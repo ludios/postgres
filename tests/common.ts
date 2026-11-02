@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 // What the integration tests and tests/soak.ts share: the library that they test, and how they
 // connect to the database that tests/bootstrap.ts creates. Nothing here needs vitest or a server.
 export * from "./helpers.ts";

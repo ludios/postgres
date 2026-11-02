@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import net from "net";
 import { expect, test } from "vitest";
 import { postgres, login, login_md5, login_scram, pg_port, port_of } from "./setup.ts";

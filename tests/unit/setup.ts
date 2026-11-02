@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { replace_pg_vars } from "../pg_env.ts";
 
 // For each option that the caller does not give, the library uses a PG* variable if it is set (the

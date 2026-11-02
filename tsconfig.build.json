@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 {
 	// Emits the JavaScript in dist/ that the published package runs:
 	// Node refuses to strip types from .ts files inside node_modules.

@@ -1,4 +1,3 @@
-// Model-output: Claude Opus 5.5
 import { expect, test } from "vitest";
 import { postgres, sql, options, delay, idle_timeout, pg_port, port_of } from "./setup.ts";
 
