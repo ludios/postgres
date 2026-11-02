@@ -1,9 +1,9 @@
 // @ts-nocheck
 import net from "net";
-import { t } from "./test.ts";
+import { expect, test } from "vitest";
 import { postgres, sql, options, delay, idle_timeout, pg_port } from "./setup.ts";
 
-t("Ensure reserve on connection throws proper error", async () => {
+test("Ensure reserve on connection throws proper error", async () => {
 	const sql = postgres({
 		socket: () => {
 			throw "wat";
@@ -11,10 +11,10 @@ t("Ensure reserve on connection throws proper error", async () => {
 		idle_timeout,
 	});
 
-	return ["wat", await sql.reserve().catch((e) => e)];
+	expect(await sql.reserve().catch((e) => e)).toBe("wat");
 });
 
-t("reserve connection", async () => {
+test("reserve connection", async () => {
 	const reserved = await sql.reserve();
 
 	setTimeout(() => reserved.release(), 510);
@@ -27,55 +27,53 @@ t("reserve connection", async () => {
 
 	if (xs[1].time - xs[2].time < 500) throw new Error("Wrong time");
 
-	return ["123", xs.map((x) => x.x).join("")];
+	expect(xs.map((x) => x.x).join("")).toBe("123");
 });
 
-t("arrays in reserved connection", async () => {
+test("arrays in reserved connection", async () => {
 	const reserved = await sql.reserve();
 	const [{ x }] = await reserved`select array[1, 2, 3] as x`;
 	reserved.release();
 
-	return ["123", x.join("")];
+	expect(x.join("")).toBe("123");
 });
 
-t("Ensure reserve on query throws proper error", async () => {
+test("Ensure reserve on query throws proper error", async () => {
 	const sql = postgres({ idle_timeout });
 	const reserved = await sql.reserve();
 	const [{ x }] = await reserved`select 'wat' as x`;
 
-	return ["wat", x, reserved.release()];
+	expect(x).toBe("wat");
+	reserved.release();
 });
 
-t("reserve with fetch_types: false on a cold pool", async () => {
+test("reserve with fetch_types: false on a cold pool", async () => {
 	const sql = postgres({ ...options, fetch_types: false });
 	const reserved = await sql.reserve();
 	const [{ x }] = await reserved`select 1 as x`;
 	reserved.release();
 	await sql.end();
-	return [1, x];
+	expect(x).toBe(1);
 });
 
-t("end() resolves after reserve and release", async () => {
+test("end() resolves after reserve and release", async () => {
 	const sql = postgres(options);
 	const reserved = await sql.reserve();
 	reserved.release();
-	return ["ended", await sql.end().then(() => "ended")];
+	expect(await sql.end().then(() => "ended")).toBe("ended");
 });
 
-t(
-	"end() resolves when a reserved connection is released after end was called (#1262)",
-	async () => {
-		const sql = postgres({ ...options, max: 2 });
-		const reserved = await sql.reserve();
-		await reserved`select 1`;
-		const ended = sql.end();
-		await delay(10);
-		reserved.release();
-		return ["ended 0", (await ended.then(() => "ended")) + " " + sql.stats.connections];
-	},
-);
+test("end() resolves when a reserved connection is released after end was called (#1262)", async () => {
+	const sql = postgres({ ...options, max: 2 });
+	const reserved = await sql.reserve();
+	await reserved`select 1`;
+	const ended = sql.end();
+	await delay(10);
+	reserved.release();
+	expect((await ended.then(() => "ended")) + " " + sql.stats.connections).toBe("ended 0");
+});
 
-t("reserve queued behind a terminated connection", async () => {
+test("reserve queued behind a terminated connection", async () => {
 	const pool = postgres(options);
 	const reserved = await pool.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
@@ -88,10 +86,10 @@ t("reserve queued behind a terminated connection", async () => {
 	next.release();
 	await pool.end();
 
-	return [1, x];
+	expect(x).toBe(1);
 });
 
-t("reserve after a terminated query", async () => {
+test("reserve after a terminated query", async () => {
 	const pool = postgres(options);
 	const reserved = await pool.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
@@ -112,10 +110,10 @@ t("reserve after a terminated query", async () => {
 	next.release();
 	await pool.end();
 
-	return [1, x];
+	expect(x).toBe(1);
 });
 
-t("Reserved connection rejects queries after its backend is terminated", async () => {
+test("Reserved connection rejects queries after its backend is terminated", async () => {
 	const sql = postgres({ ...options, max: 2 });
 	const reserved = await sql.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
@@ -125,10 +123,10 @@ t("Reserved connection rejects queries after its backend is terminated", async (
 	const second = await reserved`select 2`.catch((e) => e.code);
 	reserved.release();
 	await sql.end();
-	return ["CONNECTION_CLOSED,CONNECTION_CLOSED", first + "," + second];
+	expect(first + "," + second).toBe("CONNECTION_CLOSED,CONNECTION_CLOSED");
 });
 
-t("Releasing a terminated reserved connection does not return it to the pool", async () => {
+test("Releasing a terminated reserved connection does not return it to the pool", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	const killer = postgres(options);
 	const reserved = await sql.reserve();
@@ -139,10 +137,10 @@ t("Releasing a terminated reserved connection does not return it to the pool", a
 	reserved.release();
 	const [{ x }] = await Promise.race([sql`select 1 as x`, delay(2000).then(() => [{ x: "hung" }])]);
 	await Promise.all([sql.end(), killer.end()]);
-	return [1, x];
+	expect(x).toBe(1);
 });
 
-t("Writing to a closed reserved connection rejects instead of crashing", async () => {
+test("Writing to a closed reserved connection rejects instead of crashing", async () => {
 	let downstream;
 	const proxy = net.createServer((x) => {
 		downstream = x;
@@ -165,46 +163,40 @@ t("Writing to a closed reserved connection rejects instead of crashing", async (
 	reserved.release();
 	proxy.close();
 
-	return ["CONNECTION_CLOSED", code];
+	expect(code).toBe("CONNECTION_CLOSED");
 });
 
-t(
-	"A reserved connection released while its BEGIN is still unanswered is not handed to the next query in that transaction",
-	async () => {
-		const sql = postgres({ ...options, max: 1 });
-		await sql`create table test (a int)`;
-		const reserved = await sql.reserve();
-		const begin = reserved`begin`.execute();
-		const insert = reserved`insert into test values (1)`.execute();
-		begin.catch(() => {});
-		insert.catch(() => {});
-		await new Promise((r) => setTimeout(r, 0));
-		reserved.release();
-		const pooled = await sql`insert into test values (2)`.then(
+test("A reserved connection released while its BEGIN is still unanswered is not handed to the next query in that transaction", async () => {
+	const sql = postgres({ ...options, max: 1 });
+	await sql`create table test (a int)`;
+	const reserved = await sql.reserve();
+	const begin = reserved`begin`.execute();
+	const insert = reserved`insert into test values (1)`.execute();
+	begin.catch(() => {});
+	insert.catch(() => {});
+	await new Promise((r) => setTimeout(r, 0));
+	reserved.release();
+	const pooled = await sql`insert into test values (2)`.then(
+		(x) => x.command,
+		(e) => e.code,
+	);
+	const leased = [
+		await begin.then(
 			(x) => x.command,
 			(e) => e.code,
-		);
-		const leased = [
-			await begin.then(
-				(x) => x.command,
-				(e) => e.code,
-			),
-			await insert.then(
-				(x) => x.command,
-				(e) => e.code,
-			),
-		];
-		const rows = (await sql`select array_agg(a order by a) as a from test`)[0].a;
-		return [
-			"INSERT BEGIN,INSERT [2]",
-			pooled + " " + leased.join() + " " + JSON.stringify(rows),
-			await sql`drop table test`,
-			await sql.end(),
-		];
-	},
-);
+		),
+		await insert.then(
+			(x) => x.command,
+			(e) => e.code,
+		),
+	];
+	const rows = (await sql`select array_agg(a order by a) as a from test`)[0].a;
+	expect(pooled + " " + leased.join() + " " + JSON.stringify(rows)).toBe("INSERT BEGIN,INSERT [2]");
+	await sql`drop table test`;
+	await sql.end();
+});
 
-t("reserve and begin after end reject with CONNECTION_ENDED", async () => {
+test("reserve and begin after end reject with CONNECTION_ENDED", async () => {
 	const sql = postgres({ ...options });
 	await sql`select 1`;
 	await sql.end();
@@ -220,10 +212,10 @@ t("reserve and begin after end reject with CONNECTION_ENDED", async () => {
 				(e) => e.code,
 			),
 	];
-	return ["CONNECTION_ENDED CONNECTION_ENDED", codes.join(" ")];
+	expect(codes.join(" ")).toBe("CONNECTION_ENDED CONNECTION_ENDED");
 });
 
-t("Releasing a reserved connection twice releases it once", async () => {
+test("Releasing a reserved connection twice releases it once", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	const reserved = await sql.reserve();
 	reserved.release();
@@ -232,5 +224,6 @@ t("Releasing a reserved connection twice releases it once", async () => {
 		sql`select 1 as x`,
 		sql.reserve().then((r) => r`select 2 as x`.finally(r.release)),
 	]);
-	return ["1 2", a.x + " " + b.x, await sql.end()];
+	expect(a.x + " " + b.x).toBe("1 2");
+	await sql.end();
 });

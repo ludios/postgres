@@ -1,17 +1,19 @@
-import { t } from "./test.ts";
+import { expect, test } from "vitest";
 import { postgres, options } from "./setup.ts";
 
-t("Transform undefined", async () => {
+test("Transform undefined", async () => {
 	const sql = postgres({ ...options, transform: { undefined: null } });
-	return [null, (await sql`select ${undefined} as x`)[0].x];
+	expect((await sql`select ${undefined} as x`)[0].x).toBe(null);
 });
 
-t("Transform undefined in array", async () => {
+test("Transform undefined in array", async () => {
 	const sql = postgres({ ...options, transform: { undefined: null } });
-	return [null, (await sql`select * from (values ${sql([undefined, undefined])}) as x(x, y)`)[0].y];
+	expect((await sql`select * from (values ${sql([undefined, undefined])}) as x(x, y)`)[0].y).toBe(
+		null,
+	);
 });
 
-t("transform column", async () => {
+test("transform column", async () => {
 	const sql = postgres({
 		...options,
 		transform: { column: (x) => x.split("").reverse().join("") },
@@ -19,14 +21,11 @@ t("transform column", async () => {
 
 	await sql`create table test (hello_world int)`;
 	await sql`insert into test values (1)`;
-	return [
-		"dlrow_olleh",
-		Object.keys((await sql`select * from test`)[0])[0],
-		await sql`drop table test`,
-	];
+	expect(Object.keys((await sql`select * from test`)[0])[0]).toBe("dlrow_olleh");
+	await sql`drop table test`;
 });
 
-t("column toPascal", async () => {
+test("column toPascal", async () => {
 	const sql = postgres({
 		...options,
 		transform: { column: postgres.toPascal },
@@ -34,14 +33,11 @@ t("column toPascal", async () => {
 
 	await sql`create table test (hello_world int)`;
 	await sql`insert into test values (1)`;
-	return [
-		"HelloWorld",
-		Object.keys((await sql`select * from test`)[0])[0],
-		await sql`drop table test`,
-	];
+	expect(Object.keys((await sql`select * from test`)[0])[0]).toBe("HelloWorld");
+	await sql`drop table test`;
 });
 
-t("column toCamel", async () => {
+test("column toCamel", async () => {
 	const sql = postgres({
 		...options,
 		transform: { column: postgres.toCamel },
@@ -49,14 +45,11 @@ t("column toCamel", async () => {
 
 	await sql`create table test (hello_world int)`;
 	await sql`insert into test values (1)`;
-	return [
-		"helloWorld",
-		Object.keys((await sql`select * from test`)[0])[0],
-		await sql`drop table test`,
-	];
+	expect(Object.keys((await sql`select * from test`)[0])[0]).toBe("helloWorld");
+	await sql`drop table test`;
 });
 
-t("column toKebab", async () => {
+test("column toKebab", async () => {
 	const sql = postgres({
 		...options,
 		transform: { column: postgres.toKebab },
@@ -64,31 +57,26 @@ t("column toKebab", async () => {
 
 	await sql`create table test (hello_world int)`;
 	await sql`insert into test values (1)`;
-	return [
-		"hello-world",
-		Object.keys((await sql`select * from test`)[0])[0],
-		await sql`drop table test`,
-	];
+	expect(Object.keys((await sql`select * from test`)[0])[0]).toBe("hello-world");
+	await sql`drop table test`;
 });
 
-t("Transform nested json in arrays", async () => {
+test("Transform nested json in arrays", async () => {
 	const sql = postgres({
 		...options,
 		transform: postgres.camel,
 	});
-	return [
-		"aBcD",
+	expect(
 		(await sql`select '[{"a_b":1},{"c_d":2}]'::jsonb as x`)[0].x.map(Object.keys).join(""),
-	];
+	).toBe("aBcD");
 });
 
-t("Transform deeply nested json object in arrays", async () => {
+test("Transform deeply nested json object in arrays", async () => {
 	const sql = postgres({
 		...options,
 		transform: postgres.camel,
 	});
-	return [
-		"childObj_deeplyNestedObj_grandchildObj",
+	expect(
 		(
 			await sql`
       select '[{"nested_obj": {"child_obj": 2, "deeply_nested_obj": {"grandchild_obj": 3}}}]'::jsonb as x
@@ -101,16 +89,15 @@ t("Transform deeply nested json object in arrays", async () => {
 				return result;
 			})[0]
 			.join("_"),
-	];
+	).toBe("childObj_deeplyNestedObj_grandchildObj");
 });
 
-t("Transform deeply nested json array in arrays", async () => {
+test("Transform deeply nested json array in arrays", async () => {
 	const sql = postgres({
 		...options,
 		transform: postgres.camel,
 	});
-	return [
-		"childArray_deeplyNestedArray_grandchildArray",
+	expect(
 		(
 			await sql`
       select '[{"nested_array": [{"child_array": 2, "deeply_nested_array": [{"grandchild_array":3}]}]}]'::jsonb AS x
@@ -123,10 +110,10 @@ t("Transform deeply nested json array in arrays", async () => {
 				return result;
 			})[0]
 			.join("_"),
-	];
+	).toBe("childArray_deeplyNestedArray_grandchildArray");
 });
 
-t("Bypass transform for json primitive", async () => {
+test("Bypass transform for json primitive", async () => {
 	const sql = postgres({
 		...options,
 		transform: postgres.camel,
@@ -136,10 +123,11 @@ t("Bypass transform for json primitive", async () => {
 		await sql`select 'null'::json as a, 'false'::json as b, '"a"'::json as c, '1'::json as d`
 	)[0];
 
-	return [JSON.stringify({ a: null, b: false, c: "a", d: 1 }), JSON.stringify(x)];
+	const expected = JSON.stringify({ a: null, b: false, c: "a", d: 1 });
+	expect(JSON.stringify(x)).toBe(expected);
 });
 
-t("Bypass transform for jsonb primitive", async () => {
+test("Bypass transform for jsonb primitive", async () => {
 	const sql = postgres({
 		...options,
 		transform: postgres.camel,
@@ -149,19 +137,20 @@ t("Bypass transform for jsonb primitive", async () => {
 		await sql`select 'null'::jsonb as a, 'false'::jsonb as b, '"a"'::jsonb as c, '1'::jsonb as d`
 	)[0];
 
-	return [JSON.stringify({ a: null, b: false, c: "a", d: 1 }), JSON.stringify(x)];
+	const expected = JSON.stringify({ a: null, b: false, c: "a", d: 1 });
+	expect(JSON.stringify(x)).toBe(expected);
 });
 
-t("Transform row", async () => {
+test("Transform row", async () => {
 	const sql = postgres({
 		...options,
 		transform: { row: () => 1 },
 	});
 
-	return [1, (await sql`select 'wat'`)[0]];
+	expect((await sql`select 'wat'`)[0]).toBe(1);
 });
 
-t("Transform row forEach", async () => {
+test("Transform row forEach", async () => {
 	let result;
 	const sql = postgres({
 		...options,
@@ -170,19 +159,19 @@ t("Transform row forEach", async () => {
 
 	await sql`select 1`.forEach((x) => (result = x));
 
-	return [1, result];
+	expect(result).toBe(1);
 });
 
-t("Transform value", async () => {
+test("Transform value", async () => {
 	const sql = postgres({
 		...options,
 		transform: { value: () => 1 },
 	});
 
-	return [1, (await sql`select 'wat' as x`)[0].x];
+	expect((await sql`select 'wat' as x`)[0].x).toBe(1);
 });
 
-t("Transform columns from", async () => {
+test("Transform columns from", async () => {
 	const sql = postgres({
 		...options,
 		transform: postgres.fromCamel,
@@ -190,14 +179,11 @@ t("Transform columns from", async () => {
 	await sql`create table test (a_test int, b_test text)`;
 	await sql`insert into test ${sql([{ aTest: 1, bTest: 1 }])}`;
 	await sql`update test set ${sql({ aTest: 2, bTest: 2 })}`;
-	return [
-		2,
-		(await sql`select ${sql("aTest", "bTest")} from test`)[0].a_test,
-		await sql`drop table test`,
-	];
+	expect((await sql`select ${sql("aTest", "bTest")} from test`)[0].a_test).toBe(2);
+	await sql`drop table test`;
 });
 
-t("Transform columns to", async () => {
+test("Transform columns to", async () => {
 	const sql = postgres({
 		...options,
 		transform: postgres.toCamel,
@@ -205,10 +191,11 @@ t("Transform columns to", async () => {
 	await sql`create table test (a_test int, b_test text)`;
 	await sql`insert into test ${sql([{ a_test: 1, b_test: 1 }])}`;
 	await sql`update test set ${sql({ a_test: 2, b_test: 2 })}`;
-	return [2, (await sql`select a_test, b_test from test`)[0].aTest, await sql`drop table test`];
+	expect((await sql`select a_test, b_test from test`)[0].aTest).toBe(2);
+	await sql`drop table test`;
 });
 
-t("Transform columns from and to", async () => {
+test("Transform columns from and to", async () => {
 	const sql = postgres({
 		...options,
 		transform: postgres.camel,
@@ -216,14 +203,11 @@ t("Transform columns from and to", async () => {
 	await sql`create table test (a_test int, b_test text)`;
 	await sql`insert into test ${sql([{ aTest: 1, bTest: 1 }])}`;
 	await sql`update test set ${sql({ aTest: 2, bTest: 2 })}`;
-	return [
-		2,
-		(await sql`select ${sql("aTest", "bTest")} from test`)[0].aTest,
-		await sql`drop table test`,
-	];
+	expect((await sql`select ${sql("aTest", "bTest")} from test`)[0].aTest).toBe(2);
+	await sql`drop table test`;
 });
 
-t("Transform columns from and to (legacy)", async () => {
+test("Transform columns from and to (legacy)", async () => {
 	const sql = postgres({
 		...options,
 		transform: {
@@ -236,25 +220,24 @@ t("Transform columns from and to (legacy)", async () => {
 	await sql`create table test (a_test int, b_test text)`;
 	await sql`insert into test ${sql([{ aTest: 1, bTest: 1 }])}`;
 	await sql`update test set ${sql({ aTest: 2, bTest: 2 })}`;
-	return [
-		2,
-		(await sql`select ${sql("aTest", "bTest")} from test`)[0].aTest,
-		await sql`drop table test`,
-	];
+	expect((await sql`select ${sql("aTest", "bTest")} from test`)[0].aTest).toBe(2);
+	await sql`drop table test`;
 });
 
-t("Insert array with undefined transform", async () => {
+test("Insert array with undefined transform", async () => {
 	const sql = postgres({ ...options, transform: { undefined: null } });
 	await sql`create table test (x int[])`;
 	await sql`insert into test ${sql({ x: [1, undefined, 3] })}`;
-	return [1, (await sql`select x from test`)[0].x[0], await sql`drop table test`];
+	expect((await sql`select x from test`)[0].x[0]).toBe(1);
+	await sql`drop table test`;
 });
 
-t("transform.row applies to .values() rows too, as in v3", async () => {
+test("transform.row applies to .values() rows too, as in v3", async () => {
 	const sql = postgres({
 		...options,
 		transform: { row: { from: (row) => ((row.transformed = true), row) } },
 	});
 	const [row] = await sql`select 1 as a`.values();
-	return ["1 true", row[0] + " " + row.transformed, await sql.end()];
+	expect(row[0] + " " + row.transformed).toBe("1 true");
+	await sql.end();
 });
