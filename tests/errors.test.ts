@@ -13,6 +13,7 @@ import {
 	thrown,
 	terminate,
 	defer,
+	proxy_to_server,
 } from "./setup.ts";
 
 test("Undefined values throws", async () => {
@@ -281,25 +282,16 @@ test("A transaction whose backend is terminated mid-query rejects with that quer
 });
 
 test("A transaction whose connection drops mid-query rejects with that query's error", async () => {
-	const sockets = [];
 	// A proxy to the server, so that the test can drop the connection without a FATAL error
-	const proxy = net.createServer((client) => {
-		const server = net.connect(pg_port, "localhost");
-		client.pipe(server).pipe(client);
-		for (const socket of [client, server]) {
-			socket.on("error", () => {});
-			sockets.push(socket);
-		}
-	});
-	await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
-	await using _close = defer(() => proxy.close());
-	await using sql = postgres({ ...options, host: "127.0.0.1", port: port_of(proxy), max: 1 });
+	await using proxy = await proxy_to_server();
+	await using sql = postgres({ ...options, host: proxy.host, port: proxy.port, max: 1 });
 	const error = await sql
 		.begin(async (sql) => {
 			const query = failures(sql, ["a"])[0];
 			await delay(50);
-			for (const socket of sockets) {
-				socket.destroy();
+			for (const c of proxy.connections) {
+				c.client.destroy();
+				c.server.destroy();
 			}
 			await query;
 		})

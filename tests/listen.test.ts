@@ -1,4 +1,3 @@
-import net from "net";
 import { expect, test } from "vitest";
 import {
 	postgres,
@@ -6,43 +5,10 @@ import {
 	delay,
 	defer,
 	pg_socket_dir,
-	pg_port,
-	port_of,
 	terminate,
+	proxy_to_server,
+	type Proxied,
 } from "./setup.ts";
-
-/**
- * Starts a TCP proxy to the server at `pg_port`, for a test that meddles with what a client sends.
- * @param meddle - called with each chunk a client sends, the number of that client's connection to
- *   the proxy (1 for the first), and the client and server sockets; returns true to swallow the
- *   chunk, or false to have it forwarded to the server
- * @returns the proxy, listening on `port_of(proxy)`; close it when the test is done
- */
-async function proxy_to_server(
-	meddle: (chunk: Buffer, connection: number, client: net.Socket, server: net.Socket) => boolean,
-) {
-	let connections = 0;
-	const proxy = net.createServer((client) => {
-		const server = net.connect(pg_port, "localhost"),
-			connection = ++connections;
-		client.on("data", (x) => {
-			if (!meddle(x, connection, client, server)) {
-				server.write(x);
-			}
-		});
-		server.on("data", (x) => {
-			if (client.writable) {
-				client.write(x);
-			}
-		});
-		client.on("error", () => server.destroy());
-		server.on("error", () => client.destroy());
-		client.on("close", () => server.destroy());
-		server.on("close", () => client.destroy());
-	});
-	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
-	return proxy;
-}
 
 /**
  * @param chunk - a chunk that a client sent
@@ -50,6 +16,25 @@ async function proxy_to_server(
  */
 function sends_listen(chunk: Buffer) {
 	return chunk.includes('listen "test"') && !chunk.includes('unlisten "test"');
+}
+
+/**
+ * @param numbers - which connections through the proxy to drop: 2 for the second one that a client
+ *   makes
+ * @param dropped - called each time the hook drops a connection
+ * @returns a `from_client` hook for proxy_to_server() that drops each of those connections as soon
+ *   as the client sends a LISTEN on it
+ */
+function dropping_listens(numbers: number[], dropped: () => void) {
+	return (x: Buffer, c: Proxied) => {
+		if (numbers.includes(c.number) && sends_listen(x)) {
+			dropped();
+			c.server.destroy();
+			c.client.destroy();
+			return true;
+		}
+		return false;
+	};
 }
 
 /**
@@ -430,20 +415,13 @@ test("listen after end rejects with CONNECTION_ENDED, with or without a listener
 test("A close while a LISTEN is in flight starts no second retry chain", async () => {
 	// The proxy drops its second connection as soon as the client sends a LISTEN on it
 	let dropped = false;
-	const proxy = await proxy_to_server((x, connection, client, server) => {
-		if (connection === 2 && sends_listen(x)) {
-			dropped = true;
-			server.destroy();
-			client.destroy();
-			return true;
-		}
-		return false;
+	await using proxy = await proxy_to_server({
+		from_client: dropping_listens([2], () => (dropped = true)),
 	});
-	await using _close = defer(() => proxy.close());
 	await using sql = postgres({
 		...options,
-		host: "localhost",
-		port: port_of(proxy),
+		host: proxy.host,
+		port: proxy.port,
 		backoff: () => 0.1,
 	});
 	const xs = [];
@@ -465,17 +443,18 @@ test("A close while a LISTEN is in flight starts no second retry chain", async (
 test("A listener that joins while a reconnect's LISTEN is in flight gets onlisten once", async () => {
 	// The proxy holds back the LISTEN on its second connection until the test releases it
 	let on_hold, release;
-	const held = new Promise<void>((r) => (on_hold = r)),
-		proxy = await proxy_to_server((x, connection, client, server) => {
-			if (connection === 2 && sends_listen(x)) {
-				release = () => server.write(x);
+	const held = new Promise<void>((r) => (on_hold = r));
+	await using proxy = await proxy_to_server({
+		from_client: (x, c) => {
+			if (c.number === 2 && sends_listen(x)) {
+				release = () => c.server.write(x);
 				on_hold();
 				return true;
 			}
 			return false;
-		});
-	await using _close = defer(() => proxy.close());
-	await using sql = postgres({ ...options, host: "localhost", port: port_of(proxy) });
+		},
+	});
+	await using sql = postgres({ ...options, host: proxy.host, port: proxy.port });
 	let first = 0,
 		second = 0;
 	const { state } = await sql.listen(
@@ -499,23 +478,14 @@ test("A listener that joins while a reconnect's LISTEN is in flight gets onliste
 test("The last unlisten during an outage clears the retry timer and sends no UNLISTEN", async () => {
 	const { pending, timers } = tracked_timers();
 	// The proxy drops its second connection as soon as the client sends a LISTEN on it
-	let dropped = false,
-		connections = 0;
-	const proxy = await proxy_to_server((x, connection, client, server) => {
-		connections = connection;
-		if (connection === 2 && sends_listen(x)) {
-			dropped = true;
-			server.destroy();
-			client.destroy();
-			return true;
-		}
-		return false;
+	let dropped = false;
+	await using proxy = await proxy_to_server({
+		from_client: dropping_listens([2], () => (dropped = true)),
 	});
-	await using _close = defer(() => proxy.close());
 	await using sql = postgres({
 		...options,
-		host: "localhost",
-		port: port_of(proxy),
+		host: proxy.host,
+		port: proxy.port,
 		backoff: () => 10,
 		timers,
 	});
@@ -526,27 +496,20 @@ test("The last unlisten during an outage clears the retry timer and sends no UNL
 	await unlisten();
 	await sql.end();
 	// No third connection: the LISTEN failed, so there was nothing to UNLISTEN
-	expect([pending.size, connections]).toEqual([0, 2]);
+	expect([pending.size, proxy.connections.length]).toEqual([0, 2]);
 });
 
 test("A listen() that joins a channel that waits to retry its LISTEN sends the LISTEN at once", async () => {
 	const { pending, timers } = tracked_timers();
 	// The proxy drops its second connection as soon as the client sends a LISTEN on it
 	let dropped = false;
-	const proxy = await proxy_to_server((x, connection, client, server) => {
-		if (connection === 2 && sends_listen(x)) {
-			dropped = true;
-			server.destroy();
-			client.destroy();
-			return true;
-		}
-		return false;
+	await using proxy = await proxy_to_server({
+		from_client: dropping_listens([2], () => (dropped = true)),
 	});
-	await using _close = defer(() => proxy.close());
 	await using sql = postgres({
 		...options,
-		host: "localhost",
-		port: port_of(proxy),
+		host: proxy.host,
+		port: proxy.port,
 		backoff: () => 10,
 		timers,
 	});
@@ -574,20 +537,13 @@ test("A failed LISTEN of a listen() that joins a retrying channel counts as one 
 		counts = [];
 	// The proxy drops its second and third connections as soon as the client sends a LISTEN on them
 	let dropped = 0;
-	const proxy = await proxy_to_server((x, connection, client, server) => {
-		if ((connection === 2 || connection === 3) && sends_listen(x)) {
-			dropped++;
-			server.destroy();
-			client.destroy();
-			return true;
-		}
-		return false;
+	await using proxy = await proxy_to_server({
+		from_client: dropping_listens([2, 3], () => dropped++),
 	});
-	await using _close = defer(() => proxy.close());
 	await using sql = postgres({
 		...options,
-		host: "localhost",
-		port: port_of(proxy),
+		host: proxy.host,
+		port: proxy.port,
 		backoff: (retries) => {
 			counts.push(retries);
 			return 10;

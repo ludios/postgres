@@ -1,3 +1,4 @@
+import type net from "net";
 import { expect, onTestFinished, test } from "vitest";
 import {
 	postgres,
@@ -6,11 +7,10 @@ import {
 	defer,
 	delay,
 	idle_timeout,
-	pg_port,
-	port_of,
 	server_major,
 	terminate,
 	until_sleeping,
+	proxy_to_server,
 } from "./setup.ts";
 
 test("Throws on illegal transactions", async () => {
@@ -858,22 +858,23 @@ test("A tagged savepoint runs its query in a savepoint", async () => {
 });
 
 test("Queries in a Promise.all inside a transaction are pipelined in the order they were made (#951)", async () => {
-	const net = await import("net"),
-		proxy = net.createServer((client) => {
-			const server = net.connect(pg_port, "127.0.0.1");
-			client.on("data", (x) => setTimeout(() => server.write(x), 50));
-			server.on("data", (x) => setTimeout(() => client.write(x), 50));
-			client.on("close", () => server.destroy());
-			server.on("close", () => client.destroy());
-			client.on("error", () => {});
-			server.on("error", () => {});
-		});
-	await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
-	await using _close = defer(() => proxy.close());
+	// The proxy delays what each side sends by 50 ms, so that a round trip takes a measurable time
+	const later = (socket: net.Socket, x: Buffer) => {
+		setTimeout(() => {
+			if (socket.writable) {
+				socket.write(x);
+			}
+		}, 50);
+		return true;
+	};
+	await using proxy = await proxy_to_server({
+		from_client: (x, c) => later(c.server, x),
+		from_server: (x, c) => later(c.client, x),
+	});
 	await using sql = postgres({
 		...options,
-		host: "127.0.0.1",
-		port: port_of(proxy),
+		host: proxy.host,
+		port: proxy.port,
 		max: 1,
 		fetch_types: false,
 	});

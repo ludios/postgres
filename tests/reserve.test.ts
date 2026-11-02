@@ -1,4 +1,3 @@
-import net from "net";
 import { expect, test } from "vitest";
 import {
 	postgres,
@@ -7,10 +6,9 @@ import {
 	defer,
 	delay,
 	idle_timeout,
-	pg_port,
-	port_of,
 	terminate,
 	until_sleeping,
+	proxy_to_server,
 } from "./setup.ts";
 
 test("Ensure reserve on connection throws proper error", async () => {
@@ -141,23 +139,12 @@ test("Releasing a terminated reserved connection does not return it to the pool"
 });
 
 test("Writing to a closed reserved connection rejects instead of crashing", async () => {
-	let downstream;
-	const proxy = net.createServer((x) => {
-		downstream = x;
-		const upstream = net.connect(pg_port, "127.0.0.1");
-		x.pipe(upstream).pipe(x);
-		x.on("error", () => upstream.destroy());
-		upstream.on("error", () => x.destroy());
-	});
-
-	await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
-	await using _close = defer(() => proxy.close());
-
-	const sql = postgres({ ...options, host: "127.0.0.1", port: port_of(proxy), max: 1 });
+	await using proxy = await proxy_to_server();
+	await using sql = postgres({ ...options, host: proxy.host, port: proxy.port, max: 1 });
 	using reserved = await sql.reserve();
 
 	await reserved`select 1`;
-	downstream.end();
+	proxy.connections[0].client.end();
 	await delay(50);
 
 	const code = await reserved`select 1`.catch((e) => e.code);

@@ -2,7 +2,15 @@ import dc from "diagnostics_channel";
 import net from "net";
 import { AsyncLocalStorage } from "async_hooks";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { postgres, options, delay, defer, pg_port, port_of, until_sleeping } from "./setup.ts";
+import {
+	postgres,
+	options,
+	delay,
+	defer,
+	pg_port,
+	until_sleeping,
+	proxy_to_server,
+} from "./setup.ts";
 
 function record(name) {
 	const events = [],
@@ -241,41 +249,28 @@ test("Tracing: the pool publishes no idle for a connection that is closing", asy
 });
 
 test("Tracing: the pool publishes idle for a cancelled query's connection once its cancel request has been handled", async () => {
-	// A proxy that passes the server's close of a cancel request's connection on to the client only
-	// when the test says so, so that the cancelled query's ReadyForQuery is sure to arrive first.
-	// The client half-closes that connection as soon as it has sent the request, so the proxy must
-	// not answer its FIN with one of its own
+	// The proxy passes the server's close of the cancel request's connection (the second one, after
+	// the pool's) on to the client only when the test says so, so that the cancelled query's
+	// ReadyForQuery is sure to arrive first. The client half-closes that connection as soon as it
+	// has sent the request, so the proxy must not answer its FIN with one of its own
 	const releasable = Promise.withResolvers<() => void>();
-	const proxy = net.createServer({ allowHalfOpen: true }, (client) => {
-		const server = net.connect(pg_port, "localhost");
-		let cancel_request: boolean | null = null;
-		client.on("data", (x) => {
-			// A connection's first message says what it is: a CancelRequest has the code 80877102
-			// after its length, where a StartupMessage has the protocol version
-			cancel_request ??= x.readInt32BE(4) === 80877102;
-			server.write(x);
-		});
-		server.on("data", (x) => client.write(x));
-		client.on("error", () => server.destroy());
-		server.on("error", () => client.destroy());
-		client.on("close", () => server.destroy());
-		server.on("close", () => {
-			if (cancel_request) {
-				releasable.resolve(() => client.destroy());
-			} else {
-				client.destroy();
+	await using proxy = await proxy_to_server({
+		allow_half_open: true,
+		server_closed: (c) => {
+			if (c.number !== 2) {
+				return false;
 			}
-		});
+			releasable.resolve(() => c.client.destroy());
+			return true;
+		},
 	});
-	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
-	await using _close = defer(() => proxy.close());
 	const { messages, stop } = listen("postgres:pool");
 	// connect_timeout bounds the cancel request too, which the proxy keeps in flight until the
 	// test releases it, so the 1 second of `options` could run out on a slow machine
 	await using sql = postgres({
 		...options,
-		host: "localhost",
-		port: port_of(proxy),
+		host: proxy.host,
+		port: proxy.port,
 		max: 1,
 		connect_timeout: 10,
 	});

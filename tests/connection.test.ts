@@ -21,6 +21,7 @@ import {
 	until_sleeping,
 	exits,
 	defer,
+	proxy_to_server,
 } from "./setup.ts";
 
 test("Connects with no options", async () => {
@@ -628,25 +629,18 @@ test("Query runs on a new connection if the backend dies while fetching array ty
 		process.off("unhandledRejection", onunhandled);
 	});
 
-	const proxy = net.createServer((client) => {
-		const server = net.connect(pg_port, "localhost");
-		client.on("data", (x) => {
+	await using proxy = await proxy_to_server({
+		from_client: (x, c) => {
 			if (!killed && x.includes("pg_type")) {
 				killed = true;
-				server.destroy();
-				return client.end(errorResponse("FATAL", "57P01"));
+				c.server.destroy();
+				c.client.end(errorResponse("FATAL", "57P01"));
+				return true;
 			}
-			server.write(x);
-		});
-		server.on("data", (x) => client.writable && client.write(x));
-		client.on("error", () => server.destroy());
-		server.on("error", () => client.destroy());
-		client.on("close", () => server.destroy());
+			return false;
+		},
 	});
-
-	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
-	await using _close = defer(() => proxy.close());
-	const sql = postgres({ ...options, host: "localhost", port: port_of(proxy) });
+	const sql = postgres({ ...options, host: proxy.host, port: proxy.port });
 	const x = await sql`select 1 as x`.then(
 		([x]) => x.x,
 		(e) => e.code,
@@ -680,31 +674,26 @@ test("Clean closes during startup reject queries and reserves instead of reconne
 });
 
 test("Clean closes while fetching array types reject queries once connect_timeout has passed", async () => {
-	let attempts = 0;
-
-	const proxy = net.createServer((client) => {
-		const server = net.connect(pg_port, "localhost");
-		attempts++;
-		client.on("data", (x) =>
-			x.includes("pg_type") ? (server.destroy(), client.end()) : server.write(x),
-		);
-		server.on("data", (x) => client.writable && client.write(x));
-		client.on("error", () => server.destroy());
-		server.on("error", () => client.destroy());
-		client.on("close", () => server.destroy());
+	await using proxy = await proxy_to_server({
+		from_client: (x, c) => {
+			if (x.includes("pg_type")) {
+				c.server.destroy();
+				c.client.end();
+				return true;
+			}
+			return false;
+		},
 	});
-
-	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
-	await using _close = defer(() => proxy.close());
 	await using sql = postgres({
 		...options,
-		host: "localhost",
-		port: port_of(proxy),
+		host: proxy.host,
+		port: proxy.port,
 		connect_timeout: 0.5,
 	});
 	const start = Date.now();
 	const error = await sql`select ${1}::int as x`.catch((e) => e);
-	const waited = Date.now() - start;
+	const waited = Date.now() - start,
+		attempts = proxy.connections.length;
 
 	expect([error.code, waited >= 500, attempts < 10, error.query, error.parameters]).toEqual([
 		"CONNECTION_CLOSED",
@@ -716,29 +705,23 @@ test("Clean closes while fetching array types reject queries once connect_timeou
 });
 
 test("A clean close while fetching array types is retried when connect_timeout is disabled", async () => {
-	let attempts = 0,
-		closed = false;
+	let closed = false;
 
-	const proxy = net.createServer((client) => {
-		const server = net.connect(pg_port, "localhost");
-		attempts++;
-		client.on("data", (x) =>
-			!closed && x.includes("pg_type")
-				? ((closed = true), server.destroy(), client.end())
-				: server.write(x),
-		);
-		server.on("data", (x) => client.writable && client.write(x));
-		client.on("error", () => server.destroy());
-		server.on("error", () => client.destroy());
-		client.on("close", () => server.destroy());
+	await using proxy = await proxy_to_server({
+		from_client: (x, c) => {
+			if (!closed && x.includes("pg_type")) {
+				closed = true;
+				c.server.destroy();
+				c.client.end();
+				return true;
+			}
+			return false;
+		},
 	});
-
-	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
-	await using _close = defer(() => proxy.close());
 	await using sql = postgres({
 		...options,
-		host: "localhost",
-		port: port_of(proxy),
+		host: proxy.host,
+		port: proxy.port,
 		connect_timeout: 0,
 	});
 	const x = await sql`select 1 as x`.then(
@@ -746,7 +729,7 @@ test("A clean close while fetching array types is retried when connect_timeout i
 		(e) => e.code,
 	);
 
-	expect([x, closed, attempts]).toEqual([1, true, 2]);
+	expect([x, closed, proxy.connections.length]).toEqual([1, true, 2]);
 });
 
 test("A query refused with a FATAL error rejects with the peer error instead of reconnecting forever", async () => {
@@ -935,31 +918,36 @@ test("A query cancelled while its connection starts up leaves the connection in 
 		["types", {}],
 		["auth", { fetch_types: false }],
 	] as const) {
+		// The proxy holds back what the server sends, from the start or from the types query on,
+		// until the test releases it
 		const held = [];
-		let holding = phase === "auth",
-			release = null;
-
-		const proxy = net.createServer((client) => {
-			const server = net.connect(pg_port, "localhost");
-			client.on(
-				"data",
-				(x) => (phase === "types" && x.includes("typarray") && (holding = true), server.write(x)),
-			);
-			server.on("data", (x) => (holding ? held.push(x) : client.write(x)));
-			client.on("error", () => server.destroy());
-			server.on("error", () => client.destroy());
-			client.on("close", () => server.destroy());
-			server.on("close", () => client.destroy());
-			release = () => ((holding = false), held.splice(0).forEach((x) => client.write(x)));
+		let holding = phase === "auth";
+		await using proxy = await proxy_to_server({
+			from_client: (x) => {
+				if (phase === "types" && x.includes("typarray")) {
+					holding = true;
+				}
+				return false;
+			},
+			from_server: (x, c) => {
+				if (holding) {
+					held.push([c, x]);
+					return true;
+				}
+				return false;
+			},
 		});
-
-		await new Promise<void>((r) => proxy.listen(0, "localhost", r));
-		await using _close = defer(() => proxy.close());
+		const release = () => {
+			holding = false;
+			for (const [c, x] of held.splice(0)) {
+				c.client.write(x);
+			}
+		};
 		const sql = postgres({
 				...options,
 				...o,
-				host: "localhost",
-				port: port_of(proxy),
+				host: proxy.host,
+				port: proxy.port,
 				max: 1,
 			}),
 			query = sql`select 1 as x`,
