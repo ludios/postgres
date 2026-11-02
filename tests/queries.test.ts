@@ -349,6 +349,29 @@ test("A cancel request that never completes holds its connection only for connec
 	}
 });
 
+test("Canceling a pipelined query whose parameters failed to serialize does not hold its connection", async () => {
+	const sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: null });
+	try {
+		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+			circular: any = {};
+		circular.self = circular;
+		const sleeping = sql`select pg_sleep(0.1)`.execute(),
+			failed = sql`select ${sql.json(circular)} as x`.execute();
+		failed.catch(() => {});
+		await until_sleeping(pid);
+		const cancelled = failed.cancel();
+		await sleeping;
+		await expect(failed).rejects.toThrow(TypeError);
+		const settled = await Promise.race([
+			Promise.all([cancelled, sql`select 1 as x`]).then(([, [{ x }]]) => x),
+			delay(3000).then(() => "pending"),
+		]);
+		expect(settled).toBe(1);
+	} finally {
+		await sql.end({ timeout: 0 });
+	}
+});
+
 test("Every cancel() of a query pipelined behind another settles when the connection closes", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	try {

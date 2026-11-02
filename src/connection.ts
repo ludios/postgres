@@ -665,7 +665,8 @@ export function Connection(ready, options, events) {
 		}
 
 		const x = sent.find((x) => x.query === query);
-		if (!x) {
+		// A local exchange wrote nothing, and fails with its own error
+		if (!x || x.kind === "local") {
 			return Promise.resolve();
 		}
 
