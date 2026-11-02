@@ -252,7 +252,10 @@ test("Original listen handles unsubscribe after a reconnect", async () => {
 			(x) => xs.push("1" + x),
 			() => ++registrations === 2 && reconnect(),
 		);
-		const s2 = await sql.listen("test", (x) => (xs.push("2" + x), arrivals[x]()));
+		const s2 = await sql.listen("test", (x) => {
+			xs.push("2" + x);
+			arrivals[x]();
+		});
 		await sql.notify("test", "a");
 		await a;
 		await sql`select pg_terminate_backend(${s1.state.pid})`;

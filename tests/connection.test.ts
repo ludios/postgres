@@ -354,14 +354,13 @@ test("requests works after single connect_timeout", async () => {
 		},
 	});
 
-	expect([
-		await sql`select 1 as x`.then(
-			() => "success",
-			(x) => x.code,
-		),
-		await delay(10),
-		(await sql`select 1 as x`)[0].x,
-	]).toEqual(["CONNECT_TIMEOUT", undefined, 1]);
+	const first_outcome = await sql`select 1 as x`.then(
+		() => "success",
+		(x) => x.code,
+	);
+	await delay(10);
+	const [{ x }] = await sql`select 1 as x`;
+	expect([first_outcome, x]).toEqual(["CONNECT_TIMEOUT", 1]);
 });
 
 test("Catches connection config errors", async () => {

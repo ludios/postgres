@@ -465,11 +465,17 @@ async function aborted(sql, how) {
 	const controller = new AbortController(),
 		query = sql`select generate_series(1, 10) as x`;
 	let calls = 0;
-	how === "signal" && query.signal(controller.signal);
+	if (how === "signal") {
+		query.signal(controller.signal);
+	}
 	const outcome = await query
 		.cursor(2, async () => {
 			calls++;
-			how === "signal" ? controller.abort() : query.cancel();
+			if (how === "signal") {
+				controller.abort();
+			} else {
+				query.cancel();
+			}
 			await delay(20);
 		})
 		.then(
@@ -529,13 +535,22 @@ test("Aborting a cursor used as an async iterator stops it with 57014", async ()
 
 test("A cursor waits for the callback of its last batch, and rejects if it does", async () => {
 	const sql = postgres({ ...options, max: 1 }),
+		/**
+		 * Run a cursor over two batches, [1, 2] and [3], whose callback waits a little for each.
+		 * @param sql - the sql to run the query on: the pool or a reserved connection
+		 * @param fail - whether the callback throws for the last batch
+		 * @returns the first x of each batch that the callback got, and the cursor's outcome
+		 * ("resolved", or the message of the error it rejected with)
+		 */
 		last = async (sql, fail?) => {
 			const seen = [];
 			const outcome = await sql`select generate_series(1, 3) as x`
 				.cursor(2, async (rows) => {
 					await delay(20);
 					seen.push(rows[0].x);
-					if (fail && rows[0].x === 3) throw new Error("last");
+					if (fail && rows[0].x === 3) {
+						throw new Error("last");
+					}
 				})
 				.then(
 					() => "resolved",
