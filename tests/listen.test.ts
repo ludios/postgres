@@ -405,20 +405,23 @@ test("A listen() whose onlisten throws rejects and leaves no listener behind", a
 	const sql = postgres(options),
 		kept = [],
 		removed = [];
-	await sql.listen("test", (x) => kept.push(x));
-	const error = await sql
-		.listen(
-			"test",
-			(x) => removed.push(x),
-			() => {
-				throw new Error("onlisten throws");
-			},
-		)
-		.catch((e) => e.message);
-	await sql.notify("test", "a");
-	await until(() => kept.length === 1);
-	expect([error, kept, removed]).toEqual(["onlisten throws", ["a"], []]);
-	await sql.end();
+	try {
+		await sql.listen("onlisten_throws", (x) => kept.push(x));
+		const error = await sql
+			.listen(
+				"onlisten_throws",
+				(x) => removed.push(x),
+				() => {
+					throw new Error("onlisten throws");
+				},
+			)
+			.catch((e) => e.message);
+		await sql.notify("onlisten_throws", "a");
+		await until(() => kept.length === 1);
+		expect([error, kept, removed]).toEqual(["onlisten throws", ["a"], []]);
+	} finally {
+		await sql.end();
+	}
 });
 
 test("unlisten after end resolves without a query", async () => {
