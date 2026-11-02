@@ -544,7 +544,11 @@ function Listen(options) {
 				return;
 			}
 
-			channels.get(name) === channel && channels.delete(name);
+			if (channels.get(name) === channel) {
+				channels.delete(name);
+			}
+			// The retry of a failed LISTEN, if one is pending, is for nobody now
+			clearTimeout(channel.timer);
 			const x = sql;
 
 			if (closing || !x) {

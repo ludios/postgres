@@ -441,3 +441,48 @@ test("A listener that joins while a reconnect's LISTEN is in flight gets onliste
 		proxy.close();
 	}
 });
+
+test("The last unlisten during an outage clears the channel's retry timer", async () => {
+	// The timers that `sql` has set and has neither cleared nor run yet
+	const pending = new Set(),
+		timers = {
+			setTimeout(fn, ms, ...args) {
+				const timer = setTimeout(() => {
+					pending.delete(timer);
+					fn(...args);
+				}, ms);
+				pending.add(timer);
+				return timer;
+			},
+			clearTimeout(timer) {
+				pending.delete(timer);
+				clearTimeout(timer);
+			},
+			setImmediate,
+			clearImmediate,
+			now: () => performance.now(),
+		};
+	// The proxy drops its second connection as soon as the client sends a LISTEN on it
+	let dropped = false;
+	const proxy = await proxy_to_server((x, connection, client, server) => {
+			if (connection === 2 && x.includes('listen "test"')) {
+				dropped = true;
+				server.destroy();
+				client.destroy();
+				return true;
+			}
+			return false;
+		}),
+		sql = postgres({ ...options, host: "localhost", port: port_of(proxy), backoff: () => 10, timers });
+	try {
+		const { state, unlisten } = await sql.listen("test", () => {});
+		await terminate(state.pid);
+		// The dropped LISTEN fails, and the channel waits 10 seconds to send it again
+		await until(() => dropped && pending.size === 1);
+		await unlisten();
+	} finally {
+		await sql.end();
+		proxy.close();
+	}
+	expect(pending.size).toBe(0);
+});
