@@ -225,9 +225,7 @@ test(
 			error = err;
 		}
 
-		expect(
-			error.code === "ECONNREFUSED" || error.message === "Connection refused (os error 61)",
-		).toBe(true);
+		expect(error.code).toBe("ECONNREFUSED");
 	},
 );
 
