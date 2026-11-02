@@ -259,17 +259,22 @@ export class Query extends Promise<any> {
 		return this;
 	}
 
-	then(fulfilled?, rejected?) {
+	then<TResult1 = any, TResult2 = never>(
+		fulfilled?: ((value: any) => TResult1 | PromiseLike<TResult1>) | null,
+		rejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
+	): Promise<TResult1 | TResult2> {
 		this.handle();
 		return super.then(fulfilled, rejected);
 	}
 
-	catch(rejected) {
+	catch<TResult = never>(
+		rejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null,
+	): Promise<any> {
 		this.handle();
 		return super.catch(rejected);
 	}
 
-	finally(fn) {
+	finally(fn?: (() => void) | null): Promise<any> {
 		this.handle();
 		return super.finally(fn);
 	}
