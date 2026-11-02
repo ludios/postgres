@@ -370,6 +370,32 @@ test("Canceling a pipelined query whose parameters failed to serialize does not 
 	expect(settled).toBe(1);
 });
 
+test("sql.close() resolves when a query that waited behind a cancel request fails to serialize", async () => {
+	const sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: null });
+	await using _end = defer(() => sql.end({ timeout: 0 }));
+	const reserved = await sql.reserve(),
+		fast = reserved`select 1`.execute();
+	fast.catch(() => {});
+	// Let the query go out, then block, so that its ReadyForQuery comes before the cancel request
+	// ends
+	await new Promise((resolve) => process.nextTick(resolve));
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+	const cancelled = fast.cancel(),
+		failed = reserved`select ${sql.json({ x: 1n })} as x`.execute();
+	failed.catch(() => {});
+	// Let the lease place the query, which waits behind the cancel request. Once the lease is
+	// released, the query fails as one without a lease does, and is never sent.
+	await new Promise((resolve) => process.nextTick(resolve));
+	reserved.release();
+	const closed = await Promise.race([
+		sql.close().then(() => "closed"),
+		delay(3000).then(() => "pending"),
+	]);
+	await cancelled;
+	await expect(failed).rejects.toThrow(TypeError);
+	expect(closed).toBe("closed");
+});
+
 test("Every cancel() of a query pipelined behind another settles when the connection closes", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	await using _end = defer(() => sql.end({ timeout: 0 }));
