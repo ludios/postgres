@@ -4,12 +4,6 @@ import { bootstrap, exec } from "./bootstrap.ts";
 import { start_pg_tmp } from "./pg_tmp.ts";
 import { t } from "./test.ts";
 
-if (process.env.POOLER_PORT) {
-	throw new Error(
-		"POOLER_PORT is not supported: PgBouncer cannot point at the servers that pg_tmp starts for this run",
-	);
-}
-
 // The second server is for the tests that connect to several hosts
 const [first, second] = await Promise.all([start_pg_tmp(), start_pg_tmp()]);
 
