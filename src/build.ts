@@ -4,6 +4,7 @@ import { Parameter, infer } from "./types.ts";
 export const isQuery = Symbol("query");
 
 class NotTagged {
+	// oxlint-disable-next-line unicorn/no-thenable -- awaiting a call of sql that is not a tagged template throws NOT_TAGGED_CALL
 	then() {
 		notTagged();
 	}

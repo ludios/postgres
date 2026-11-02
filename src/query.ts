@@ -315,6 +315,7 @@ export class Query extends Promise<any> {
 		return this;
 	}
 
+	// oxlint-disable-next-line unicorn/no-thenable -- a Query runs when it is first awaited: then() starts it
 	then<TResult1 = any, TResult2 = never>(
 		fulfilled?: ((value: any) => TResult1 | PromiseLike<TResult1>) | null,
 		rejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,

@@ -52,7 +52,6 @@
 				"typescript/await-thenable": "warn",
 				"no-async-promise-executor": "warn",
 				"typescript/no-base-to-string": "warn",
-				"unicorn/no-thenable": "warn",
 				"promise/no-callback-in-promise": "warn",
 				"unicorn/no-unnecessary-await": "warn",
 				"typescript/require-array-sort-compare": "warn",
