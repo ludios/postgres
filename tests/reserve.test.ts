@@ -4,6 +4,7 @@ import {
 	postgres,
 	sql,
 	options,
+	defer,
 	delay,
 	idle_timeout,
 	pg_port,
@@ -42,31 +43,23 @@ test("reserve connection", async () => {
 });
 
 test("arrays in reserved connection", async () => {
-	const reserved = await sql.reserve();
+	using reserved = await sql.reserve();
 	const [{ x }] = await reserved`select array[1, 2, 3] as x`;
-	reserved.release();
 
 	expect(x).toEqual([1, 2, 3]);
 });
 
 test("Ensure reserve on query throws proper error", async () => {
 	const sql = postgres({ idle_timeout });
-	const reserved = await sql.reserve();
+	using reserved = await sql.reserve();
 	const [{ x }] = await reserved`select 'wat' as x`;
-
-	try {
-		expect(x).toBe("wat");
-	} finally {
-		reserved.release();
-	}
+	expect(x).toBe("wat");
 });
 
 test("reserve with fetch_types: false on a cold pool", async () => {
-	const sql = postgres({ ...options, fetch_types: false });
-	const reserved = await sql.reserve();
+	await using sql = postgres({ ...options, fetch_types: false });
+	using reserved = await sql.reserve();
 	const [{ x }] = await reserved`select 1 as x`;
-	reserved.release();
-	await sql.end();
 	expect(x).toBe(1);
 });
 
@@ -88,23 +81,21 @@ test("end() resolves when a reserved connection is released after end was called
 });
 
 test("reserve queued behind a terminated connection", async () => {
-	const pool = postgres(options);
+	await using pool = postgres(options);
 	const reserved = await pool.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	const pending = pool.reserve();
 
 	await terminate(pid);
 
-	const next = await pending;
+	using next = await pending;
 	const [{ x }] = await next`select 1 as x`;
-	next.release();
-	await pool.end();
 
 	expect(x).toBe(1);
 });
 
 test("reserve after a terminated query", async () => {
-	const pool = postgres(options);
+	await using pool = postgres(options);
 	const reserved = await pool.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	const query = reserved`select pg_sleep(30)`.catch((e) => e);
@@ -114,37 +105,32 @@ test("reserve after a terminated query", async () => {
 	await terminate(pid);
 	await query;
 
-	const next = await pool.reserve();
+	using next = await pool.reserve();
 	const [{ x }] = await next`select 1 as x`;
-	next.release();
-	await pool.end();
 
 	expect(x).toBe(1);
 });
 
 test("Reserved connection rejects queries after its backend is terminated", async () => {
-	const sql = postgres({ ...options, max: 2 });
-	const reserved = await sql.reserve();
+	await using sql = postgres({ ...options, max: 2 });
+	using reserved = await sql.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	await sql`select pg_terminate_backend(${pid})`;
 	await delay(100);
 	const first = await reserved`select 1`.catch((e) => e.code);
 	const second = await reserved`select 2`.catch((e) => e.code);
-	reserved.release();
-	await sql.end();
 	expect([first, second]).toEqual(["CONNECTION_CLOSED", "CONNECTION_CLOSED"]);
 });
 
 test("Releasing a terminated reserved connection does not return it to the pool", async () => {
-	const sql = postgres({ ...options, max: 1 });
-	const reserved = await sql.reserve();
+	await using sql = postgres({ ...options, max: 1 });
+	using reserved = await sql.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	await terminate(pid);
 	await delay(100);
 	await reserved`select 1`.catch(() => {});
 	reserved.release();
 	const [{ x }] = await Promise.race([sql`select 1 as x`, delay(2000).then(() => [{ x: "hung" }])]);
-	await sql.end();
 	expect(x).toBe(1);
 });
 
@@ -159,25 +145,24 @@ test("Writing to a closed reserved connection rejects instead of crashing", asyn
 	});
 
 	await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
+	await using _close = defer(() => proxy.close());
 
-	const sql = postgres({ ...options, host: "127.0.0.1", port: port_of(proxy), max: 1 }),
-		reserved = await sql.reserve();
+	const sql = postgres({ ...options, host: "127.0.0.1", port: port_of(proxy), max: 1 });
+	using reserved = await sql.reserve();
 
 	await reserved`select 1`;
 	downstream.end();
 	await delay(50);
 
 	const code = await reserved`select 1`.catch((e) => e.code);
-	reserved.release();
-	proxy.close();
 
 	expect(code).toBe("CONNECTION_CLOSED");
 });
 
 test("A reserved connection released while its BEGIN is still unanswered is not handed to the next query in that transaction", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	await sql`create table test (a int)`;
-	const reserved = await sql.reserve();
+	using reserved = await sql.reserve();
 	const begin = reserved`begin`.execute();
 	const insert = reserved`insert into test values (1)`.execute();
 	begin.catch(() => {});
@@ -200,8 +185,6 @@ test("A reserved connection released while its BEGIN is still unanswered is not 
 	];
 	const rows = (await sql`select array_agg(a order by a) as a from test`)[0].a;
 	expect([pooled, leased, rows]).toEqual(["INSERT", ["BEGIN", "INSERT"], [2]]);
-	await sql`drop table test`;
-	await sql.end();
 });
 
 test("reserve and begin after end reject with CONNECTION_ENDED", async () => {
@@ -224,7 +207,7 @@ test("reserve and begin after end reject with CONNECTION_ENDED", async () => {
 });
 
 test("Releasing a reserved connection twice releases it once", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	const reserved = await sql.reserve();
 	reserved.release();
 	reserved.release();
@@ -233,12 +216,11 @@ test("Releasing a reserved connection twice releases it once", async () => {
 		sql.reserve().then((r) => r`select 2 as x`.finally(r.release)),
 	]);
 	expect([a.x, b.x]).toEqual([1, 2]);
-	await sql.end();
 });
 
 test("A describe() that a reserved connection gets as it is released rejects instead of running", async () => {
-	const sql = postgres(options),
-		reserved = await sql.reserve();
+	await using sql = postgres(options);
+	using reserved = await sql.reserve();
 	const described = reserved`select ${"a"}::text as x`.describe().then(
 		() => "described",
 		(e) => e.code,
@@ -247,5 +229,4 @@ test("A describe() that a reserved connection gets as it is released rejects ins
 	// microtask; the lease is released in a microtask between those two
 	queueMicrotask(() => reserved.release());
 	expect(await described).toBe("UNSAFE_TRANSACTION");
-	await sql.end();
 });
