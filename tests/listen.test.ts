@@ -1,5 +1,6 @@
+import net from "net";
 import { expect, test } from "vitest";
-import { postgres, options, delay, pg_socket_dir } from "./setup.ts";
+import { postgres, options, delay, pg_socket_dir, pg_port, port_of, terminate } from "./setup.ts";
 
 const until = async (fn, ms = 5000) => {
 	const end = Date.now() + ms;
@@ -338,4 +339,47 @@ test("unlisten after end resolves without a query", async () => {
 	const { unlisten } = await sql.listen("after_end", () => {});
 	await sql.end();
 	expect(await unlisten().then(() => "done")).toBe("done");
+});
+
+test("A close while a LISTEN is in flight starts no second retry chain", async () => {
+	// A proxy to the server, which drops its second connection as soon as the client sends a LISTEN
+	let connections = 0;
+	const proxy = net.createServer((client) => {
+		const server = net.connect(pg_port, "localhost"),
+			drop = ++connections === 2;
+		client.on("data", (x) => {
+			if (drop && x.includes('listen "test"')) {
+				server.destroy();
+				client.destroy();
+				return;
+			}
+			server.write(x);
+		});
+		server.on("data", (x) => client.writable && client.write(x));
+		client.on("error", () => server.destroy());
+		server.on("error", () => client.destroy());
+		client.on("close", () => server.destroy());
+		server.on("close", () => client.destroy());
+	});
+	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
+	const sql = postgres({ ...options, host: "localhost", port: port_of(proxy), backoff: () => 0.1 }),
+		xs = [];
+	let listens = 0;
+	try {
+		const { state } = await sql.listen(
+			"test",
+			(x) => xs.push(x),
+			() => listens++,
+		);
+		await terminate(state.pid);
+		await until(() => listens === 2);
+		// Time for a retry chain that the drop left behind to send its LISTEN, and call onlisten again
+		await delay(300);
+		await sql.notify("test", "a");
+		await until(() => xs.length === 1);
+		expect([connections, listens, xs]).toEqual([4, 2, ["a"]]);
+	} finally {
+		await sql.end();
+		proxy.close();
+	}
 });
