@@ -980,11 +980,12 @@ function parse_options(a, b) {
 	// Only "system" is supported. Any other sslrootcert, such as the path of a CA file, is sent to
 	// the server as a setting, which PostgreSQL refuses; connecting without checking the
 	// certificate against that CA would be worse. As in libpq, system makes verify-full the mode
-	// when the url gives none, and any other mode an error, which is checked below.
+	// when neither the url nor PGSSLMODE gives one, and any other mode an error, which is checked
+	// below.
 	const system_roots = query.sslrootcert === "system";
 	if (system_roots) {
 		delete query.sslrootcert;
-		if (!Object.hasOwn(query, "ssl") && !Object.hasOwn(query, "sslmode")) {
+		if (!Object.hasOwn(query, "ssl") && !Object.hasOwn(query, "sslmode") && !env.PGSSLMODE) {
 			query.ssl = "verify-full";
 		}
 	}

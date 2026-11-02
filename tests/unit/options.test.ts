@@ -248,7 +248,7 @@ test("sslmode in a url is read as ssl, and its errors name it, even when it is e
 	]).toEqual(["require", must('"foo"'), must('""')]);
 });
 
-test("sslrootcert=system makes verify-full the ssl mode, and any other mode throws, as in libpq", async () => {
+test("sslrootcert=system makes verify-full the ssl mode, and any other mode, also from PGSSLMODE, throws, as in libpq", async () => {
 	const url = "postgres://u@h/db?sslrootcert=system";
 	const must = (shown) =>
 		'The url parameter sslrootcert is "system", which, as in libpq, needs the ssl mode ' +
@@ -262,6 +262,9 @@ test("sslrootcert=system makes verify-full the ssl mode, and any other mode thro
 		thrown(() => postgres(url + "&sslmode=disable", { max: 1 })).message,
 		thrown(() => postgres(url, { max: 1, ssl: "require" })).message,
 		thrown(() => postgres(url + "&sslmode=verify-ca", { max: 1 })).message,
+		with_env({ PGSSLMODE: "verify-full" }, () => postgres(url, { max: 1 }).options.ssl),
+		with_env({ PGSSLMODE: "disable" }, () => thrown(() => postgres(url, { max: 1 })).message),
+		with_env({ PGSSLMODE: "verify-ca" }, () => thrown(() => postgres(url, { max: 1 })).message),
 	]).toEqual([
 		"verify-full",
 		"verify-full",
@@ -271,6 +274,11 @@ test("sslrootcert=system makes verify-full the ssl mode, and any other mode thro
 		must('"require"'),
 		expect.stringMatching(
 			/^The url parameter sslmode is "verify-ca", which would check only that /,
+		),
+		"verify-full",
+		must("false"),
+		expect.stringMatching(
+			/^The environment variable PGSSLMODE is "verify-ca", which would check only that /,
 		),
 	]);
 });
