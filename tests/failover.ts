@@ -1,13 +1,12 @@
 import { spawnSync } from "child_process";
 import path from "path";
+import { delay, postgres } from "./common.ts";
 
-const postgres = (await import(process.env.POSTGRES_JS || "../src/index.ts")).default,
-	here = path.dirname(new URL(import.meta.url).pathname),
+const here = path.dirname(new URL(import.meta.url).pathname),
 	dir = (process.env.PGTEST_DIR || path.join(here, ".pgdata")) + "/failover",
 	find = "command -v pg_ctl || ls -d /usr/lib/postgresql/*/bin/pg_ctl | sort -V | tail -n 1",
 	bin = process.env.PG_BIN || path.dirname(spawnSync("sh", ["-c", find]).stdout.toString().trim()),
 	url = "postgres://postgres@localhost:5434,localhost:5435/postgres",
-	delay = (ms) => new Promise((r) => setTimeout(r, ms)),
 	until = async (fn, ms = 100) => {
 		while (!fn()) await delay(ms);
 	},
