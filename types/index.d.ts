@@ -269,6 +269,7 @@ declare namespace postgres {
 		connection?: Partial<ConnectionParameters> | undefined;
 		/** For several hosts: which kind of server to settle on @default process.env.PGTARGETSESSIONATTRS */
 		target_session_attrs?:
+			| "any"
 			| "read-write"
 			| "read-only"
 			| "primary"
@@ -373,7 +374,7 @@ declare namespace postgres {
 		slot: string | null;
 		onread: boolean;
 		unref_sockets: boolean;
-		target_session_attrs: Options["target_session_attrs"];
+		target_session_attrs: Exclude<Options["target_session_attrs"], "any">;
 		connection: Partial<ConnectionParameters>;
 		types: { [K in keyof T]: PostgresType<T[K]> };
 		transform: Transform;

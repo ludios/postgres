@@ -749,6 +749,30 @@ function boolean(value, source) {
 	return x;
 }
 
+/** Reads the value of target_session_attrs, which may be `any` too, as in libpq. */
+const session_attrs = one_of(
+	null,
+	"any",
+	"read-write",
+	"read-only",
+	"primary",
+	"standby",
+	"prefer-standby",
+);
+
+/**
+ * Reads target_session_attrs, the kind of server to settle on when there are several hosts.
+ *
+ * @param value  - the value of the option
+ * @param source - where the value comes from (as for `seconds`)
+ * @returns `value`, or `null` for `any`, as `null` already means that any server will do
+ * @throws if `value` is not one of the kinds that `session_attrs` allows
+ */
+function target_session_attrs(value, source) {
+	const x = session_attrs(value, source);
+	return x === "any" ? null : x;
+}
+
 /**
  * @param retries - how many tries in a row have failed
  * @returns the number of seconds to wait before the next try: 3^retries / 100, but at most 20,
@@ -800,7 +824,7 @@ const option_rules: Record<
 	target_session_attrs: {
 		default: null,
 		variable: "PGTARGETSESSIONATTRS",
-		read: one_of(null, "read-write", "read-only", "primary", "standby", "prefer-standby"),
+		read: target_session_attrs,
 	},
 	publications: { default: "alltables" },
 	slot: { default: null },

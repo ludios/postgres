@@ -120,28 +120,34 @@ test("disable and false in a PG environment variable turn an option off, as in a
 	expect([x.prepare, x.idle_timeout]).toEqual([false, false]);
 });
 
-test("target_session_attrs from options, the url and PGTARGETSESSIONATTRS, as libpq reads it", async () => {
+test("target_session_attrs from options, the url and PGTARGETSESSIONATTRS, as libpq reads it, where any is null", async () => {
 	const read = with_env({ PGTARGETSESSIONATTRS: "standby" }, () => [
 		postgres({ max: 1 }).options.target_session_attrs,
 		postgres("postgres://u@h/db?target_session_attrs=primary", { max: 1 }).options
 			.target_session_attrs,
 		postgres({ max: 1, target_session_attrs: null }).options.target_session_attrs,
+		postgres({ max: 1, target_session_attrs: "any" }).options.target_session_attrs,
+		postgres("postgres://u@h/db?target_session_attrs=any", { max: 1 }).options.target_session_attrs,
 	]);
 	const unset = with_env(
 		{ PGTARGETSESSIONATTRS: undefined },
 		() => postgres({ max: 1 }).options.target_session_attrs,
 	);
-	expect([read, unset]).toEqual([["standby", "primary", null], null]);
+	const any = with_env(
+		{ PGTARGETSESSIONATTRS: "any" },
+		() => postgres({ max: 1 }).options.target_session_attrs,
+	);
+	expect([read, unset, any]).toEqual([["standby", "primary", null, null, null], null, null]);
 });
 
 test("An unsupported or empty target_session_attrs throws", async () => {
 	const must =
 		"The option target_session_attrs must be one of " +
-		'null, "read-write", "read-only", "primary", "standby", "prefer-standby", but it is ';
+		'null, "any", "read-write", "read-only", "primary", "standby", "prefer-standby", but it is ';
 	expect([
-		thrown(() => postgres({ target_session_attrs: "any" })).message,
+		thrown(() => postgres({ target_session_attrs: "master" })).message,
 		thrown(() => postgres({ target_session_attrs: "" })).message,
-	]).toEqual([must + '"any"', must + '""']);
+	]).toEqual([must + '"master"', must + '""']);
 });
 
 test("sql.array() is removed, and says so", async () => {
