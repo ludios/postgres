@@ -2,6 +2,9 @@ import util from "util";
 import type { Options } from "./index.ts";
 import type { Query } from "./query.ts";
 
+/** An error with the `code` that the library's errors and PostgreSQL's have, and a PostgreSQL error's `severity` */
+export type Failure = Error & { code?: string; severity?: string };
+
 export class PostgresError extends Error {
 	// The fields of the ErrorResponse that PostgreSQL sent, then `query`, `parameters`,
 	// and `types`, which this library adds to some errors.

@@ -70,7 +70,7 @@ export type Lease = {
 };
 
 /** The scheduler's knowledge of a statement text */
-type Cost = {
+export type Cost = {
 	/** The estimated time that the text takes to run, in ms; undefined until it has run */
 	est: number | undefined;
 };

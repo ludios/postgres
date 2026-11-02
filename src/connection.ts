@@ -7,6 +7,12 @@ import type { Query } from "./query.ts";
 import type { Column } from "./protocol.ts";
 import type { Lease, Statement } from "./pool.ts";
 import type postgres from "../types/index.js";
+import type { Options } from "./index.ts";
+import type { Ready } from "./startup.ts";
+import type { Built } from "./build.ts";
+import type { Failure } from "./errors.ts";
+import type { Value } from "./protocol.ts";
+import type { Types, Serializer } from "./types.ts";
 import { now, channels, listened } from "./diagnostics.ts";
 
 const text = p.text,
@@ -70,7 +76,7 @@ export type Exchange = {
 	/** The rows per Execute of a cursor; 0 for all */
 	rows: number;
 	end: boolean;
-	failure: Error | null;
+	failure: Failure | null;
 	flushing: boolean;
 	streaming: boolean;
 	open: boolean;
@@ -89,11 +95,11 @@ export type Exchange = {
 	epoch: number;
 	retried: boolean;
 	/** For a retry: the error of the exchange that is retried */
-	original: Error | null;
-	error: Error | null;
+	original: Failure | null;
+	error: Failure | null;
 	/** An error of the exchange's own, before any answer of the server, such as a refused build */
-	own: Error | null;
-	cancel: PromiseWithResolvers<unknown> | null;
+	own: Failure | null;
+	cancel: PromiseWithResolvers<void> | null;
 	// Whether a cancel request has been sent for this exchange
 	stopped: boolean;
 	// The promise of this exchange's cancel request while that request is in flight; otherwise null
@@ -106,6 +112,10 @@ export type Exchange = {
 	copied: boolean;
 	/** Whether the reader of a COPY TO stream wants more data */
 	wanted: boolean;
+	/** Whether the cursor's callback is running, for the rows of a step that PortalSuspended ended */
+	awaiting: boolean;
+	/** The promise of the cursor callback's last call, which the query settles after */
+	last: Promise<unknown> | null;
 	/** The final callback of a COPY FROM stream, until CommandComplete calls it */
 	final: ((error?: Error | null) => void) | null;
 	resolve: ((value: unknown) => void) | null;
@@ -153,30 +163,54 @@ type Shape = {
 	compilable: boolean;
 };
 
-export function Connection(ready, options, events) {
+/** What the pool gives a connection: the type registry's functions, and the pool's callbacks */
+export type Events = Pick<
+	ReturnType<typeof Types>,
+	"parser" | "decoder" | "binary" | "serializer"
+> & {
+	/** Called once the connection may take queries again */
+	onready: (c: Connection) => void;
+	/** Called once the connection has closed; pool.ts's onclose() says what the arguments are */
+	onclose: (c: Connection, error: Failure, lease_error: Failure | null, orderly: boolean) => void;
+	onnotify: Options["onnotify"];
+	onparameter: (key: string, value: string) => void;
+	/** Called with how long the head of `sent` took, for the scheduler */
+	ontimed: (sample: number, t: number) => void;
+};
+
+/** What describe() resolves with: the statement's parameter types and columns */
+type Description = { params: number[]; columns: Column[] | null };
+
+/** The `transform.value.from` of the options, or null for a raw() query */
+type From = Options["transform"]["value"]["from"] | null;
+
+/** A connection: what Connection() returns */
+export type Connection = ReturnType<typeof Connection>;
+
+export function Connection(ready: Ready, options: Options, events: Events) {
 	const { socket } = ready,
 		timers = options.timers,
 		{ transform } = options,
-		sent = [],
-		pending = [],
+		sent: Exchange[] = [],
+		pending: Exchange[] = [],
 		running = new Set<Query>(),
-		open = new Set(),
-		prepared = new Map(),
+		open = new Set<Exchange>(),
+		prepared = new Map<string, Entry>(),
 		out = p.Writer(),
 		frames = p.Frames(frame, socket.shared, abandon);
 
-	let blocker = null,
+	let blocker: Exchange | null = null,
 		rolling = false,
 		// How many CancelRequests are in flight; until there are none, nothing more is written.
 		cancelling = 0,
 		// How many local exchanges wait for settle_soon() to settle them; they count as in flight.
 		settling = 0,
-		fence = null,
-		drained = null,
+		fence: Exchange | null = null,
+		drained: (() => void) | null = null,
 		status = ready.status,
 		flushing = false,
-		closed = null,
-		closing = null,
+		closed: ReturnType<typeof Errors.connection> | null = null,
+		closing: Promise<void> | null = null,
 		// Resolves `closing`.
 		resolve_closing: (() => void) | null = null,
 		// Whether destroy() was called. If it was called before the socket closed, `closed` gets the
@@ -186,7 +220,7 @@ export function Connection(ready, options, events) {
 		terminated = false,
 		// A fatal error that came with no query to give it to: a broken frame, a frame that no
 		// query asked for, or an ErrorResponse while nothing was in flight.
-		connection_error = null,
+		connection_error: Failure | null = null,
 		portals = 0,
 		traced = 0,
 		epoch = 0,
@@ -262,7 +296,7 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function schedule(at_once?) {
+	function schedule(at_once?: boolean) {
 		if (at_once || out.length >= 65536) {
 			return flush();
 		}
@@ -291,7 +325,7 @@ export function Connection(ready, options, events) {
 		release();
 	}
 
-	function queue(x) {
+	function queue(x: Exchange) {
 		if (closed) {
 			settleError(x, copy_error(closed));
 			return;
@@ -340,7 +374,7 @@ export function Connection(ready, options, events) {
 	 *
 	 * @param x - a local exchange, with nothing in `sent` ahead of it
 	 */
-	function settle_soon(x) {
+	function settle_soon(x: Exchange) {
 		settling++;
 		queueMicrotask(() => {
 			settling--;
@@ -351,13 +385,13 @@ export function Connection(ready, options, events) {
 		});
 	}
 
-	function write(x) {
+	function write(x: Exchange) {
 		const mark = out.length;
 		let result;
 		try {
 			result = x.write(x);
 		} catch (error) {
-			x.own = error;
+			x.own = error as Failure;
 			result = skip;
 		}
 		if (result === skip) {
@@ -408,7 +442,7 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function sync(x, refuse?) {
+	function sync(x: Exchange, refuse?: boolean) {
 		if (x.synced) {
 			return;
 		}
@@ -422,7 +456,7 @@ export function Connection(ready, options, events) {
 		schedule();
 	}
 
-	function register(entry) {
+	function register(entry: Entry) {
 		const current = prepared.get(entry.name);
 		if (current) {
 			prepared.delete(entry.name);
@@ -443,13 +477,13 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function drop(entry) {
+	function drop(entry: Entry) {
 		if (prepared.get(entry.name) === entry) {
 			prepared.delete(entry.name);
 		}
 	}
 
-	function send(query) {
+	function send(query: Query) {
 		const { statement } = query.wire,
 			x = Exchange("query", query, connection.lease, extended);
 
@@ -464,7 +498,7 @@ export function Connection(ready, options, events) {
 		queue(x);
 	}
 
-	function timed(x) {
+	function timed(x: Exchange) {
 		const t = timers.now();
 
 		if (x.cost !== undefined) {
@@ -479,7 +513,7 @@ export function Connection(ready, options, events) {
 		headSince = t;
 	}
 
-	function backlog(t) {
+	function backlog(t: number) {
 		let w = 0;
 		for (let i = 0; i < sent.length; i++) {
 			const e = sent[i].cost || 0;
@@ -503,7 +537,7 @@ export function Connection(ready, options, events) {
 	 * when its query was sent, of the milliseconds that the whole exchange takes (`unknown` if there
 	 * was no estimate yet). The time that an exchange has already run is not subtracted.
 	 */
-	function costly(ms) {
+	function costly(ms: number) {
 		for (let i = 0; i < sent.length; i++) {
 			if (sent[i].cost >= ms) {
 				return true;
@@ -519,7 +553,7 @@ export function Connection(ready, options, events) {
 		return false;
 	}
 
-	function extended(x) {
+	function extended(x: Exchange) {
 		const { query } = x,
 			{ built } = query.wire,
 			statement = x.statement,
@@ -532,7 +566,7 @@ export function Connection(ready, options, events) {
 			x.flushing = !x.portal;
 		}
 
-		x.streaming = x.open = !!query.streaming;
+		x.streaming = x.open = query.streaming;
 
 		if (current && current.state === "parsing" && current.oids === null) {
 			throw Errors.generic(
@@ -581,12 +615,12 @@ export function Connection(ready, options, events) {
 		run(x, name);
 	}
 
-	function parse(x, name, query_text, oids) {
+	function parse(x: Exchange, name: string, query_text: string, oids: number[]) {
 		p.parse(out, name, query_text, oids);
 		x.parses.push(name);
 	}
 
-	function run(x, name) {
+	function run(x: Exchange, name: string) {
 		const mark = out.length;
 		try {
 			p.run(out, x.portal, name, x.values, x.rows, x.flushing, x.formats);
@@ -600,7 +634,7 @@ export function Connection(ready, options, events) {
 		debug(x.statement.text, x.values, x.entry ? x.entry.oids : x.params || x.query.wire.built.oids);
 	}
 
-	function learned(entry, statement) {
+	function learned(entry: Entry, statement: Statement) {
 		const shape = entry.oids.join() + ":" + entry.columns.map((x) => x.type).join();
 		if (statement.shape !== shape) {
 			if (statement.shape !== undefined) {
@@ -618,9 +652,9 @@ export function Connection(ready, options, events) {
 	 *   format for each column that is read in binary, and the result format of each column for
 	 *   Bind (1 for binary, 0 for text); or null, if no column is read in binary
 	 */
-	function binary_columns(columns) {
-		let binary = null,
-			formats = null;
+	function binary_columns(columns: Column[]) {
+		let binary: Column[] | null = null,
+			formats: number[] | null = null;
 		for (let i = 0; i < columns.length; i++) {
 			// The parser that the column has as text, so that the decoder gives what it would
 			const decode = events.binary(columns[i].type, columns[i].parser);
@@ -634,13 +668,16 @@ export function Connection(ready, options, events) {
 		return binary && { columns: binary, formats };
 	}
 
-	function serialize(oids, built, cache) {
+	/**
+	 * @param cache - the statement's entry, whose `serializers` are kept, or an object that is dropped
+	 */
+	function serialize(oids: number[], built: Built, cache: { serializers?: Serializer[] | null }) {
 		const serializers = cache.serializers || (cache.serializers = oids.map(events.serializer)),
 			values = built.values,
-			serialized = new Array(values.length);
+			serialized = new Array<Value>(values.length);
 
 		for (let i = 0; i < values.length; i++) {
-			serialized[i] = values[i] === null ? null : serializers[i](values[i]);
+			serialized[i] = values[i] === null ? null : (serializers[i](values[i]) as Value);
 			if (
 				serialized[i] !== null &&
 				serialized[i] !== undefined &&
@@ -661,7 +698,7 @@ export function Connection(ready, options, events) {
 		return !!connection.lease && connection.lease.kind === "transaction";
 	}
 
-	function described(x) {
+	function described(x: Exchange) {
 		x.describing = false;
 		const { built } = x.query.wire,
 			name = x.statement.name,
@@ -692,13 +729,13 @@ export function Connection(ready, options, events) {
 			x.values = serialize(params, built, entry || {});
 			run(x, name);
 		} catch (error) {
-			x.own = error;
+			x.own = error as Failure;
 			sync(x, !!connection.lease);
 		}
 	}
 
-	function describe(statement, oids) {
-		return new Promise((resolve, reject) => {
+	function describe(statement: { text: string }, oids: number[]) {
+		return new Promise<Description>((resolve, reject) => {
 			const x = Exchange("describe", null, connection.lease, (item) => {
 				p.parse(out, "", statement.text, oids);
 				p.describe(out, "S", "");
@@ -710,7 +747,7 @@ export function Connection(ready, options, events) {
 		});
 	}
 
-	function simple(query, sql) {
+	function simple(query: Query, sql: string) {
 		const x = Exchange("simple", query, connection.lease, (item) => {
 			debug(sql, [], []);
 			p.query(out, sql);
@@ -719,14 +756,14 @@ export function Connection(ready, options, events) {
 		x.text = sql;
 		x.results = [];
 		x.ends = ending.test(sql);
-		x.streaming = x.open = !!query.streaming;
+		x.streaming = x.open = query.streaming;
 		if (options.scheduler) {
 			cost(x);
 		}
 		queue(x);
 	}
 
-	function local(query, error) {
+	function local(query: Query, error: Error) {
 		queue(
 			Exchange("query", query, connection.lease, () => {
 				throw error;
@@ -742,7 +779,7 @@ export function Connection(ready, options, events) {
 	 *
 	 * @returns a promise that settles as the CancelRequest does
 	 */
-	function stop(x) {
+	function stop(x: Exchange) {
 		// A cancel request for anything else would hit whatever the backend runs next
 		if (sent[0] !== x) {
 			const i = sent.indexOf(x);
@@ -775,7 +812,7 @@ export function Connection(ready, options, events) {
 	 *
 	 * @param promise settles once a cancel request has been handled, or has failed
 	 */
-	function hold(promise) {
+	function hold(promise: Promise<unknown>) {
 		const done = () => {
 			cancelling--;
 			if (cancelling === 0 && !closed) {
@@ -802,7 +839,7 @@ export function Connection(ready, options, events) {
 	 *
 	 * @returns a promise that settles once the stop has been sent
 	 */
-	function cancel_copy(x) {
+	function cancel_copy(x: Exchange) {
 		if (x.copy === "out") {
 			// Also once the COPY data has ended, since statements after the COPY in the same
 			// query may still run. Before the destroy, so that the hold also covers what resuming the socket finishes
@@ -819,7 +856,7 @@ export function Connection(ready, options, events) {
 		return stop(x);
 	}
 
-	function cancel(query) {
+	function cancel(query: Query) {
 		if (running.has(query) || (sent[0] && sent[0].query === query && sent[0].awaiting)) {
 			query.aborted = Errors.canceled();
 			return Promise.resolve();
@@ -847,7 +884,7 @@ export function Connection(ready, options, events) {
 			// connection closes; every call gets the same promise. Until then nothing more is
 			// written, since the cancel request could hit it.
 			if (!x.cancel) {
-				x.cancel = Promise.withResolvers();
+				x.cancel = Promise.withResolvers<void>();
 				hold(x.cancel.promise);
 			}
 			return x.cancel.promise;
@@ -922,12 +959,12 @@ export function Connection(ready, options, events) {
 	 *
 	 * @param error - the error, which becomes the cause of `closed`
 	 */
-	function abandon(error) {
+	function abandon(error: Failure) {
 		connection_error = error;
 		socket.destroy();
 	}
 
-	function onclose(error) {
+	function onclose(error: Error | null) {
 		if (closed) {
 			return;
 		}
@@ -993,11 +1030,11 @@ export function Connection(ready, options, events) {
 		events.onclose(connection, closed, lease_error, orderly);
 	}
 
-	function decorate(query, error) {
+	function decorate(query: Query, error: unknown) {
 		return queryError(error, query, options.debug);
 	}
 
-	function settleError(x, error) {
+	function settleError(x: Exchange, error: Error) {
 		if (x.kind === "describe") {
 			x.reject(error);
 		} else if (x.query && !x.query.settled) {
@@ -1005,13 +1042,13 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function debug(query_text, values, oids) {
+	function debug(query_text: string, values: Value[] | null, oids: number[] | null) {
 		if (typeof options.debug === "function") {
 			options.debug(connection.id, query_text, values, oids);
 		}
 	}
 
-	function wrote(x) {
+	function wrote(x: Exchange) {
 		const trace = x.trace;
 		traced++;
 		trace.query = x.text || x.statement.text;
@@ -1030,7 +1067,7 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function frame(type, x, start, end) {
+	function frame(type: number, x: Buffer, start: number, end: number) {
 		if (traced) {
 			first();
 		}
@@ -1106,9 +1143,9 @@ export function Connection(ready, options, events) {
 		} catch (error) {
 			const item = sent[0];
 			if (item) {
-				fail(item, error);
+				fail(item, error as Failure);
 			} else {
-				abandon(error);
+				abandon(error as Failure);
 			}
 		}
 		if (blocker && !holds(blocker)) {
@@ -1120,14 +1157,14 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function fail(x, error) {
+	function fail(x: Exchange, error: Failure) {
 		x.error = x.error || error;
 		x.describing = false;
 		x.open = false;
 		sync(x);
 	}
 
-	function unsupported(x) {
+	function unsupported(x: string) {
 		if (sent[0]) {
 			fail(sent[0], Errors.notSupported(x));
 		}
@@ -1157,11 +1194,11 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function ParameterDescription(x, start) {
+	function ParameterDescription(x: Buffer, start: number) {
 		sent[0].params = p.parameterDescription(x, start);
 	}
 
-	function RowDescription(x, start) {
+	function RowDescription(x: Buffer, start: number) {
 		received(sent[0], p.rowDescription(x, start, 0, column));
 	}
 
@@ -1169,7 +1206,7 @@ export function Connection(ready, options, events) {
 		received(sent[0], []);
 	}
 
-	function received(x, columns) {
+	function received(x: Exchange, columns: Column[]) {
 		if (x.kind === "simple" && x.result.command !== null) {
 			x.results.push(x.result);
 			x.result = new Result();
@@ -1188,7 +1225,7 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function column(name, table, number, type) {
+	function column(name: string, table: number, number: number, type: number): Column {
 		const parser = events.parser(type);
 		return {
 			name: transform.column.from ? transform.column.from(name) : name,
@@ -1200,7 +1237,7 @@ export function Connection(ready, options, events) {
 		};
 	}
 
-	function DataRow(x, start) {
+	function DataRow(x: Buffer, start: number) {
 		const item = sent[0],
 			{ query, columns } = item,
 			raw = query.isRaw,
@@ -1214,7 +1251,8 @@ export function Connection(ready, options, events) {
 			n = columns.length,
 			result = item.result;
 
-		let row;
+		// An object or an array of the user's values: any shape
+		let row: any;
 		if (fast) {
 			row = fast(x, start + 7);
 		} else {
@@ -1257,7 +1295,7 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function CommandComplete(x, start, end) {
+	function CommandComplete(x: Buffer, start: number, end: number) {
 		const item = sent[0],
 			{ command, count } = p.commandComplete(x, start, end),
 			result = item.result;
@@ -1296,7 +1334,7 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function unsafe(item) {
+	function unsafe(item: Exchange) {
 		rolling = true;
 		item.own = unsafe_transaction();
 		for (const x of sent) {
@@ -1334,7 +1372,7 @@ export function Connection(ready, options, events) {
 	 * what the callback returned, fetches the next rows or closes the portal. Async, so its errors
 	 * cannot reach frame()'s catch: it fails `item` with them itself.
 	 */
-	async function resume(item) {
+	async function resume(item: Exchange) {
 		try {
 			item.awaiting = true;
 			const next = await item.query.cursorFn(item.result);
@@ -1359,13 +1397,13 @@ export function Connection(ready, options, events) {
 			if (closed || item.synced || sent[0] !== item) {
 				return;
 			}
-			fail(item, error);
+			fail(item, error as Failure);
 		}
 
 		refresh();
 	}
 
-	function ErrorResponse(x, start, end) {
+	function ErrorResponse(x: Buffer, start: number, end: number) {
 		const item = sent[0],
 			error = Errors.postgres(p.error(x, start, end));
 
@@ -1385,7 +1423,7 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function ReadyForQuery(x, start) {
+	function ReadyForQuery(x: Buffer, start: number) {
 		status = p.readyForQuery(x, start);
 		frames.own(false);
 		const item = sent.shift();
@@ -1419,7 +1457,7 @@ export function Connection(ready, options, events) {
 		if (next && next.query) {
 			next.query.active = true;
 			if (next.cancel) {
-				stop(next).then(next.cancel.resolve, next.cancel.reject);
+				stop(next).then(() => next.cancel.resolve(), next.cancel.reject);
 			}
 		}
 		release();
@@ -1427,7 +1465,7 @@ export function Connection(ready, options, events) {
 		notify_ready();
 	}
 
-	function settle(x) {
+	function settle(x: Exchange) {
 		if (x.kind === "internal") {
 			return;
 		}
@@ -1472,7 +1510,7 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function unfence(cursor) {
+	function unfence(cursor: Exchange) {
 		if (!open.delete(cursor) || open.size || !fence) {
 			return;
 		}
@@ -1480,7 +1518,7 @@ export function Connection(ready, options, events) {
 		release();
 	}
 
-	function failed(x) {
+	function failed(x: Exchange) {
 		const entry = x.kind === "query" ? x.entry : null;
 		const parsing = x.fresh || (entry && entry.owner === x && entry.state === "parsing");
 
@@ -1525,7 +1563,7 @@ export function Connection(ready, options, events) {
 	}
 
 	/** Runs `x` again if it can be run again (see `retryable`), and otherwise fails it with its error */
-	function again_or_fail(x) {
+	function again_or_fail(x: Exchange) {
 		if (retryable(x)) {
 			again(x, null);
 		} else {
@@ -1533,13 +1571,13 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function stale(entry) {
+	function stale(entry: Entry) {
 		if (prepared.get(entry.name) === entry) {
 			entry.state = "stale";
 		}
 	}
 
-	function retryable(x) {
+	function retryable(x: Exchange) {
 		return (
 			!x.retried &&
 			!x.stopped &&
@@ -1553,7 +1591,7 @@ export function Connection(ready, options, events) {
 		);
 	}
 
-	function again(x, original) {
+	function again(x: Exchange, original: Failure | null) {
 		const retry = Exchange("query", x.query, x.lease, extended);
 		retry.statement = x.statement;
 		retry.ends = x.ends;
@@ -1572,7 +1610,7 @@ export function Connection(ready, options, events) {
 		release();
 	}
 
-	function suspended(x) {
+	function suspended(x: Exchange) {
 		const cursor = x.origin || x,
 			{ query } = x;
 
@@ -1596,7 +1634,7 @@ export function Connection(ready, options, events) {
 		);
 	}
 
-	function step(cursor, end, failure) {
+	function step(cursor: Exchange, end: boolean, failure: Failure | null) {
 		const x = Exchange("step", cursor.query, cursor.lease, stepped);
 		x.origin = cursor;
 		x.statement = cursor.statement;
@@ -1616,7 +1654,7 @@ export function Connection(ready, options, events) {
 	 * @throws the step's failure, or UNSAFE_TRANSACTION for a step that would read from a cursor
 	 *   whose transaction has ended
 	 */
-	function stepped(x) {
+	function stepped(x: Exchange) {
 		const cursor = x.origin;
 
 		if (connection.lease !== cursor.lease || cursor.epoch !== epoch) {
@@ -1639,14 +1677,14 @@ export function Connection(ready, options, events) {
 		return null;
 	}
 
-	function NotificationResponse(x, start) {
+	function NotificationResponse(x: Buffer, start: number) {
 		const { pid, channel, payload } = p.notification(x, start);
 		if (events.onnotify) {
 			guard(events.onnotify, channel, payload, pid);
 		}
 	}
 
-	function NoticeResponse(x, start, end) {
+	function NoticeResponse(x: Buffer, start: number, end: number) {
 		const notice = p.error(x, start, end);
 		if (listened(channels.notice)) {
 			channels.notice.publish({
@@ -1665,7 +1703,7 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function ParameterStatus(x, start) {
+	function ParameterStatus(x: Buffer, start: number) {
 		const [k, v] = p.parameterStatus(x, start);
 		connection.parameters[k] = v;
 		if (events.onparameter) {
@@ -1689,7 +1727,7 @@ export function Connection(ready, options, events) {
 	 * head of `sent` (which is empty once the connection has closed), and its
 	 * stream is still attached
 	 */
-	function in_progress(item) {
+	function in_progress(item: Exchange) {
 		return !!item.stream && sent[0] === item;
 	}
 
@@ -1700,7 +1738,7 @@ export function Connection(ready, options, events) {
 	 * written behind the COPY, so only a COPY in progress that is the first
 	 * statement of its query, outside a transaction block, and alone on the wire.
 	 */
-	function cancellable(item) {
+	function cancellable(item: Exchange) {
 		return (
 			in_progress(item) &&
 			status === "I" &&
@@ -1717,7 +1755,7 @@ export function Connection(ready, options, events) {
 	 *
 	 * @param item the exchange whose COPY the stream belonged to
 	 */
-	function discard(item) {
+	function discard(item: Exchange) {
 		const reading = in_progress(item);
 		item.stream = null;
 		if (reading) {
@@ -1732,7 +1770,7 @@ export function Connection(ready, options, events) {
 	 * with `message`. A COPY BOTH ends with CopyDone, because walsender, the server
 	 * of COPY BOTH, takes CopyFail as a FATAL error.
 	 */
-	function end_copy(item, message) {
+	function end_copy(item: Exchange, message: string) {
 		if (item.copy === "both") {
 			p.copyDone(out);
 		} else {
@@ -1743,7 +1781,7 @@ export function Connection(ready, options, events) {
 		schedule(true);
 	}
 
-	function writeData(chunk, callback) {
+	function writeData(chunk: Buffer | string, callback: () => void) {
 		p.copyData(out, chunk);
 		if (flush()) {
 			callback();
@@ -1752,7 +1790,7 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function writable(item) {
+	function writable(item: Exchange): Stream.WritableOptions {
 		return {
 			autoDestroy: true,
 			write(chunk, encoding, callback) {
@@ -1789,7 +1827,7 @@ export function Connection(ready, options, events) {
 		item.query.resolve(item.stream);
 	}
 
-	function readable(item) {
+	function readable(item: Exchange) {
 		return () => {
 			item.wanted = true;
 			unpause();
@@ -1830,7 +1868,7 @@ export function Connection(ready, options, events) {
 		item.query.resolve(item.stream);
 	}
 
-	function CopyData(x, start, end) {
+	function CopyData(x: Buffer, start: number, end: number) {
 		const item = sent[0];
 
 		if (!item.stream) {
@@ -1839,7 +1877,7 @@ export function Connection(ready, options, events) {
 
 		item.wanted = false;
 		if (
-			!item.stream.push(
+			!(item.stream as Stream.Readable).push(
 				frames.owns(x) ? x.subarray(start + 5, end) : Buffer.from(x.subarray(start + 5, end)),
 			) &&
 			!item.wanted
@@ -1853,7 +1891,7 @@ export function Connection(ready, options, events) {
 		frames.own(false);
 		const item = sent[0];
 		if (item.stream) {
-			item.stream.push(null);
+			(item.stream as Stream.Readable).push(null);
 		}
 		item.stream = null;
 	}
@@ -1869,35 +1907,35 @@ function unsafe_transaction() {
  * the connection until its ReadyForQuery, so that no query waits behind a slow
  * reader of its stream, and so that cancelling it can't hit another query.
  */
-function holds(x) {
+function holds(x: Exchange) {
 	return (
 		x.describing ||
-		(!!x.error && !x.done) ||
+		(x.error !== null && !x.done) ||
 		(x.flushing && !x.synced) ||
 		(x.streaming && !x.done) ||
 		(x.alone && !x.done)
 	);
 }
 
-function exclusive(x) {
+function exclusive(x: Exchange) {
 	return x.flushing || x.streaming || x.alone;
 }
 
-function cost(x) {
+function cost(x: Exchange) {
 	const { query } = x;
 	if (query.cost && !query.cursorFn && !query.streaming) {
 		x.cost = query.cost.est === undefined ? unknown : query.cost.est;
 	}
 }
 
-function usable(entry, statement) {
+function usable(entry: Entry, statement: Statement) {
 	return (
 		entry.oids !== null &&
 		(entry.state === "parsing" || (entry.state === "ready" && entry.version === statement.version))
 	);
 }
 
-function inferred(built) {
+function inferred(built: Built) {
 	for (let i = 0; i < built.oids.length; i++) {
 		if (!built.oids[i]) {
 			return true;
@@ -1906,7 +1944,7 @@ function inferred(built) {
 	return false;
 }
 
-function same(entry, params, columns) {
+function same(entry: Entry, params: number[], columns: Column[]) {
 	const a = entry.oids || [],
 		b = entry.columns;
 
@@ -1923,7 +1961,7 @@ function outlived() {
 	return Errors.generic("UNSAFE_TRANSACTION", "The cursor outlived its transaction");
 }
 
-function finish(x) {
+function finish(x: Exchange) {
 	const { query } = x;
 
 	if (x.kind === "simple") {
@@ -1938,7 +1976,7 @@ function finish(x) {
 	query.resolve(x.result);
 }
 
-function guard(fn, ...xs) {
+function guard<A extends unknown[]>(fn: (...xs: A) => void, ...xs: A) {
 	try {
 		fn(...xs);
 	} catch {
@@ -1946,12 +1984,12 @@ function guard(fn, ...xs) {
 	}
 }
 
-function key(name) {
-	const x = JSON.stringify(String(name));
+function key(name: string) {
+	const x = JSON.stringify(name);
 	return name === "__proto__" ? "[" + x + "]" : x;
 }
 
-export function own(row, name, value) {
+export function own(row: object, name: string, value: unknown) {
 	Object.defineProperty(row, name, { value, writable: true, enumerable: true, configurable: true });
 }
 
@@ -2020,6 +2058,8 @@ function Exchange(
 		// Whether we have sent all of the COPY data, for COPY FROM and COPY BOTH
 		copied: false,
 		wanted: false,
+		awaiting: false,
+		last: null,
 		final: null,
 		resolve: null,
 		reject: null,
@@ -2063,7 +2103,7 @@ function Rows(columns: Column[]): Shape {
 	return state;
 }
 
-function read(state, array, from) {
+function read(state: Shape, array: boolean, from: From) {
 	const kind = array ? "array" : "object";
 
 	if (state[kind] !== null) {
@@ -2082,8 +2122,8 @@ function read(state, array, from) {
 	}
 }
 
-function compile(columns, array, from) {
-	const locals = [],
+function compile(columns: Column[], array: boolean, from: From) {
+	const locals: string[] = [],
 		body = ["let l = 0"],
 		at = "x, i, i + l";
 

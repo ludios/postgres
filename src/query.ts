@@ -7,6 +7,9 @@ import type postgres from "../types/index.js";
 import type { Built } from "./build.ts";
 import type { Exchange } from "./connection.ts";
 import type { Options } from "./index.ts";
+import type { Connection } from "./connection.ts";
+import type { Cost, Statement } from "./pool.ts";
+import type { Failure } from "./errors.ts";
 
 const origins = new WeakMap<TemplateStringsArray | string[], string>();
 
@@ -64,6 +67,16 @@ export class Query extends Promise<any> {
 	declare alone: boolean | undefined;
 	/** Called once the query has been written on its lease's connection; the lease's send() sets it */
 	declare onwrite: (() => void) | undefined;
+	/** The statement and the built text; the pool's query() sets it for a query of the extended protocol */
+	declare wire: { statement: Statement; built: Built };
+	/** The scheduler's cost of the query's text, if the scheduler is on */
+	declare cost: Cost | null | undefined;
+	/** The connection that the query was placed on */
+	declare connection: Connection | null | undefined;
+	/** Whether cancel() came before the query reached a connection: the pool refuses it then */
+	declare cancelled: boolean | undefined;
+	/** The error that a cancel() of a cursor between two of its steps fails the cursor with */
+	declare aborted: Failure | null | undefined;
 	/** Marks a Query, which build.ts's isFragment() tests for */
 	declare [isQuery]: true;
 
