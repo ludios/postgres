@@ -189,6 +189,30 @@ test("Tracing: the pool publishes open, lease, release, idle and close", async (
 	]).toEqual([["open", "idle", "lease", "release", "close"], []]);
 });
 
+test("Tracing: the pool publishes idle only for a connection with nothing in flight and no lease", async () => {
+	const { messages, stop } = listen("postgres:pool");
+	const sql = postgres({ ...options, max: 1 });
+	await sql`select 1`;
+	const before_pipelining = messages.length;
+	// Both queries are in flight on the one connection, so the first to finish leaves it busy
+	await Promise.all([sql`select 1`, sql`select 2`]);
+	const idle_while_pipelining = messages.slice(before_pipelining).filter((x) => x.event === "idle").length;
+	const reserved = await sql.reserve();
+	await reserved`select 1`;
+	await reserved`select 2`;
+	reserved.release();
+	await sql.end();
+	stop();
+	const kinds = messages.map((x) => x.event),
+		leased = messages.slice(kinds.indexOf("lease"), kinds.indexOf("release"));
+	expect([
+		kinds[kinds.indexOf("open") + 1],
+		idle_while_pipelining,
+		leased.filter((x) => x.event === "idle").length,
+		messages.filter((x) => x.event === "idle" && x.stats.idle !== 1).length,
+	]).toEqual(["idle", 1, 0, 0]);
+});
+
 test("Tracing: notices are published with their connection", async () => {
 	const { messages, stop } = listen("postgres:notice");
 	const sql = postgres({ ...options, max: 1, onnotice: false });

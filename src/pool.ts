@@ -459,8 +459,10 @@ export function Pool(options, types) {
 		const c = Connection(ready, options, events) as Pooled;
 		c.index = ready.index || 0;
 		connections.add(c);
+		if (listened(channels.pool)) {
+			event("open", c);
+		}
 		lifetime(c);
-		listened(channels.pool) && event("open", c);
 		typesLoaded || typesLoading ? (c.loading = !typesLoaded) : loadTypes(c);
 		c.loading || recovered();
 		drain();
@@ -588,19 +590,31 @@ export function Pool(options, types) {
 		});
 	}
 
+	/**
+	 * Notes that connection `c` is ready for more work: if `c` has nothing in flight and no lease,
+	 * publishes `idle` for it and starts its idle timer (if `idle_timeout` is set and the timer is
+	 * not already running).
+	 * @param c - a connection that just opened, or just finished a query, or was just released
+	 */
 	function idle(c) {
-		listened(channels.pool) && event("idle", c);
 		if (c.inflight || c.lease) {
 			return;
 		}
 
-		options.unref_sockets && !c.loading && waiting.length === 0 && c.unref();
+		if (listened(channels.pool)) {
+			event("idle", c);
+		}
+		if (options.unref_sockets && !c.loading && waiting.length === 0) {
+			c.unref();
+		}
 		if (!options.idle_timeout) {
 			return;
 		}
 
 		c.idleSince = now();
-		c.idleTimer || (c.idleTimer = unref(setTimeout(() => idled(c), options.idle_timeout * 1000)));
+		if (!c.idleTimer) {
+			c.idleTimer = unref(setTimeout(() => idled(c), options.idle_timeout * 1000));
+		}
 	}
 
 	function hold(c) {
