@@ -37,6 +37,7 @@ export const Errors = {
 	connection,
 	postgres,
 	generic,
+	canceled,
 	notSupported,
 };
 
@@ -61,6 +62,16 @@ function postgres(x) {
 function generic(code, message) {
 	const error = Object.assign(new Error(code + ": " + message), { code });
 	Error.captureStackTrace(error, generic);
+	return error;
+}
+
+/**
+ * @returns the error of a query or COPY stream that the client cancelled itself,
+ * with the code and message of the server's error for a cancelled statement
+ */
+function canceled() {
+	const error = generic("57014", "canceling statement due to user request");
+	Error.captureStackTrace(error, canceled);
 	return error;
 }
 

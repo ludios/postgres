@@ -609,23 +609,22 @@ export function Connection(ready, options, events) {
 	 * COPY FROM and COPY BOTH stop with CopyFail and CopyDone, because the server
 	 * holds back a cancel request while it waits for COPY data. COPY TO stops only
 	 * with a cancel request. A COPY TO stream, or a stream still sending, fails with
-	 * a 57014 error right away.
+	 * `Errors.canceled()` right away.
 	 *
 	 * @returns a promise that settles once the stop has been sent
 	 */
 	function cancel_copy(x) {
-		const error = Errors.generic("57014", "canceling statement due to user request");
 		if (x.copy === "out") {
 			// Also once the COPY data has ended, since statements after the COPY in the same
 			// query may still run. Before the destroy, so that the hold also covers what resuming the socket finishes
 			const stopped = stop(x);
 			if (x.stream) {
-				x.stream.destroy(error);
+				x.stream.destroy(Errors.canceled());
 			}
 			return stopped;
 		}
 		if (x.stream && !x.copied) {
-			x.stream.destroy(error);
+			x.stream.destroy(Errors.canceled());
 			return Promise.resolve();
 		}
 		return stop(x);
@@ -633,7 +632,7 @@ export function Connection(ready, options, events) {
 
 	function cancel(query) {
 		if (running.has(query) || (sent[0] && sent[0].query === query && sent[0].awaiting)) {
-			query.aborted = Errors.generic("57014", "canceling statement due to user request");
+			query.aborted = Errors.canceled();
 			return Promise.resolve();
 		}
 		const i = pending.findIndex((x) => x.query === query);
@@ -642,7 +641,7 @@ export function Connection(ready, options, events) {
 			const [x] = pending.splice(i, 1);
 			x === fence && (fence = null);
 			x.cost >= notable && notables--;
-			settleError(x, Errors.generic("57014", "canceling statement due to user request"));
+			settleError(x, Errors.canceled());
 			release();
 			return Promise.resolve();
 		}
@@ -1055,8 +1054,13 @@ export function Connection(ready, options, events) {
 
 		// First, so that the stream's destroy knows that the server has already failed the COPY
 		fail(item, error);
-		item.stream && item.stream.destroy(error);
-		item.final && (item.final(error), (item.final = null));
+		if (item.stream) {
+			item.stream.destroy(error);
+		}
+		if (item.final) {
+			item.final(error);
+			item.final = null;
+		}
 	}
 
 	function ReadyForQuery(x, start) {
@@ -1415,7 +1419,7 @@ export function Connection(ready, options, events) {
 		if (item.copy === "both") {
 			// walsender, the server of COPY BOTH, takes CopyFail as a FATAL error
 			p.copyDone(out);
-			item.error = item.error || Errors.generic("57014", "canceling statement due to user request");
+			item.error = item.error || Errors.canceled();
 		} else {
 			p.copyFail(out, "canceling statement due to user request");
 		}
