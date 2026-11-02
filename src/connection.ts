@@ -591,10 +591,8 @@ export function Connection(ready, options, events) {
 	function cancel_copy(x) {
 		const error = Errors.generic("57014", "canceling statement due to user request");
 		if (x.copy === "out") {
-			if (x.copied) {
-				return Promise.resolve();
-			}
-			// Before the destroy, so that the hold also covers what resuming the socket finishes
+			// Also once the COPY data has ended, since statements after the COPY in the same
+			// query may still run. Before the destroy, so that the hold also covers what resuming the socket finishes
 			const stopped = stop(x);
 			if (x.stream) {
 				x.stream.destroy(error);
@@ -1470,9 +1468,6 @@ export function Connection(ready, options, events) {
 	function CopyDone() {
 		frames.own(false);
 		const item = sent[0];
-		if (item.copy === "out") {
-			item.copied = true;
-		}
 		item.stream && item.stream.push(null);
 		item.stream = null;
 	}
@@ -1537,7 +1532,7 @@ function Exchange(kind, query, lease, write) {
 		stream: null,
 		// "in", "out" or "both", once the server has started a COPY FROM, TO or BOTH
 		copy: null,
-		// Whether all of the COPY data has been sent: by us, except for COPY TO
+		// Whether we have sent all of the COPY data, for COPY FROM and COPY BOTH
 		copied: false,
 		wanted: false,
 		final: null,

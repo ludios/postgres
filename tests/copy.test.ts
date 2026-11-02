@@ -585,3 +585,24 @@ test(
 		}
 	},
 );
+
+test(
+	"Canceling a query after the end of its copy to stdout stops the statements after the COPY",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1, idle_timeout: null });
+		try {
+			const query = sql.unsafe(
+					// The server flushes its output only when its buffer is full, which the long row does
+					"copy (select 1) to stdout; select repeat('x', 70000); select pg_sleep(100)",
+				),
+				readable = await query.readable();
+			await new Promise((resolve) => readable.on("end", resolve).resume());
+			await query.cancel();
+			const [{ x }] = await sql`select 1 as x`;
+			expect(x).toBe(1);
+		} finally {
+			await sql.end({ timeout: 0 });
+		}
+	},
+);
