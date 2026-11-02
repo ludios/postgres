@@ -643,82 +643,197 @@ function default_timers() {
 }
 
 /**
- * The options that are numbers, which `read_option` also reads from text such as `"30"`. Each
- * option that counts something has the least integer it may be; each of the others has `null`,
- * as it may be any finite, non-negative number.
+ * @param value - the value of an option
+ * @returns `value` as an error shows it: text in double quotes, and anything else as `String()`
+ *          writes it
  */
-const numeric_options = {
-	max: 1,
-	min: 0,
-	max_pipeline: 0,
-	idle_timeout: null,
-	queue_timeout: null,
-	connect_timeout: null,
-	max_lifetime: null,
-	backoff: null,
-	keep_alive: null,
-};
-
-/**
- * @param text - the text of an option, from the url or an environment variable
- * @returns `false` if `text` is `disable` or `false`, which turn an option off; otherwise `text`
- */
-function off_or_text(text) {
-	return text === "disable" || text === "false" ? false : text;
+function shown(value) {
+	return typeof value === "string" ? JSON.stringify(value) : String(value);
 }
 
 /**
+ * Reads an option that may be turned off, and that has no other checks.
+ *
+ * @param value - the value of the option
+ * @returns `false` if `value` is the text `disable` or `false`, which turn an option off;
+ *          otherwise `value`
+ */
+function off(value) {
+	return value === "disable" || value === "false" ? false : value;
+}
+
+/**
+ * @param value - the value of a numeric option
+ * @returns `value` if it is a number; the number that `value` writes if it is the text of a
+ *          non-negative decimal number, with or without whitespace around it; otherwise NaN
+ */
+function number(value) {
+	if (typeof value === "number") {
+		return value;
+	}
+	return typeof value === "string" && /^\s*\d+(\.\d+)?\s*$/.test(value) ? +value : NaN;
+}
+
+/**
+ * Reads an option that is a number of seconds.
+ *
+ * @param value  - the value of the option
+ * @param source - where the value comes from, such as `The option idle_timeout`, which begins the
+ *                 message of the error
+ * @returns the number of seconds; `false` for the text `disable` or `false`; and `value` itself
+ *          if it is neither a number nor text, such as `null` or a function that computes the
+ *          number
+ * @throws if `value` is a number that is NaN, negative or infinite, or text that is not a
+ *         non-negative decimal number
+ */
+function seconds(value, source) {
+	const x = off(value);
+	if (typeof x !== "string" && typeof x !== "number") {
+		return x;
+	}
+	const n = number(x);
+	if (!Number.isFinite(n) || n < 0) {
+		throw new Error(source + " must be a non-negative decimal number, but it is " + shown(value));
+	}
+	return n;
+}
+
+/**
+ * @param least - the least value that the option may have
+ * @returns a reader of an option that counts something; the reader takes the value of the option
+ *          and where it comes from (as `seconds` does), returns the option's integer, and throws if
+ *          the value is neither an integer of at least `least` nor the text of one
+ */
+function integer(least) {
+	return (value, source) => {
+		const n = number(value);
+		if (!Number.isInteger(n) || n < least) {
+			throw new Error(
+				source + " must be an integer of at least " + least + ", but it is " + shown(value),
+			);
+		}
+		return n;
+	};
+}
+
+/**
+ * @param allowed - every value that the option may have
+ * @returns a reader that takes the value of the option and where it comes from (as `seconds`
+ *          does), returns the value if it is one of `allowed`, and throws otherwise
+ */
+function one_of(...allowed) {
+	return (value, source) => {
+		if (!allowed.includes(value)) {
+			throw new Error(
+				source + " must be one of " + allowed.map(shown).join(", ") + ", but it is " + shown(value),
+			);
+		}
+		return value;
+	};
+}
+
+/**
+ * Reads an option that is on or off.
+ *
+ * @param value  - the value of the option
+ * @param source - where the value comes from (as for `seconds`)
+ * @returns `true` for `true` and the text `true`; `false` for `false` and the texts `false` and
+ *          `disable`
+ * @throws for any other value
+ */
+function boolean(value, source) {
+	const x = value === "true" ? true : off(value);
+	if (typeof x !== "boolean") {
+		throw new Error(source + " must be true or false, but it is " + shown(value));
+	}
+	return x;
+}
+
+/**
+ * @param retries - how many tries in a row have failed
+ * @returns the number of seconds to wait before the next try: 3^retries / 100, but at most 20,
+ *          times a random factor from 0.5 to 1
+ */
+function backoff(retries) {
+	return (0.5 + Math.random() / 2) * Math.min(3 ** retries / 100, 20);
+}
+
+/** @returns the number of seconds that a connection may be open, between 30 and 60 minutes */
+function max_lifetime() {
+	return 60 * (30 + Math.random() * 30);
+}
+
+/**
+ * The options that the url and environment variables can set too. Each has its value when nothing
+ * sets it (`default`); its environment variable, if that is not `PG` followed by its name in upper
+ * case (`variable`); and the reader that checks a value of it and turns text into what the option
+ * holds (`read`).
+ */
+const option_rules: Record<
+	string,
+	{ default: unknown; variable?: string; read: (value: unknown, source: string) => unknown }
+> = {
+	max: { default: globalThis.Cloudflare ? 3 : 10, read: integer(1) },
+	min: { default: 0, read: integer(0) },
+	max_pipeline: { default: 100, read: integer(0) },
+	idle_timeout: { default: null, read: seconds },
+	connect_timeout: { default: 30, read: seconds },
+	queue_timeout: { default: 0, read: seconds },
+	max_lifetime: { default: max_lifetime, read: seconds },
+	backoff: { default: backoff, read: seconds },
+	keep_alive: { default: 60, read: seconds },
+	scheduler: { default: true, read: boolean },
+	prepare: { default: true, read: boolean },
+	fetch_types: { default: true, read: boolean },
+	infer: { default: false, read: boolean },
+	// Besides false: true, a mode such as "require", or options for tls.connect()
+	ssl: { default: false, read: off },
+	// Besides false: true, or a function that is called with every query
+	debug: { default: false, read: off },
+	sslnegotiation: { default: null, read: off },
+	channel_binding: {
+		default: "prefer",
+		variable: "PGCHANNELBINDING",
+		read: one_of("disable", "prefer", "require"),
+	},
+	target_session_attrs: {
+		default: null,
+		variable: "PGTARGETSESSIONATTRS",
+		read: one_of(null, "read-write", "read-only", "primary", "standby", "prefer-standby"),
+	},
+	publications: { default: "alltables", read: off },
+	slot: { default: null, read: off },
+};
+
+/**
  * Reads an option from the first of these places that sets it: the options object, the query of
- * the url, and the environment variable named `PG` followed by the option's name in upper case.
+ * the url, and the option's environment variable.
  *
  * @param k     - the name of the option
- * @param d     - the value of the option when none of the places sets it
+ * @param rule  - the option's entry in `option_rules`
  * @param o     - the options object given to `postgres()`
  * @param query - the parameters in the query of the url, by name
  * @param env   - the environment variables
- * @returns the value of the option, where `disable` and `false` in the url or an environment
- *          variable are `false`, and a string for a numeric option is the number it is written as
- * @throws if a numeric option is a number that is NaN, negative or infinite, or text that is not
- *         a non-negative decimal number with or without whitespace around it, or if an option
- *         that counts something is not an integer of at least its number in `numeric_options`
+ * @returns the value of the option, as `rule.read` returns it, or `rule.default` if no place sets
+ *          the option
+ * @throws whatever `rule.read` throws for a value that the option may not have
  */
-function read_option(k, d, o, query, env) {
-	const variable = "PG" + k.toUpperCase();
+function read_option(k, rule, o, query, env) {
+	const variable = rule.variable || "PG" + k.toUpperCase();
 	let value, source;
-	if (k in o && o[k] !== undefined) {
+	if (o[k] !== undefined) {
 		value = o[k];
 		source = "The option " + k;
-	} else if (k in query) {
-		value = off_or_text(query[k]);
+	} else if (Object.hasOwn(query, k)) {
+		value = query[k];
 		source = "The url parameter " + k;
 	} else if (env[variable]) {
-		value = off_or_text(env[variable]);
+		value = env[variable];
 		source = "The environment variable " + variable;
 	} else {
-		return d;
+		return rule.default;
 	}
-
-	if (!Object.hasOwn(numeric_options, k)) {
-		return value;
-	}
-	const least = numeric_options[k];
-	if (least === null && typeof value !== "string" && typeof value !== "number") {
-		return value;
-	}
-	const number =
-		typeof value === "number"
-			? value
-			: typeof value === "string" && /^\s*\d+(\.\d+)?\s*$/.test(value)
-				? +value
-				: NaN;
-	const shown = typeof value === "string" ? JSON.stringify(value) : String(value);
-	if (least !== null && !(Number.isInteger(number) && number >= least)) {
-		throw new Error(source + " must be an integer of at least " + least + ", but it is " + shown);
-	}
-	if (!Number.isFinite(number) || number < 0) {
-		throw new Error(source + " must be a non-negative decimal number, but it is " + shown);
-	}
-	return number;
+	return rule.read(value, source);
 }
 
 function parseOptions(a, b) {
@@ -747,29 +862,6 @@ function parseOptions(a, b) {
 		delete query.sslrootcert;
 	}
 
-	const defaults = {
-		max: globalThis.Cloudflare ? 3 : 10,
-		min: 0,
-		ssl: false,
-		sslnegotiation: null,
-		channel_binding: "prefer",
-		idle_timeout: null,
-		connect_timeout: 30,
-		queue_timeout: 0,
-		max_lifetime: max_lifetime,
-		max_pipeline: 100,
-		scheduler: true,
-		backoff: backoff,
-		keep_alive: 60,
-		prepare: true,
-		debug: false,
-		fetch_types: true,
-		infer: false,
-		publications: "alltables",
-		slot: null,
-		target_session_attrs: null,
-	};
-
 	const options: Record<string, any> = {
 		host: targets.map((x) => x[0]),
 		port: Array.isArray(port)
@@ -787,20 +879,18 @@ function parseOptions(a, b) {
 		user: user,
 		pass: o.pass || o.password || url.url.password || env.PGPASSWORD || "",
 		...Object.fromEntries(
-			Object.entries(defaults).map(([k, d]) => [k, read_option(k, d, o, query, env)]),
+			Object.entries(option_rules).map(([k, rule]) => [k, read_option(k, rule, o, query, env)]),
 		),
 		connection: {
 			application_name: env.PGAPPNAME || "postgres.js",
 			...o.connection,
 			...Object.fromEntries(
 				Object.entries(query).filter(
-					([k]) => !Object.hasOwn(defaults, k) && k !== "host" && k !== "port",
+					([k]) => !Object.hasOwn(option_rules, k) && k !== "host" && k !== "port",
 				),
 			),
 		},
 		types: o.types || {},
-		target_session_attrs: tsa(o, url.url, env),
-		channel_binding: binding(o, url.url, env),
 		onnotice: o.onnotice,
 		onnotify: o.onnotify,
 		onclose: o.onclose,
@@ -818,42 +908,10 @@ function parseOptions(a, b) {
 		timers: o.timers || default_timers(),
 	};
 
-	options.infer = options.infer === true || options.infer === "true";
-	options.max === 1 && (options.scheduler = false);
+	if (options.max === 1) {
+		options.scheduler = false;
+	}
 	return options;
-}
-
-function tsa(o, url, env) {
-	const x =
-		o.target_session_attrs ||
-		url.searchParams.get("target_session_attrs") ||
-		env.PGTARGETSESSIONATTRS;
-	if (!x || ["read-write", "read-only", "primary", "standby", "prefer-standby"].includes(x)) {
-		return x;
-	}
-
-	throw new Error("target_session_attrs " + x + " is not supported");
-}
-
-function binding(o, url, env) {
-	const x =
-		o.channel_binding ||
-		url.searchParams.get("channel_binding") ||
-		env.PGCHANNELBINDING ||
-		"prefer";
-	if (["disable", "prefer", "require"].includes(x)) {
-		return x;
-	}
-
-	throw new Error("channel_binding " + x + " is not supported");
-}
-
-function backoff(retries) {
-	return (0.5 + Math.random() / 2) * Math.min(3 ** retries / 100, 20);
-}
-
-function max_lifetime() {
-	return 60 * (30 + Math.random() * 30);
 }
 
 function parseTransform(x) {
