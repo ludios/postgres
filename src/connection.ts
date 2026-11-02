@@ -37,7 +37,7 @@ export function Connection(ready, options, events) {
 		frames = p.Frames(
 			frame,
 			socket.shared,
-			(error) => ((connection.fatal = error), socket.destroy()),
+			(error) => ((connection_error = error), socket.destroy()),
 		);
 
 	let blocker = null,
@@ -48,6 +48,11 @@ export function Connection(ready, options, events) {
 		flushing = false,
 		closed = null,
 		closing = null,
+		// Resolves `closing`.
+		resolve_closing: (() => void) | null = null,
+		// A fatal error that came with no query to give it to: a broken frame, or an
+		// ErrorResponse while nothing was in flight.
+		connection_error = null,
 		portals = 0,
 		traced = 0,
 		epoch = 0,
@@ -525,8 +530,8 @@ export function Connection(ready, options, events) {
 
 	function close() {
 		closing ||
-			(closing = new Promise((r) => {
-				connection.onended = r;
+			(closing = new Promise<void>((r) => {
+				resolve_closing = r;
 				idle() && terminate();
 			}));
 		return closing;
@@ -537,7 +542,7 @@ export function Connection(ready, options, events) {
 	}
 
 	function terminate() {
-		if (closed) return connection.onended && connection.onended();
+		if (closed) return resolve_closing && resolve_closing();
 
 		flush();
 		socket.end(p.Terminate());
@@ -557,7 +562,7 @@ export function Connection(ready, options, events) {
 		notables = 0;
 		const head = sent[0],
 			fatal =
-				connection.fatal ||
+				connection_error ||
 				(head && !head.ends && head.error && head.error.severity === "FATAL" && head.error);
 		closed = Errors.connection(
 			closing ? "CONNECTION_DESTROYED" : "CONNECTION_CLOSED",
@@ -578,7 +583,7 @@ export function Connection(ready, options, events) {
 		running.forEach((query) => query.settled || query.reject(decorate(query, closed)));
 		running.clear();
 		open.clear();
-		connection.onended && connection.onended();
+		resolve_closing && resolve_closing();
 		events.onclose(connection, closed);
 	}
 
@@ -862,7 +867,7 @@ export function Connection(ready, options, events) {
 		const item = sent[0],
 			error = Errors.postgres(p.error(x, start, end));
 
-		if (!item) return (connection.fatal = error);
+		if (!item) return (connection_error = error);
 
 		item.stream && item.stream.destroy(error);
 		item.final && (item.final(error), (item.final = null));

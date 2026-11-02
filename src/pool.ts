@@ -52,6 +52,8 @@ export function Pool(options, types) {
 
 	let opening = 0,
 		ending = null,
+		// Resolves `ending`, once the pool has finished ending.
+		resolve_ending: (() => void) | null = null,
 		used = false,
 		endTimer = null,
 		retries = 0,
@@ -721,8 +723,8 @@ export function Pool(options, types) {
 	function end({ timeout = null } = {}) {
 		if (ending) return ending;
 
-		ending = new Promise((resolve) => {
-			pool.ended = resolve;
+		ending = new Promise<void>((resolve) => {
+			resolve_ending = resolve;
 			timeout !== null && (endTimer = setTimeout(destroy, timeout * 1000));
 			retryTimer && (clearTimeout(retryTimer), (retryTimer = null));
 			Promise.resolve().then(finishing);
@@ -732,7 +734,7 @@ export function Pool(options, types) {
 	}
 
 	function finishing() {
-		if (!pool.ended) return;
+		if (!resolve_ending) return;
 
 		if (waiting.length === 0) connections.forEach((c) => c.inflight === 0 && !c.lease && c.close());
 
@@ -749,8 +751,8 @@ export function Pool(options, types) {
 		if (connections.size === 0 && (opening === 0 || signal.aborted) && waiting.length === 0) {
 			endTimer && clearTimeout(endTimer);
 			retryTimer && clearTimeout(retryTimer);
-			const resolve = pool.ended;
-			pool.ended = null;
+			const resolve = resolve_ending;
+			resolve_ending = null;
 			resolve();
 		}
 	}
