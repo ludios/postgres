@@ -956,7 +956,7 @@ To specify your own transformation functions, you can use the `column`, `value` 
 ```js
 // Implement your own functions, look at postgres.toCamel, etc
 // as a reference:
-// toCamel and the others in types.js
+// toCamel and the others in src/types.ts
 function transformColumnToDatabase() { /* ... */ }
 function transformColumnFromDatabase() { /* ... */ }
 
