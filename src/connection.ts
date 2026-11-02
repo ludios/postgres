@@ -540,9 +540,9 @@ export function Connection(ready, options, events) {
 	}
 
 	/**
-	 * Sends one CancelRequest for exchange `x`, the head of `sent`, and writes
-	 * nothing more on this connection until the server has closed the cancel
-	 * connection. PostgreSQL drops a cancel that reaches a backend waiting for its
+	 * Sends a CancelRequest for exchange `x`, the head of `sent`, unless one is in
+	 * flight already, and writes nothing more on this connection until the server
+	 * has closed the cancel connection. PostgreSQL drops a cancel that reaches a backend waiting for its
 	 * next command, so the cancel can't hit a query written after that.
 	 *
 	 * @returns a promise that settles as the CancelRequest does
@@ -556,6 +556,12 @@ export function Connection(ready, options, events) {
 			x.stopped = true;
 			x.stopping = ready.cancel();
 			hold(x.stopping);
+			// The server drops a cancel request that arrives between two messages of an
+			// exchange, so a later call sends another
+			const settled = () => {
+				x.stopping = null;
+			};
+			x.stopping.then(settled, settled);
 		}
 		return x.stopping;
 	}
@@ -1153,6 +1159,7 @@ export function Connection(ready, options, events) {
 		return (
 			!x.retried &&
 			!x.cancel &&
+			!x.stopped &&
 			!x.query.cancelled &&
 			!x.query.cursorFn &&
 			!x.streaming &&
