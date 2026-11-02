@@ -1,8 +1,9 @@
 // Model-output: Claude Opus 5.5
 {
 	"compilerOptions": {
-		// Typecheck only. The tests run the .ts files directly with Node, which
-		// strips the types; tsconfig.build.json emits JavaScript for publishing.
+		// Typecheck only. Node runs the .ts files directly (e.g. tests/simulate.ts),
+		// and strips the types; vitest strips them too, when it runs the tests;
+		// tsconfig.build.json emits JavaScript for publishing.
 		"noEmit": true,
 		// Node 22 is the oldest Node that this package supports.
 		"target": "es2024",
