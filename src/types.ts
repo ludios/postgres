@@ -173,6 +173,11 @@ export function Types(options: Record<string, any> = {}) {
 		serializers,
 	};
 
+	/**
+	 * @param type - a type's OID, or a type's name (as given to `sql.typed()` or in `options.types`)
+	 * @returns the OID; for a name, the OID that the pool loaded for it, or 0 (which leaves the type
+	 * to the server) if the pool has not loaded one
+	 */
 	function resolve(type) {
 		return typeof type === "string" ? (oids.get(type) ?? 0) : type;
 	}
