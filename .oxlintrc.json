@@ -77,6 +77,9 @@
 		// https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-await-in-loop
 		// Silly rule for novices who don't know what they're doing.
 		"no-await-in-loop": "off",
+		// https://oxc.rs/docs/guide/usage/linter/rules/vitest/valid-expect.html
+		// Allow vitest's second argument to `expect`, a message that a failure shows.
+		"vitest/valid-expect": ["error", { "maxArgs": 2 }],
 		// https://typescript-eslint.io/rules/no-unsafe-type-assertion/
 		// We cast deliberately at I/O boundaries.
 		"typescript/no-unsafe-type-assertion": "off",
