@@ -446,7 +446,10 @@ test(
 		await unsubscribe();
 
 		try {
-			expect([result[0]?.moods, result[0]?.p]).toEqual([queried.moods, queried.p]);
+			expect([result, queried]).toEqual([
+				[{ id: 1, moods: ["a", "b"], p: 5 }],
+				{ moods: ["a", "b"], p: 5 },
+			]);
 		} finally {
 			await sql.unsafe(
 				"drop publication custom_types_pub; drop table test; drop type subscribe_mood; drop domain subscribe_positive",
