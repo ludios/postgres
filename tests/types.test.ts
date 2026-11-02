@@ -608,6 +608,25 @@ test("A custom type name that does not exist rejects with TYPE_NOT_FOUND", async
 	expect(codes).toEqual(["TYPE_NOT_FOUND", "TYPE_NOT_FOUND"]);
 });
 
+test("sql.end() resolves after the types fail to load for a waiting query", async () => {
+	const sql2 = postgres({
+		...options,
+		max: 1,
+		types: { nope: { to: "no_such_type", serialize: String } },
+	});
+	const code = sql2`select 1`.then(
+		() => "ran",
+		(e) => e.code,
+	);
+	// The query reaches the pool in a microtask; end() must find it waiting for a connection
+	await Promise.resolve();
+	const ended = await Promise.race([
+		sql2.end().then(() => "ended"),
+		delay(2000).then(() => "still ending"),
+	]);
+	expect([await code, ended]).toEqual(["TYPE_NOT_FOUND", "ended"]);
+});
+
 test(
 	"A custom type created after a failed lookup is found on a later query",
 	{ timeout: 10_000 },

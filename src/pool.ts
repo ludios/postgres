@@ -493,7 +493,7 @@ export function Pool(options, types) {
 	/**
 	 * Loads the pool's types on connection `c`, then lets the connections go on: the waiting
 	 * queries run, or, if a type does not exist, are rejected, and each connection that is left
-	 * with nothing to do settles into idleness.
+	 * with nothing to do settles into idleness, or closes if the pool is ending.
 	 * @param c - an open connection
 	 */
 	function loadTypes(c) {
@@ -547,6 +547,9 @@ export function Pool(options, types) {
 					}
 				}
 				drain();
+				if (ending && waiting.length === 0) {
+					finishing();
+				}
 				connections.forEach((x) => idle(x));
 			});
 	}
