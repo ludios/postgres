@@ -576,7 +576,7 @@ function Listen(options) {
 
 		if (!failed) {
 			await x`unlisten ${x.unsafe(identifier(name))}`.catch((e) => {
-				if (!/^CONNECTION_/.test(e.code)) {
+				if (!String(e.code).startsWith("CONNECTION_")) {
 					throw e;
 				}
 			});

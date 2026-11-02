@@ -48,8 +48,7 @@
 			"files": ["**/*.ts"],
 			"rules": {
 				"typescript/no-base-to-string": "warn",
-				"typescript/require-array-sort-compare": "warn",
-				"unicorn/prefer-string-starts-ends-with": "warn"
+				"typescript/require-array-sort-compare": "warn"
 			}
 		}
 	],
