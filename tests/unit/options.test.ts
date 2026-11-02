@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import postgres from "../../src/index.ts";
 import { thrown } from "../helpers.ts";
 
@@ -247,4 +247,21 @@ test("The url parameters that the client reads are not sent to the server", asyn
 	const url = "postgres://u@h/db?sslmode=require&sslrootcert=system&max=2&host=h2&port=1";
 	const { connection, ssl } = postgres(url, { max: 1 }).options;
 	expect([connection, ssl]).toEqual([{ application_name: "postgres.js" }, "verify-full"]);
+});
+
+test("The default setTimeout waits at most 2^31 - 1 ms, passes on its arguments, and is the setTimeout that was global when postgres() was called", async () => {
+	const timers = postgres({ max: 1 }).options.timers;
+	let fired = false,
+		faked;
+	vi.useFakeTimers();
+	const timer = timers.setTimeout(() => (fired = true), 2 ** 40);
+	try {
+		faked = vi.getTimerCount();
+	} finally {
+		vi.useRealTimers();
+	}
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	timers.clearTimeout(timer);
+	const passed = await new Promise((resolve) => timers.setTimeout(resolve, 1, "x"));
+	expect([faked, fired, passed]).toEqual([0, false, "x"]);
 });

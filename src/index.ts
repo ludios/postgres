@@ -475,16 +475,20 @@ function Listen(options) {
 const max_delay = 2 ** 31 - 1;
 
 /**
- * Calls `fn` after `ms` milliseconds, or after `max_delay` if `ms` is longer. Node.js runs a
- * timer whose delay is longer than `max_delay` after 1 ms instead, so a `max_lifetime` or an
- * `idle_timeout` of 30 days would otherwise close a connection at once.
- *
- * @param fn - the function to call
- * @param ms - the delay in milliseconds
- * @returns the timer, for `clearTimeout`
+ * @returns the timers to use when the options give none: the global timer functions as they are
+ *          now, taken together so that a timer is always cleared by the implementation that set
+ *          it, with a `setTimeout` that waits at most `max_delay`, because Node.js runs a timer
+ *          whose delay is longer than `max_delay` after 1 ms instead
  */
-function capped_timeout(fn, ms) {
-	return setTimeout(fn, Math.min(ms, max_delay));
+function default_timers() {
+	const set_timeout = setTimeout;
+	return {
+		setTimeout: (fn, ms, ...args) => set_timeout(fn, Math.min(ms, max_delay), ...args),
+		clearTimeout,
+		setImmediate,
+		clearImmediate,
+		now: () => performance.now(),
+	};
 }
 
 /** The options that are numbers, which `read_option` reads from a string such as `"30"`. */
@@ -642,13 +646,7 @@ function parseOptions(a, b) {
 		transform: parseTransform(o.transform || { undefined: undefined }),
 		parameters: {},
 		shared: { retries: 0 },
-		timers: o.timers || {
-			setTimeout: capped_timeout,
-			clearTimeout,
-			setImmediate,
-			clearImmediate,
-			now: () => performance.now(),
-		},
+		timers: o.timers || default_timers(),
 	};
 
 	options.infer = options.infer === true || options.infer === "true";
