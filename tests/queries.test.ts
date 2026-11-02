@@ -1,7 +1,17 @@
 import fs from "fs";
 import crypto from "crypto";
 import { expect, test } from "vitest";
-import { postgres, sql, options, thrown, delay, terminate, until_sleeping } from "./setup.ts";
+import net from "net";
+import {
+	postgres,
+	sql,
+	options,
+	thrown,
+	delay,
+	terminate,
+	until_sleeping,
+	pg_port,
+} from "./setup.ts";
 
 test("Result is array", async () => {
 	expect(Array.isArray(await sql`select 1`)).toBe(true);
@@ -311,6 +321,29 @@ test("A cancel of a query pipelined behind another does not cancel a query sent 
 			[{ x }] = await sql`select pg_sleep(0.3), 1 as x`;
 		await Promise.all([cancelled, head]);
 		expect(x).toBe(1);
+	} finally {
+		await sql.end({ timeout: 0 });
+	}
+});
+
+test("A cancel request that never completes holds its connection only for connect_timeout", async () => {
+	let sockets = 0;
+	const sql = postgres({
+		...options,
+		max: 1,
+		idle_timeout: null,
+		connect_timeout: 1,
+		// The second socket is the cancel request's, which never connects
+		socket: () => (++sockets === 1 ? net.connect(pg_port, "localhost") : new Promise(() => {})),
+	});
+	try {
+		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+			sleeping = sql`select pg_sleep(0.1)`.execute();
+		await until_sleeping(pid);
+		sleeping.cancel();
+		await sleeping;
+		const [{ x }] = await sql`select 1 as x`;
+		expect([x, sockets]).toEqual([1, 2]);
 	} finally {
 		await sql.end({ timeout: 0 });
 	}

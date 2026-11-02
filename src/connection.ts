@@ -571,17 +571,36 @@ export function Connection(ready, options, events) {
 	 * sends it no queries meanwhile. Then the connection writes what waits in
 	 * `pending`, and tells the pool that it can take queries again.
 	 *
+	 * A cancel request that is still in flight after `connect_timeout` seconds no
+	 * longer holds the connection, so that one which never completes can't hold it
+	 * forever.
+	 *
 	 * @param promise settles once a cancel request has been handled, or has failed
 	 */
 	function hold(promise) {
-		cancelling++;
+		let timer = null,
+			held = true;
 		const done = () => {
+			if (!held) {
+				return;
+			}
+			held = false;
+			if (timer) {
+				timers.clearTimeout(timer);
+			}
 			cancelling--;
 			if (cancelling === 0 && !closed) {
 				release();
 				events.onready(connection);
 			}
 		};
+		cancelling++;
+		if (options.connect_timeout) {
+			timer = timers.setTimeout(done, options.connect_timeout * 1000);
+			if (typeof timer.unref === "function") {
+				timer.unref();
+			}
+		}
 		promise.then(done, done);
 	}
 
