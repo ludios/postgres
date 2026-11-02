@@ -3,8 +3,9 @@
 # Don't edit the generated sections here: change the options below or the template, then run `clank-right update .` in this repo.
 # Only the options below and the sections between "Thoughts for when there is programming involved" and "Committing" are this project's own; every other section is overwritten.
 
-languages   = ["javascript"]
-conventions = "ours"
+languages       = ["typescript"]
+conventions     = "ours"
+space_alignment = false
 -->
 
 # Before starting
