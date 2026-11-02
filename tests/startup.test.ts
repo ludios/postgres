@@ -207,11 +207,7 @@ test("Startup destroys a TCP connection still in progress when connect_timeout p
 		connect_timeout: 0.2,
 	}).catch((e) => e.code);
 	net.connect = connect;
-	expect([code, sockets.length, sockets.every((x) => x.destroyed)]).toEqual([
-		"CONNECT_TIMEOUT",
-		1,
-		true,
-	]);
+	expect([code, sockets.map((x) => x.destroyed)]).toEqual(["CONNECT_TIMEOUT", [true]]);
 });
 
 const refused = async (auth, options?) => {

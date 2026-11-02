@@ -1371,13 +1371,10 @@ test("Errors from fast failures are separate objects for each query", async () =
 	const errors = [];
 	for (let i = 0; i < 4; i++) errors.push(await sql.unsafe("select " + i).catch((e) => e));
 	await sql.end();
-	expect(
-		new Set(errors).size === errors.length &&
-			errors.every(
-				(e, i) =>
-					e.query === "select " + i && typeof e.stack === "string" && e.code === "ECONNREFUSED",
-			),
-	).toBe(true);
+	expect([new Set(errors).size, errors.map((e) => [e.query, typeof e.stack, e.code])]).toEqual([
+		4,
+		[0, 1, 2, 3].map((i) => ["select " + i, "string", "ECONNREFUSED"]),
+	]);
 });
 
 test(

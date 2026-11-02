@@ -15,7 +15,7 @@ test("Queue hands items back in order across compaction", async () => {
 		i % 3 === 0 && out.push(q.shift());
 	}
 	while (q.length) out.push(q.shift());
-	expect(out.length === 5000 && out.every((x, i) => x === i)).toBe(true);
+	expect(out).toEqual(Array.from({ length: 5000 }, (x, i) => i));
 });
 
 test("Queue removes, peeks and takes what is left", async () => {
