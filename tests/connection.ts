@@ -941,7 +941,7 @@ test(
 			["auth", {}],
 			["types", {}],
 			["auth", { fetch_types: false }],
-		]) {
+		] as const) {
 			const held = [];
 			let holding = phase === "auth",
 				release = null;

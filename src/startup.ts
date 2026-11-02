@@ -293,7 +293,7 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 	let nonce,
 		signature,
 		verified = true,
-		bound = false,
+		bound: Buffer | false = false,
 		header = "n,,";
 
 	respond.authenticated = false;

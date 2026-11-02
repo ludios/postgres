@@ -1,4 +1,8 @@
-export default [
+// Model-output: Claude Opus 5.5
+/** Each case: its name, a function that makes a query with `sql`, and the query's text and parameters */
+type Case = [name: string, query: (sql: any) => any, text: string, parameters: any[]];
+
+const cases: Case[] = [
 	["Parameters are numbered", (sql) => sql`select ${1}, ${"a"}`, "select $1, $2", [1, "a"]],
 	["No parameters", (sql) => sql`select 1`, "select 1", []],
 	["Fragment", (sql) => sql`select ${1} ${sql`where x = ${2}`}`, "select $1 where x = $2", [1, 2]],
@@ -339,3 +343,5 @@ export default [
 		[],
 	],
 ];
+
+export default cases;

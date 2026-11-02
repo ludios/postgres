@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import { Pipe } from "./net.ts";
 
 const select =
@@ -259,7 +260,10 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				value = (v) => (v === null ? null : v[0] === "$" ? +portal.values[+v.slice(1) - 1] : +v),
 				done = () => simple && ((discard = false), reply(ready()));
 
-			if (ast.control) return transaction(ast.control) || done();
+			if (ast.control) {
+				transaction(ast.control);
+				return done();
+			}
 
 			const id = value(ast.id),
 				scope = value(ast.scope),

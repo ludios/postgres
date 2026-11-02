@@ -19,7 +19,7 @@ export function Random(seed) {
 }
 
 export function Clock(
-	onerror = (e) => {
+	onerror: (error: any) => void = (e) => {
 		throw e;
 	},
 ) {
