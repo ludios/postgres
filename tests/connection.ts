@@ -98,18 +98,18 @@ test("Connect using SSL require", async () => {
 	).toBe(true);
 });
 
-test("Connect using SSL direct", async () => {
+test("Connect using SSL direct", async ({ skip }) => {
 	const [{ supported }] =
 		await sql`select current_setting('server_version_num')::int >= 180000 as supported`;
+	skip(!supported, "this test runs only on PostgreSQL 18 or later");
 	expect(
-		!supported ||
-			(await new Promise((resolve, reject) => {
-				postgres({
-					ssl: "require",
-					sslnegotiation: "direct",
-					idle_timeout,
-				})`select 1`.then(() => resolve(true), reject);
-			})),
+		await new Promise((resolve, reject) => {
+			postgres({
+				ssl: "require",
+				sslnegotiation: "direct",
+				idle_timeout,
+			})`select 1`.then(() => resolve(true), reject);
+		}),
 	).toBe(true);
 });
 
