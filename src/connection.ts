@@ -50,6 +50,8 @@ export function Connection(ready, options, events) {
 		// Whether destroy() was called. If it was called before the socket closed, `closed` gets the
 		// code CONNECTION_DESTROYED; otherwise (also after close()), `closed` gets CONNECTION_CLOSED.
 		destroyed = false,
+		// Whether terminate() sent Terminate, which it does only with nothing in flight
+		terminated = false,
 		// A fatal error that came with no query to give it to: a broken frame, a frame that no
 		// query asked for, or an ErrorResponse while nothing was in flight.
 		connection_error = null,
@@ -683,6 +685,7 @@ export function Connection(ready, options, events) {
 		}
 
 		flush();
+		terminated = true;
 		socket.end(p.Terminate());
 	}
 
@@ -713,7 +716,8 @@ export function Connection(ready, options, events) {
 		blocker = null;
 		fence = null;
 		notables = 0;
-		const head = sent[0],
+		const orderly = terminated && idle(),
+			head = sent[0],
 			fatal =
 				connection_error ||
 				(head && !head.ends && head.error && head.error.severity === "FATAL" && head.error);
@@ -753,7 +757,7 @@ export function Connection(ready, options, events) {
 		running.clear();
 		open.clear();
 		resolve_closing && resolve_closing();
-		events.onclose(connection, closed, head_error);
+		events.onclose(connection, closed, head_error, orderly);
 	}
 
 	function decorate(query, error) {

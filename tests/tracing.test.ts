@@ -1,6 +1,7 @@
 import dc from "diagnostics_channel";
+import net from "net";
 import { AsyncLocalStorage } from "async_hooks";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { postgres, options, delay, pg_port } from "./setup.ts";
 
 function record(name) {
@@ -230,6 +231,30 @@ test("Tracing: the pool publishes no idle for a connection that is closing", asy
 	await closed;
 	stop();
 	expect(messages.slice(before_close).map((x) => x.event)).toEqual(["close"]);
+});
+
+test("Tracing: the pool's close event has an error only if the connection did not close in an orderly way", async () => {
+	const { messages, stop } = listen("postgres:pool");
+	const closed_ids = [];
+	let raw;
+	const sql = postgres({
+		...options,
+		max: 1,
+		onclose: (id) => closed_ids.push(id),
+		socket: () => (raw = net.connect(pg_port, "localhost")),
+	});
+	await sql`select 1`;
+	await sql.close();
+	await sql`select 1`;
+	raw.destroy();
+	await vi.waitUntil(() => closed_ids.length === 2);
+	await sql.end();
+	stop();
+	expect(
+		messages
+			.filter((x) => x.event === "close" && closed_ids.includes(x.connection))
+			.map((x) => x.error && x.error.code),
+	).toEqual([undefined, "CONNECTION_CLOSED"]);
 });
 
 test("Tracing: notices are published with their connection", async () => {

@@ -735,6 +735,10 @@ declare namespace postgres {
 		kind?: string;
 		waited?: number;
 		waiting?: number;
+		/**
+		 * Of a `close`: the error that closed the connection. Absent after an orderly close, in which
+		 * the pool sent Terminate while nothing was in flight.
+		 */
 		error?: Error | globalThis.Error;
 	}
 

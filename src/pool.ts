@@ -740,10 +740,15 @@ export function Pool(options, types) {
 	 * @param error - the error that says that `c` closed (which no query's properties were added to)
 	 * @param head_error - the error that the query at the head of `c` got when `c` closed, with that
 	 *   query's properties; or null, if `c`'s lease (if any) should not get it
+	 * @param orderly - whether `c` closed in an orderly way: it sent Terminate, and had nothing in
+	 *   flight when it closed
 	 */
-	function onclose(c, error, head_error) {
+	function onclose(c, error, head_error, orderly) {
 		connections.delete(c);
-		c.loading && !signal.aborted && attempted(copy_error(error));
+		// An orderly close is one that the pool asked for, not a failed attempt to open a connection
+		if (c.loading && !orderly && !signal.aborted) {
+			attempted(copy_error(error));
+		}
 		ending || replacing.push((c.index + 1) % (options.path ? 1 : options.host.length));
 		replacing.length > options.max && replacing.shift();
 		c.retired && c.retired.forEach((r) => r());
@@ -761,7 +766,7 @@ export function Pool(options, types) {
 			);
 		}
 		options.onclose && options.onclose(c.id);
-		event("close", c, { error });
+		event("close", c, orderly ? {} : { error });
 		connections.size === 0 && opening === 0 && statements.clear();
 		drain();
 		ending && finishing();
