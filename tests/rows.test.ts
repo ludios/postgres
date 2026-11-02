@@ -51,7 +51,7 @@ test("Rows from .raw() are buffers across many rows", async () => {
 });
 
 test("Rows apply value and column transforms across many rows", async () => {
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		transform: {
 			column: { from: (x) => x.toUpperCase() },
@@ -66,7 +66,6 @@ test("Rows apply value and column transforms across many rows", async () => {
 			["C", null],
 		]),
 	);
-	await sql.end();
 });
 
 test("Rows reach forEach across many rows", async () => {
