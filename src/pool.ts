@@ -340,7 +340,8 @@ export function Pool(options, types) {
 	 * Whether the scheduler should place `job`, rather than leaving it on the connection with the
 	 * fewest exchanges. It should when `job` isn't known to be quick, or when a connection that can
 	 * take `job` has a notable exchange that `job` could wait behind. A connection that can't take
-	 * `job` (a reserved one, for example) has no limit on its exchanges, so it isn't scanned.
+	 * `job` isn't scanned: a reserved one has no limit on its exchanges, and in a saturated pool,
+	 * most connections are full (at `max_inflight`).
 	 */
 	function needed(job) {
 		if (!job.q.cost || job.q.cost.est === undefined || job.q.cost.est >= notable) {
@@ -348,7 +349,7 @@ export function Pool(options, types) {
 		}
 
 		for (const c of connections) {
-			if (usable(c) && c.costly(notable)) {
+			if (usable(c) && c.inflight < max_inflight && c.costly(notable)) {
 				return true;
 			}
 		}
