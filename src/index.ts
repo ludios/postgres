@@ -8,7 +8,7 @@ import type { PostgresType } from "./types.ts";
 import { Identifier, Builder } from "./build.ts";
 import { Query, CLOSE } from "./query.ts";
 import { Pool } from "./pool.ts";
-import { Errors, PostgresError, remove_casing_transforms } from "./errors.ts";
+import { Errors, PostgresError, throw_on_casing_transforms } from "./errors.ts";
 import Subscribe from "./subscribe.ts";
 import largeObject from "./large.ts";
 import { channels, active, start, finish, userName } from "./diagnostics.ts";
@@ -23,7 +23,7 @@ export default Object.assign(Postgres, {
 	},
 });
 
-remove_casing_transforms(Postgres);
+throw_on_casing_transforms(Postgres);
 
 export { PostgresError };
 

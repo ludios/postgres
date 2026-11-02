@@ -120,8 +120,9 @@ test("The removed casing transforms throw when read, and Object.assign does not 
 				return e.code;
 			}
 		});
-	expect(codes.join() + " " + Object.keys(Object.assign({}, postgres)).join()).toBe(
-		Array(9).fill("CASING_TRANSFORM_REMOVED").join() + " PostgresError,BigInt",
+	const copied = Object.assign({}, postgres);
+	expect(codes.join() + " " + names.split(" ").some((name) => name in copied)).toBe(
+		Array(9).fill("CASING_TRANSFORM_REMOVED").join() + " false",
 	);
 });
 

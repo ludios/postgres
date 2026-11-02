@@ -156,13 +156,13 @@ const casing_transforms = [
 ];
 
 /**
- * Makes reading a removed casing transform (such as `postgres.camel`) from `target` throw
+ * Defines a getter on `target` for each removed casing transform (such as `camel`), which throws
  * CASING_TRANSFORM_REMOVED. Without this, `transform: postgres.camel` would be `transform:
  * undefined`, which transforms nothing, without an error. The getters are not enumerable, so that
  * `Object.assign` (which reads only enumerable properties) does not throw when it copies `target`.
- * @param target - a function that a module exports as its default, as `postgres`
+ * @param target - the default export of the package's entry point (for example, `postgres`)
  */
-export function remove_casing_transforms(target) {
+export function throw_on_casing_transforms(target) {
 	for (const name of casing_transforms) {
 		Object.defineProperty(target, name, {
 			configurable: true,
