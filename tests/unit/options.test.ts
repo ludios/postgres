@@ -129,10 +129,7 @@ test("target_session_attrs from options, the url and PGTARGETSESSIONATTRS, as li
 		postgres({ max: 1, target_session_attrs: "any" }).options.target_session_attrs,
 		postgres("postgres://u@h/db?target_session_attrs=any", { max: 1 }).options.target_session_attrs,
 	]);
-	const unset = with_env(
-		{ PGTARGETSESSIONATTRS: undefined },
-		() => postgres({ max: 1 }).options.target_session_attrs,
-	);
+	const unset = postgres({ max: 1 }).options.target_session_attrs;
 	const any = with_env(
 		{ PGTARGETSESSIONATTRS: "any" },
 		() => postgres({ max: 1 }).options.target_session_attrs,
