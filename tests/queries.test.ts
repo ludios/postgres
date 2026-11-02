@@ -1,7 +1,7 @@
 import fs from "fs";
 import crypto from "crypto";
 import { expect, test } from "vitest";
-import { postgres, sql, options, rel } from "./setup.ts";
+import { postgres, sql, options } from "./setup.ts";
 
 test("Result is array", async () => {
 	expect(Array.isArray(await sql`select 1`)).toBe(true);
@@ -107,8 +107,8 @@ test("Include table oid and column number in column details", async () => {
 });
 
 test("Large object", async () => {
-	const file = rel("queries.test.ts"),
-		md5 = crypto.createHash("md5").update(fs.readFileSync(file)).digest("hex");
+	const file = new URL(import.meta.url);
+	const md5 = crypto.createHash("md5").update(fs.readFileSync(file)).digest("hex");
 
 	const lo = await sql.largeObject();
 	await new Promise(async (r) =>
