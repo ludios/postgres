@@ -106,7 +106,6 @@ export function Connection(ready, options, events) {
 		},
 	};
 
-	(globalThis as any).__raws = [...((globalThis as any).__raws || []), Object.assign(socket.raw, { __pid: ready.backend && ready.backend.pid, __port: socket.raw.localPort })];
 	socket.ondata = (x) => frames.push(x);
 	socket.ondrain = ondrain;
 	socket.onclose = onclose;
