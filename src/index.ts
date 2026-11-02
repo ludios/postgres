@@ -415,7 +415,7 @@ function Listen(options) {
 	/** @returns the listener connection, opened if there is none */
 	function connection() {
 		if (!sql) {
-			sql = Postgres({
+			const pool = Postgres({
 				...options,
 				max: 1,
 				idle_timeout: null,
@@ -423,7 +423,9 @@ function Listen(options) {
 				fetch_types: false,
 				no_subscribe: true,
 				onclose() {
-					if (closing) {
+					// Not after end(), and not for a connection that retire() ended, which may close
+					// after a LISTEN on its replacement succeeded
+					if (closing || sql !== pool) {
 						return;
 					}
 
@@ -443,6 +445,7 @@ function Listen(options) {
 					}
 				},
 			});
+			sql = pool;
 		}
 		return sql;
 	}
