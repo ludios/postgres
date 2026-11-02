@@ -1,5 +1,5 @@
 import net from "net";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { postgres, login, login_md5, login_scram, pg_port, port_of } from "./setup.ts";
 import { open } from "../src/startup.ts";
 import { Query, Frames } from "../src/protocol.ts";
@@ -205,12 +205,15 @@ test("Startup destroys a TCP connection still in progress when connect_timeout p
 		sockets.push(socket);
 		return socket;
 	};
+	// Unlike a finally block, this runs even if the test times out while the session is pending
+	onTestFinished(() => {
+		net.connect = connect;
+	});
 	const code = await session({
 		host: ["10.255.255.1"],
 		port: [pg_port],
 		connect_timeout: 0.2,
 	}).catch((e) => e.code);
-	net.connect = connect;
 	expect([code, sockets.map((x) => x.destroyed)]).toEqual(["CONNECT_TIMEOUT", [true]]);
 });
 
