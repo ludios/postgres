@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 {
 	"$schema": "./node_modules/oxlint/configuration_schema.json",
 
@@ -31,14 +32,13 @@
 
 	"overrides": [
 		{
-			// The code that came from upstream breaks these rules, so they are
-			// warnings until it is cleaned up. Delete a rule from this list once
-			// no code breaks it, so that it is an error again.
+			// The existing code breaks these rules, so they are warnings until the
+			// code is cleaned up. Delete a rule from this list once no code breaks
+			// it, so that it is an error again.
 			"files": ["**/*.ts"],
 			"rules": {
 				"typescript/no-floating-promises": "warn",
 				"no-unused-expressions": "warn",
-				"typescript/no-useless-default-assignment": "warn",
 				"typescript/unbound-method": "warn",
 				"typescript/await-thenable": "warn",
 				"no-async-promise-executor": "warn",
@@ -79,6 +79,10 @@
 		"no-await-in-loop": "off",
 		// https://typescript-eslint.io/rules/no-unsafe-type-assertion/
 		// We cast deliberately at I/O boundaries.
-		"typescript/no-unsafe-type-assertion": "off"
+		"typescript/no-unsafe-type-assertion": "off",
+		// These need `strictNullChecks`, which `strict: false` in tsconfig.json
+		// turns off; without it, each only reports, once per file, that it needs it.
+		"typescript/no-useless-default-assignment": "off",
+		"typescript/no-unnecessary-boolean-literal-compare": "off"
 	}
 }
