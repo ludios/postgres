@@ -1,5 +1,5 @@
 import { t } from "./test.js";
-import { postgres, options, delay } from "./setup.js";
+import { postgres, options, delay, pg_socket_dir } from "./setup.js";
 
 const until = async (fn, ms = 5000) => {
 	const end = Date.now() + ms;
@@ -124,7 +124,7 @@ t("listen keeps retrying when a reconnect attempt fails", { timeout: 20 }, async
 	await admin`create role postgres_js_test_listen login`;
 	const sql = postgres({
 			...options,
-			host: process.env.PGSOCKET || "/tmp",
+			host: pg_socket_dir,
 			user: "postgres_js_test_listen",
 			pass: "",
 			backoff: () => 0.1,

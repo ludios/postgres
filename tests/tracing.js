@@ -1,7 +1,7 @@
 import dc from "diagnostics_channel";
 import { AsyncLocalStorage } from "async_hooks";
 import { t } from "./test.js";
-import { postgres, options, delay } from "./setup.js";
+import { postgres, options, delay, pg_port } from "./setup.js";
 
 function record(name) {
 	const events = [],
@@ -41,9 +41,7 @@ t("Tracing: a query publishes start, end, asyncStart and asyncEnd with what it r
 			c.command,
 			c.count,
 			c.database,
-			typeof c.connection === "number" &&
-				c.port === (options.port || 5432) &&
-				typeof c.host === "string",
+			typeof c.connection === "number" && c.port === pg_port && typeof c.host === "string",
 			c.queued <= c.sent && c.sent <= c.firstByte && c.firstByte <= c.complete,
 			c.parameters === undefined,
 			x,
@@ -129,7 +127,7 @@ t("Tracing: connect publishes per attempt, with the backend pid or the error", a
 	const ok = events.find((x) => x.event === "asyncEnd" && !x.context.error),
 		failed = events.find((x) => x.event === "error");
 	return [
-		"number " + (options.port || 5432) + " ECONNREFUSED 5434",
+		"number " + pg_port + " ECONNREFUSED 5434",
 		[
 			typeof ok.context.result.pid,
 			ok.context.port,

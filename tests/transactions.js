@@ -1,5 +1,5 @@
 import { t } from "./test.js";
-import { postgres, sql, options, delay, idle_timeout } from "./setup.js";
+import { postgres, sql, options, delay, idle_timeout, pg_port } from "./setup.js";
 
 t("Throws on illegal transactions", async () => {
 	const sql = postgres({ ...options, max: 2, fetch_types: false });
@@ -926,7 +926,7 @@ t(
 	async () => {
 		const net = await import("net"),
 			proxy = net.createServer((client) => {
-				const server = net.connect(5432, "127.0.0.1");
+				const server = net.connect(pg_port, "127.0.0.1");
 				client.on("data", (x) => setTimeout(() => server.write(x), 50));
 				server.on("data", (x) => setTimeout(() => client.write(x), 50));
 				client.on("close", () => server.destroy());

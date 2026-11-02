@@ -1,12 +1,12 @@
 import net from "net";
 import { t } from "./test.js";
-import { postgres, login, login_md5, login_scram } from "./setup.js";
+import { postgres, login, login_md5, login_scram, pg_port } from "./setup.js";
 import { open } from "../src/startup.js";
 import { Query, Frames } from "../src/protocol.js";
 
 const base = {
 	host: ["localhost"],
-	port: [5432],
+	port: [pg_port],
 	database: "postgres_js_test",
 	connect_timeout: 3,
 	timers: { setTimeout, clearTimeout },
@@ -57,7 +57,7 @@ t("Startup rejects with the socket error", async () => [
 
 t("Startup tries the next host", async () => [
 	"I",
-	(await session({ host: ["localhost", "localhost"], port: [1, 5432] })).status,
+	(await session({ host: ["localhost", "localhost"], port: [1, pg_port] })).status,
 ]);
 
 t("Startup rejects after connect_timeout", async () => {
@@ -196,9 +196,11 @@ t("Startup destroys a TCP connection still in progress when connect_timeout pass
 		sockets.push(socket);
 		return socket;
 	};
-	const code = await session({ host: ["10.255.255.1"], port: [5432], connect_timeout: 0.2 }).catch(
-		(e) => e.code,
-	);
+	const code = await session({
+		host: ["10.255.255.1"],
+		port: [pg_port],
+		connect_timeout: 0.2,
+	}).catch((e) => e.code);
 	net.connect = connect;
 	return [
 		"CONNECT_TIMEOUT 1 true",

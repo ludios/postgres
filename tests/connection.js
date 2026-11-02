@@ -12,6 +12,9 @@ import {
 	delay,
 	idle_timeout,
 	exec,
+	pg_port,
+	second_pg_port,
+	pg_socket_dir,
 } from "./setup.js";
 
 t("Connects with no options", async () => {
@@ -37,7 +40,14 @@ t("Connect using uri", async () => [
 	true,
 	await new Promise((resolve, reject) => {
 		const sql = postgres(
-			"postgres://" + login.user + ":" + (login.pass || "") + "@localhost:5432/" + options.db,
+			"postgres://" +
+				login.user +
+				":" +
+				(login.pass || "") +
+				"@localhost:" +
+				pg_port +
+				"/" +
+				options.db,
 			{
 				idle_timeout,
 			},
@@ -285,7 +295,7 @@ t("connection parameters", async () => {
 t("Unix socket", async () => {
 	const sql = postgres({
 		...options,
-		host: process.env.PGSOCKET || "/tmp",
+		host: pg_socket_dir,
 	});
 
 	return [1, (await sql`select 1 as x`)[0].x];
@@ -391,8 +401,11 @@ t(
 	},
 	async () => {
 		const s1 = postgres({ idle_timeout }),
-			s2 = postgres({ idle_timeout, port: 5433 }),
-			sql = postgres("postgres://localhost:5432,localhost:5433", { idle_timeout, max: 1 }),
+			s2 = postgres({ idle_timeout, port: second_pg_port }),
+			sql = postgres(`postgres://localhost:${pg_port},localhost:${second_pg_port}`, {
+				idle_timeout,
+				max: 1,
+			}),
 			result = [];
 
 		const id1 = (await s1`select system_identifier as x from pg_control_system()`)[0].x;
@@ -432,7 +445,7 @@ t("Custom socket", {}, async () => {
 		socket: () =>
 			new Promise((resolve, reject) => {
 				const socket = new net.Socket();
-				socket.connect(5432);
+				socket.connect(pg_port);
 				socket.once("data", (x) => (result = x[0]));
 				socket.on("error", reject);
 				socket.on("connect", () => resolve(socket));
@@ -490,7 +503,7 @@ t("Multiple hosts continues to next host after connect timeout", { timeout: 10 }
 	const sql = postgres({
 		...options,
 		host: ["127.0.0.1", "localhost"],
-		port: [server.address().port, 5432],
+		port: [server.address().port, pg_port],
 		connect_timeout: 1,
 	});
 	const x = (await sql`select 1 as x`)[0].x;
@@ -506,7 +519,7 @@ t(
 		const sql = postgres({
 			...options,
 			host: ["localhost", "localhost"],
-			port: [1, 5432],
+			port: [1, pg_port],
 			target_session_attrs: "prefer-standby",
 			connect_timeout: 1,
 		});
@@ -521,7 +534,7 @@ t("prefer-standby connects to a primary when no host is a standby", { timeout: 1
 		idle_timeout,
 		max: 1,
 		host: ["localhost", "localhost"],
-		port: [5432, 5433],
+		port: [pg_port, second_pg_port],
 		target_session_attrs: "prefer-standby",
 	});
 	const x = (await sql`select 1 as x`)[0].x;
@@ -534,7 +547,7 @@ t("target_session_attrs standby errors when no host is a standby", { timeout: 10
 		idle_timeout,
 		max: 1,
 		host: ["localhost", "localhost"],
-		port: [5432, 5433],
+		port: [pg_port, second_pg_port],
 		target_session_attrs: "standby",
 	});
 	return ["CONNECTION_DESTROYED", await sql`select 1`.catch((e) => e.code)];
@@ -572,7 +585,7 @@ t(
 		const sql = postgres({
 			...options,
 			host: ["localhost", "127.0.0.1"],
-			port: [5432, server.address().port],
+			port: [pg_port, server.address().port],
 			target_session_attrs: "prefer-standby",
 		});
 
@@ -610,7 +623,7 @@ t("Query runs on a new connection if the backend dies while fetching array types
 	process.on("unhandledRejection", onunhandled);
 
 	const proxy = net.createServer((client) => {
-		const server = net.connect(5432, "localhost");
+		const server = net.connect(pg_port, "localhost");
 		client.on("data", (x) => {
 			if (!killed && x.includes("pg_type")) {
 				killed = true;
@@ -668,7 +681,7 @@ t(
 		let attempts = 0;
 
 		const proxy = net.createServer((client) => {
-			const server = net.connect(5432, "localhost");
+			const server = net.connect(pg_port, "localhost");
 			attempts++;
 			client.on("data", (x) =>
 				x.includes("pg_type") ? (server.destroy(), client.end()) : server.write(x),
@@ -706,7 +719,7 @@ t(
 			closed = false;
 
 		const proxy = net.createServer((client) => {
-			const server = net.connect(5432, "localhost");
+			const server = net.connect(pg_port, "localhost");
 			attempts++;
 			client.on("data", (x) =>
 				!closed && x.includes("pg_type")
@@ -924,7 +937,7 @@ t(
 			let holding = phase === "auth";
 
 			const proxy = net.createServer((client) => {
-				const server = net.connect(options.port || 5432, "localhost");
+				const server = net.connect(pg_port, "localhost");
 				client.on(
 					"data",
 					(x) => (phase === "types" && x.includes("typarray") && (holding = true), server.write(x)),
@@ -1021,7 +1034,7 @@ t(
 		const sql = postgres({
 			...options,
 			max: 1,
-			socket: () => (raw = net.connect(options.port || 5432, options.host || "localhost")),
+			socket: () => (raw = net.connect(pg_port, "localhost")),
 		});
 		await sql`select 1`;
 		const q = sql`select pg_sleep(2)`.then(
@@ -1182,7 +1195,7 @@ t("A server that ends SCRAM without its signature is not trusted", async () => {
 t("A cancel request on a TLS connection is sent over TLS", { timeout: 10 }, async () => {
 	const firsts = [];
 	const server = net.createServer((c) => {
-		const up = net.connect(options.port || 5432, options.host || "localhost");
+		const up = net.connect(pg_port, "localhost");
 		let first = true;
 		c.on("data", (d) => (first && firsts.push(d.readInt32BE(4)), (first = false), up.write(d)));
 		up.on("data", (d) => c.write(d));
@@ -1245,7 +1258,7 @@ t("sql.close() lets a running transaction and a reserved connection finish first
 });
 
 t("With several hosts every new connection tries the first host first, as in v3", async () => {
-	const hosts = "localhost:" + (options.port || 5432) + ",localhost:5433";
+	const hosts = "localhost:" + pg_port + ",localhost:" + second_pg_port;
 	const sql = postgres({
 		...options,
 		user: "postgres",
@@ -1262,7 +1275,7 @@ t("With several hosts every new connection tries the first host first, as in v3"
 		ports.push((await r`select inet_server_port() as p`)[0].p);
 	}
 	reserved.forEach((r) => r.release());
-	const first = options.port || 5432;
+	const first = pg_port;
 	return [[first, first, first].join(), ports.join(), await sql.end()];
 });
 
@@ -1275,7 +1288,7 @@ t(
 		await admin`create role postgres_js_test_limit login connection limit 1`;
 		const sql = postgres({
 			...options,
-			host: process.env.PGSOCKET || "/tmp",
+			host: pg_socket_dir,
 			user: "postgres_js_test_limit",
 			pass: "",
 			max: 2,
@@ -1360,7 +1373,7 @@ t(
 		await admin`create role postgres_js_test_loading login connection limit 1`;
 		const sql = postgres({
 			...options,
-			host: process.env.PGSOCKET || "/tmp",
+			host: pg_socket_dir,
 			user: "postgres_js_test_loading",
 			pass: "",
 			max: 2,
@@ -1391,7 +1404,7 @@ t(
 		await admin`create role postgres_js_test_burst login connection limit 0`;
 		const sql = postgres({
 			...options,
-			host: process.env.PGSOCKET || "/tmp",
+			host: pg_socket_dir,
 			user: "postgres_js_test_burst",
 			pass: "",
 			max: 4,
@@ -1423,7 +1436,7 @@ t(
 		await admin`create role postgres_js_test_none login connection limit 0`;
 		const sql = postgres({
 			...options,
-			host: process.env.PGSOCKET || "/tmp",
+			host: pg_socket_dir,
 			user: "postgres_js_test_none",
 			pass: "",
 			max: 2,

@@ -148,7 +148,7 @@ These need no PostgreSQL server:
 	node tests/unit
 	node tests/simulate.js
 
-The integration tests (`node tests/index.js`) need a PostgreSQL server set up the way `.github/workflows/test.yml` does it (SSL on, `wal_level = logical`, `tests/pg_hba.conf`); there's no local recipe for that yet.
+The integration tests (`node tests/index.js`) start their own two PostgreSQL servers with `pg_tmp`, from `ephemeralpg`.
 
 # Committing
 

@@ -1,6 +1,6 @@
 import net from "net";
 import { t } from "./test.js";
-import { postgres, sql, options, delay, idle_timeout } from "./setup.js";
+import { postgres, sql, options, delay, idle_timeout, pg_port } from "./setup.js";
 
 t("Ensure reserve on connection throws proper error", async () => {
 	const sql = postgres({
@@ -145,7 +145,7 @@ t("Writing to a closed reserved connection rejects instead of crashing", async (
 	let downstream;
 	const proxy = net.createServer((x) => {
 		downstream = x;
-		const upstream = net.connect(5432, "127.0.0.1");
+		const upstream = net.connect(pg_port, "127.0.0.1");
 		x.pipe(upstream).pipe(x);
 		x.on("error", () => upstream.destroy());
 		upstream.on("error", () => x.destroy());
