@@ -892,8 +892,8 @@ export function Pool(options, types) {
 
 	async function acquire(kind) {
 		used = true;
-		// Yield a tick, so that a query issued just before this call reaches the pool first:
-		// Query.handle() defers its dispatch by one.
+		// Yield one microtask, so that a query issued just before this call reaches the pool first:
+		// Query.handle() defers its dispatch by one microtask.
 		await Promise.resolve();
 		if (ending) {
 			throw Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]);
