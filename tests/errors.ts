@@ -157,7 +157,7 @@ test("Debug", async () => {
 
 test("Async stack trace", async () => {
 	const sql = postgres({ ...options, debug: false });
-	// The query must be on the line after this one
+	// The query must be on the line right after the line with `new Error()`
 	const line = parseInt(new Error().stack.split("\n")[1].match(":([0-9]+):")[1]);
 	const error = await sql`error`.catch((x) => x);
 	const expected = line + 1;
