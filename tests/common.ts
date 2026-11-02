@@ -7,15 +7,29 @@ export const library = (await import(process.env.POSTGRES_JS || "../src/index.ts
 
 /**
  * The library's default export (with all its properties, such as the getters that throw
- * CASING_TRANSFORM_REMOVED), except that a pool that it returns ends with `{ timeout: 0 }` when
- * disposed (`await using sql = postgres(...)`), instead of waiting for its queries and leases to
- * finish. A test that fails while one of its queries is still running then reports its own error,
- * instead of waiting for that query until vitest's timeout replaces the error.
+ * CASING_TRANSFORM_REMOVED), except that a pool that it returns, when disposed (`await using sql =
+ * postgres(...)`), ends with `{ timeout: 0 }` instead of waiting for its leases and queries to
+ * finish, and then throws if any of them had not finished. So a test that passes but leaves a lease
+ * or a query unfinished fails; and a test that fails while one is unfinished reports its own error
+ * (in a SuppressedError, along with the pool's error) at once, instead of waiting until vitest's
+ * timeout replaces its error.
  */
 export const postgres = new Proxy(library, {
 	apply(target, self, args) {
 		const sql = target(...args);
-		sql[Symbol.asyncDispose] = () => sql.end({ timeout: 0 });
+		sql[Symbol.asyncDispose] = async () => {
+			const { connections, idle, waiting } = sql.stats;
+			await sql.end({ timeout: 0 });
+			if (connections > idle || waiting > 0) {
+				throw new Error(
+					"When disposed, the pool had " +
+						(connections - idle) +
+						" connection(s) leased or with queries in flight, and " +
+						waiting +
+						" query(s) waiting for a connection",
+				);
+			}
+		};
 		return sql;
 	},
 });

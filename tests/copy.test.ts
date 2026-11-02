@@ -318,6 +318,9 @@ test("A query is not queued behind a copy to stdout that nobody reads", async ()
 	const [{ x }] = await query;
 	readable.destroy();
 	expect(x).toBe(1);
+	// The COPY's connection still discards the rest of the COPY's output, which the disposal would
+	// count as unfinished; end() waits for it
+	await sql.end();
 });
 
 test("Canceling a copy from stdin that waits for data fails its writable with 57014", async () => {
