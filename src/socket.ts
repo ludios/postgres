@@ -43,7 +43,7 @@ function same(a, b) {
 	return [...Object.keys(a), ...Object.keys(b)].every((k) => a[k] === b[k]);
 }
 
-export const secured = (options) => !!options.ssl && options.ssl !== "disable";
+export const secured = (options) => !!options.ssl;
 
 export const direct = (options) => secured(options) && options.sslnegotiation === "direct";
 
