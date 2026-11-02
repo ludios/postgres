@@ -884,6 +884,35 @@ test("A transaction rejects with the FATAL error that answers a query of it that
 	expect([error.code, error.severity]).toEqual(["57P01", "FATAL"]);
 });
 
+test("A transaction whose COMMIT got a FATAL error, and whose connection end() then destroyed, rejects with CONNECTION_CLOSED with the FATAL as cause", async () => {
+	let answered;
+	const fatal_sent = new Promise((r) => (answered = r)),
+		server = await answering((socket, text) => {
+			if (text.includes("commit")) {
+				// Without closing the connection, so that end() destroys it
+				socket.write(errorResponse("FATAL", "57P01"));
+				answered();
+			} else {
+				socket.write(began);
+			}
+		});
+	await using _close = defer(() => server.close());
+	const pool = postgres({
+		...options,
+		host: "127.0.0.1",
+		port: port_of(server),
+		fetch_types: false,
+	});
+	const transaction = pool.begin(() => 1).catch((e) => e);
+	await fatal_sent;
+	// For the client to read the FATAL error
+	await delay(50);
+	await pool.end({ timeout: 0 });
+	const error = await transaction;
+
+	expect([error.code, error.cause && error.cause.code]).toEqual(["CONNECTION_CLOSED", "57P01"]);
+});
+
 test("Failed array type fetch on a live connection is not an unhandled rejection", async () => {
 	let unhandled = 0;
 

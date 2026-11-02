@@ -850,12 +850,17 @@ export function Pool(options, types) {
 			clearTimeout(c.lifeTimer);
 		}
 		if (c.lease && c.lease.onclose) {
-			const lost = lease_error || error;
-			c.lease.onclose(
-				lost.code === "CONNECTION_DESTROYED"
-					? Errors.connection("CONNECTION_CLOSED", options, c.host, c.port)
-					: lost,
-			);
+			let lost = lease_error || error;
+			// To the lease, the connection closed, with the same cause, such as a FATAL error that
+			// answered COMMIT
+			if (lost.code === "CONNECTION_DESTROYED") {
+				const cause = lost.cause;
+				lost = Errors.connection("CONNECTION_CLOSED", options, c.host, c.port);
+				if (cause !== undefined) {
+					lost.cause = cause;
+				}
+			}
+			c.lease.onclose(lost);
 		}
 		if (options.onclose) {
 			options.onclose(c.id);
