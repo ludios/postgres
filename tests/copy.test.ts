@@ -357,3 +357,78 @@ test(
 		}
 	},
 );
+
+test(
+	"Canceling a copy from stdin that waits for data fails its writable with 57014",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1 });
+		try {
+			await sql`create table test (x int)`;
+			const query = sql`copy test from stdin`,
+				writable = await query.writable();
+			writable.write("1\n");
+			// The server holds back a cancel request while it waits for COPY data
+			const error = await new Promise<{ code: string }>((resolve) => {
+					writable.on("error", resolve);
+					query.cancel();
+				}),
+				[{ n }] = await sql`select count(*)::int as n from test`;
+			expect([error.code, n]).toEqual(["57014", 0]);
+		} finally {
+			await sql`drop table if exists test`;
+			await sql.end();
+		}
+	},
+);
+
+test(
+	"Canceling a copy to stdout while back-pressure has paused it fails its readable with 57014",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1 });
+		try {
+			const query = sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`,
+				readable = await query.readable();
+			while (readable.readableLength < readable.readableHighWaterMark) {
+				await delay(1);
+			}
+			const error = await new Promise<{ code: string }>((resolve) => {
+					readable.on("error", resolve);
+					query.cancel();
+				}),
+				[{ x }] = await sql`select 1 as x`;
+			expect([error.code, x]).toEqual(["57014", 1]);
+		} finally {
+			await sql.end();
+		}
+	},
+);
+
+test(
+	"Destroying a copy both stream ends it with CopyDone, which keeps the connection",
+	{ timeout: 10_000 },
+	async () => {
+		await sql`drop publication if exists copy_both`;
+		await sql`create publication copy_both`;
+		const replication = postgres({ database: options.db, max: 1, connection: { replication: "database" } });
+		try {
+			await replication.unsafe(
+				"CREATE_REPLICATION_SLOT copy_both TEMPORARY LOGICAL pgoutput NOEXPORT_SNAPSHOT",
+			);
+			const [{ pid }] = await replication`select pg_backend_pid() as pid`.simple(),
+				duplex = await replication
+					.unsafe(
+						"START_REPLICATION SLOT copy_both LOGICAL 0/0 (proto_version '1', publication_names 'copy_both')",
+					)
+					.writable();
+			// walsender takes any message but CopyData, CopyDone and Terminate as a FATAL error
+			duplex.destroy();
+			const [{ pid: after }] = await replication`select pg_backend_pid() as pid`.simple();
+			expect(after).toBe(pid);
+		} finally {
+			await replication.end();
+			await sql`drop publication copy_both`;
+		}
+	},
+);

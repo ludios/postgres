@@ -562,6 +562,33 @@ export function Connection(ready, options, events) {
 		return x.stopping;
 	}
 
+	/**
+	 * Stops the COPY of exchange `x`, the head of `sent`, as the protocol allows.
+	 * COPY FROM and COPY BOTH stop with CopyFail and CopyDone, because the server
+	 * holds back a cancel request while it waits for COPY data. COPY TO stops only
+	 * with a cancel request. A COPY TO stream, or a stream still sending, fails with
+	 * a 57014 error right away.
+	 *
+	 * @returns a promise that settles once the stop has been sent
+	 */
+	function cancel_copy(x) {
+		const error = Errors.generic("57014", "canceling statement due to user request");
+		if (x.copy === "out") {
+			if (x.copied) {
+				return Promise.resolve();
+			}
+			if (x.stream) {
+				x.stream.destroy(error);
+			}
+			return stop(x);
+		}
+		if (x.stream && !x.copied) {
+			x.stream.destroy(error);
+			return Promise.resolve();
+		}
+		return stop(x);
+	}
+
 	function cancel(query) {
 		if (running.has(query) || (sent[0] && sent[0].query === query && sent[0].awaiting)) {
 			return (
@@ -585,10 +612,10 @@ export function Connection(ready, options, events) {
 			return Promise.resolve();
 		}
 
-		// A COPY's query resolves with its stream (which makes it inactive) while the server still runs it
-		return x === sent[0] && (query.active || query.streaming)
-			? stop(x)
-			: new Promise((resolve, reject) => (x.cancel = { resolve, reject }));
+		if (x !== sent[0]) {
+			return new Promise((resolve, reject) => (x.cancel = { resolve, reject }));
+		}
+		return x.copy ? cancel_copy(x) : stop(x);
 	}
 
 	function close() {
@@ -1264,7 +1291,12 @@ export function Connection(ready, options, events) {
 				callback(error);
 				discard(item);
 				if (!item.copied && !closed && !item.error) {
-					p.copyFail(out, (error || "The COPY stream was destroyed") + "");
+					// walsender, the server of COPY BOTH, takes CopyFail as a FATAL error
+					if (item.copy === "both") {
+						p.copyDone(out);
+					} else {
+						p.copyFail(out, (error || "The COPY stream was destroyed") + "");
+					}
 					item.copied = true;
 					item.open = false;
 					schedule(true);
@@ -1284,6 +1316,7 @@ export function Connection(ready, options, events) {
 
 	function CopyInResponse() {
 		const item = sent[0];
+		item.copy = "in";
 		item.stream = new Stream.Writable(writable(item));
 		item.query.resolve(item.stream);
 	}
@@ -1297,6 +1330,7 @@ export function Connection(ready, options, events) {
 
 	function CopyOutResponse() {
 		const item = sent[0];
+		item.copy = "out";
 		item.stream = new Stream.Readable({
 			read: readable(item),
 			destroy(error, callback) {
@@ -1311,6 +1345,7 @@ export function Connection(ready, options, events) {
 
 	function CopyBothResponse() {
 		const item = sent[0];
+		item.copy = "both";
 		item.stream = new Stream.Duplex({ ...writable(item), read: readable(item) });
 		frames.own(true);
 		item.query.resolve(item.stream);
@@ -1338,6 +1373,9 @@ export function Connection(ready, options, events) {
 	function CopyDone() {
 		frames.own(false);
 		const item = sent[0];
+		if (item.copy === "out") {
+			item.copied = true;
+		}
 		item.stream && item.stream.push(null);
 		item.stream = null;
 	}
@@ -1398,6 +1436,9 @@ function Exchange(kind, query, lease, write) {
 		cancel: null,
 		stopping: null,
 		stream: null,
+		// "in", "out" or "both", once the server has started a COPY FROM, TO or BOTH
+		copy: null,
+		// Whether all of the COPY data has been sent: by us, except for COPY TO
 		copied: false,
 		wanted: false,
 		final: null,
