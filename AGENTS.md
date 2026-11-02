@@ -131,7 +131,7 @@ When there are multiple good ways to implement something, especially involving s
 
 This is a fork of [porsager/postgres](https://github.com/porsager/postgres) (remote `origin`); ours is ludios/postgres (remote `gh`). Work happens on `prime`.
 
-We're reworking all of it to follow the code conventions above and to test with `vitest`. Most of the existing code is still in upstream's style (2-space indents, no semicolons, camelCase): don't imitate it in new code, and convert the code you rework.
+We're reworking all of it to follow the code conventions above and to test with `vitest`. Most of the existing code is still in upstream's style (camelCase names, `a && b()` as a statement, one-line `if`s without curlies, several variables declared by one `const` or `let`): don't imitate it in new code, and convert the code you rework.
 
 Renaming anything public (see `types/index.d.ts`) breaks users of the library; ask first.
 
