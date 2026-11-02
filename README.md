@@ -716,15 +716,15 @@ await sql`
 
 #### BEGIN / COMMIT `await sql.begin([options = ''], fn) -> fn()`
 
-Use `sql.begin` to start a new transaction. Postgres.js will reserve a connection for the transaction and supply a scoped `sql` instance for all transaction uses in the callback function. `sql.begin` will resolve with the returned value from the callback function.
+Use `sql.begin` to start a new transaction. Postgres.js will reserve a connection for the transaction and pass the callback function a scoped `sql` instance for the transaction, named `tx` in the examples below. Inside the callback, a query made with the pool's `sql`, not `tx`, runs outside the transaction. `sql.begin` will resolve with the returned value from the callback function.
 
 `BEGIN` is automatically sent with the optional options, and if anything fails `ROLLBACK` will be called so the connection can be released and execution can continue.
 
 A query that fails in a transaction aborts it, whether the server rejected it or Postgres.js could not build it (an `undefined` value, say), as PostgreSQL does: catching the error does not let the rest commit, and a later `COMMIT` answers `ROLLBACK`. The transaction commits only once its cursors have finished, also those the callback did not await.
 
 ```js
-const [user, account] = await sql.begin(async sql => {
-  const [user] = await sql`
+const [user, account] = await sql.begin(async tx => {
+  const [user] = await tx`
     insert into users (
       name
     ) values (
@@ -733,7 +733,7 @@ const [user, account] = await sql.begin(async sql => {
     returning *
   `
 
-  const [account] = await sql`
+  const [account] = await tx`
     insert into accounts (
       user_id
     ) values (
@@ -751,33 +751,33 @@ Do note that you can often achieve the same result using [`WITH` queries (Common
 It's also possible to pipeline the requests in a transaction if needed by returning an array with queries from the callback function like this:
 
 ```js
-const result = await sql.begin(sql => [
-  sql`update ...`,
-  sql`update ...`,
-  sql`insert ...`
+const result = await sql.begin(tx => [
+  tx`update ...`,
+  tx`update ...`,
+  tx`insert ...`
 ])
 ```
 
 Queries that are not awaited one by one are pipelined anywhere in the transaction, so `Promise.all` pipelines a group of them between other queries. They run in the order they were made, so a later query sees what an earlier one in the group did:
 
 ```js
-await sql.begin(async sql => {
-  const [movie] = await sql`select * from movie where name = 'Star Wars'`
+await sql.begin(async tx => {
+  const [movie] = await tx`select * from movie where name = 'Star Wars'`
 
   await Promise.all([
-    sql`insert into movie_actor ...${ movie.id }`,
-    sql`insert into movie_release ...${ movie.id }`
+    tx`insert into movie_actor ...${ movie.id }`,
+    tx`insert into movie_release ...${ movie.id }`
   ])
 
-  await sql`select ...`
+  await tx`select ...`
 })
 ```
 
 #### SAVEPOINT `await sql.savepoint([name], fn) -> fn()`
 
 ```js
-sql.begin('read write', async sql => {
-  const [user] = await sql`
+sql.begin('read write', async tx => {
+  const [user] = await tx`
     insert into users (
       name
     ) values (
@@ -785,8 +785,8 @@ sql.begin('read write', async sql => {
     )
   `
 
-  const [account] = (await sql.savepoint(sql =>
-    sql`
+  const [account] = (await tx.savepoint(sp =>
+    sp`
       insert into accounts (
         user_id
       ) values (
@@ -814,14 +814,14 @@ Inside a transaction, `sql.begin(fn)` runs `fn` in a savepoint, so code that ope
 
 ```js
 async function transfer(sql, from, to, amount) {
-  return sql.begin(async sql => {
-    await sql`update accounts set balance = balance - ${ amount } where id = ${ from }`
-    await sql`update accounts set balance = balance + ${ amount } where id = ${ to }`
+  return sql.begin(async tx => {
+    await tx`update accounts set balance = balance - ${ amount } where id = ${ from }`
+    await tx`update accounts set balance = balance + ${ amount } where id = ${ to }`
   })
 }
 
 await transfer(sql, 1, 2, 10)                 // its own transaction
-await sql.begin(sql => transfer(sql, 1, 2, 10)) // a savepoint in this one
+await sql.begin(tx => transfer(tx, 1, 2, 10)) // a savepoint in this one
 ```
 
 #### ROLLBACK `await sql.rollback()`
@@ -829,10 +829,10 @@ await sql.begin(sql => transfer(sql, 1, 2, 10)) // a savepoint in this one
 Rolls back the transaction without throwing, and `sql.begin` resolves with what the callback returns (#500). Called in a savepoint or a nested `sql.begin`, it rolls back only that savepoint, and the outer transaction goes on. The rollback is sent at once, after any queries already made. Queries made after it in the same scope are not sent and reject with `TRANSACTION_ROLLED_BACK`, and so does the `sql.begin` they were made in.
 
 ```js
-const result = await sql.begin(async sql => {
-  const [order] = await sql`insert into orders ${ sql(input) } returning *`
-  if (!await inStock(sql, order))
-    return (await sql.rollback(), { saved: false })
+const result = await sql.begin(async tx => {
+  const [order] = await tx`insert into orders ${ tx(input) } returning *`
+  if (!await inStock(tx, order))
+    return (await tx.rollback(), { saved: false })
   return { saved: true, order }
 })
 ```
@@ -843,8 +843,8 @@ Indicates that the transactions should be prepared using the [`PREPARE TRANSACTI
 instead of being committed.
 
 ```js
-sql.begin('read write', async sql => {
-  const [user] = await sql`
+sql.begin('read write', async tx => {
+  const [user] = await tx`
     insert into users (
       name
     ) values (
@@ -852,7 +852,7 @@ sql.begin('read write', async sql => {
     )
   `
 
-  await sql.prepare('tx1')
+  await tx.prepare('tx1')
 })
 ```
 
@@ -1836,7 +1836,7 @@ function users(sql: ISql) {
 }
 
 await users(sql)
-await sql.begin(sql => users(sql))
+await sql.begin(tx => users(tx))
 ```
 
 `PostgresError` is exported by name too, so `import { PostgresError } from 'postgres'` works with `instanceof`.
