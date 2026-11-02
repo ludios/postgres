@@ -340,7 +340,7 @@ test("An option that is on or off is true or false, or the text true, false or d
 });
 
 test("debug is true or false, the text true, false or disable, or a function; anything else throws", async () => {
-	const f = vi.fn();
+	const f = vi.fn<() => void>();
 	const must = (source, shown) =>
 		"The " + source + " must be true, false or a function, but it is " + shown;
 	const read = with_env({ PGDEBUG: "false" }, () => [
