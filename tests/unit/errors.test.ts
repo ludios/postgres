@@ -24,7 +24,7 @@ test("PostgresError from a message string", async () => {
 
 test("copy_error copies an error as a native error of the same class, without a query's properties", async () => {
 	const error = new PostgresError({ message: "terminating connection", code: "57P01" });
-	queryError(error, { strings: ["select 1"], args: [1], origin: "" }, false);
+	queryError(error, { strings: ["select 1"], args: [1], origin: "" } as any, false);
 	const copy = copy_error(error);
 	expect([
 		copy !== error,

@@ -377,7 +377,7 @@ test("A message that fails to encode leaves nothing behind for the next one", as
 			throw new Error("wat");
 		},
 	};
-	const error = thrown(() => p.Startup({ user: "a", database: bad })).message;
+	const error = thrown(() => p.Startup({ user: "a", database: bad as any })).message;
 	expect([error, p.Sync()]).toEqual(["wat", Buffer.from("5300000004", "hex")]);
 });
 

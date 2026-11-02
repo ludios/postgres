@@ -1,11 +1,13 @@
 import { EventEmitter } from "events";
 import { expect, test } from "vitest";
 import { Socket, secured } from "../../src/socket.ts";
+import type { RawSocket } from "../../src/socket.ts";
+import type { Options } from "../../src/index.ts";
 import { port_of } from "../helpers.ts";
 
+/** @returns a fake net.Socket, which records what is written to it */
 function fake() {
-	// A fake net.Socket, which records what is written to it
-	const x: EventEmitter & Record<string, any> = new EventEmitter();
+	const x: any = new EventEmitter();
 	x.written = [];
 	x.write = (data) => {
 		x.written.push(data);
@@ -20,18 +22,21 @@ function fake() {
 	x.destroy = () => x.emit("close", true);
 	x.pause = () => (x.paused = true);
 	x.resume = () => (x.paused = false);
-	return x;
+	return x as RawSocket & Record<string, any>;
 }
+
+/** @returns `x` as a pool's options, for Socket() and secured(), which read only a few of them */
+const opts = (x: Partial<Options>) => x as Options;
 
 test("Socket takes the user socket", async () => {
 	const raw = fake(),
-		socket = await Socket({ socket: () => raw });
+		socket = await Socket(opts({ socket: () => raw }));
 	expect(socket.raw === raw).toBe(true);
 });
 
 test("Socket passes data, drain and writes through", async () => {
 	const raw = fake(),
-		socket = await Socket({ socket: async () => raw }),
+		socket = await Socket(opts({ socket: async () => raw })),
 		got = [];
 	socket.ondata = (x) => got.push(x.toString());
 	socket.ondrain = () => got.push("drain");
@@ -43,7 +48,7 @@ test("Socket passes data, drain and writes through", async () => {
 
 test("Socket closes once with the error that came before", async () => {
 	const raw = fake(),
-		socket = await Socket({ socket: () => raw }),
+		socket = await Socket(opts({ socket: () => raw })),
 		closes = [];
 	socket.onclose = (x) => closes.push(x && x.code);
 	raw.emit("error", Object.assign(new Error("reset"), { code: "ECONNRESET" }));
@@ -54,7 +59,7 @@ test("Socket closes once with the error that came before", async () => {
 
 test("Socket does not write after close", async () => {
 	const raw = fake(),
-		socket = await Socket({ socket: () => raw });
+		socket = await Socket(opts({ socket: () => raw }));
 	raw.emit("close", false);
 	expect([socket.write(Buffer.from("x")), raw.written.length, socket.closed]).toEqual([
 		false,
@@ -65,7 +70,7 @@ test("Socket does not write after close", async () => {
 
 test("Socket pause and resume reach the user socket", async () => {
 	const raw = fake(),
-		socket = await Socket({ socket: () => raw });
+		socket = await Socket(opts({ socket: () => raw }));
 	socket.pause();
 	const paused = raw.paused;
 	socket.resume();
@@ -74,11 +79,13 @@ test("Socket pause and resume reach the user socket", async () => {
 
 test("Socket rejects when the user socket fails", async () => {
 	expect(
-		await Socket({
-			socket: () => {
-				throw new Error("nope");
-			},
-		}).catch((e) => e.message),
+		await Socket(
+			opts({
+				socket: () => {
+					throw new Error("nope");
+				},
+			}),
+		).catch((e) => e.message),
 	).toBe("nope");
 });
 
@@ -87,8 +94,8 @@ test("Socket reads plain TCP through a shared buffer unless onread is false", as
 		server = net.createServer((x) => x.end());
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 	const port = port_of(server),
-		shared = await Socket({ ssl: false }, "127.0.0.1", port),
-		stream = await Socket({ ssl: false, onread: false }, "127.0.0.1", port);
+		shared = await Socket(opts({ ssl: false }), "127.0.0.1", port),
+		stream = await Socket(opts({ ssl: false, onread: false }), "127.0.0.1", port);
 	shared.destroy();
 	stream.destroy();
 	server.close();
@@ -98,9 +105,9 @@ test("Socket reads plain TCP through a shared buffer unless onread is false", as
 test("A connection asks for TLS when ssl is set, but not over a Unix-domain socket, as in libpq", async () => {
 	const path = "/run/postgresql/.s.PGSQL.5432";
 	expect([
-		secured({ ssl: "require" }),
-		secured({ ssl: "require", path }),
-		secured({ ssl: { ca: [] }, path }),
-		secured({ ssl: false }),
+		secured(opts({ ssl: "require" })),
+		secured(opts({ ssl: "require", path })),
+		secured(opts({ ssl: { ca: [] }, path })),
+		secured(opts({ ssl: false })),
 	]).toEqual([true, false, false, false]);
 });

@@ -12,6 +12,8 @@ import Subscribe from "./subscribe.ts";
 import largeObject from "./large.ts";
 import { channels, active, start, finish, userName } from "./diagnostics.ts";
 import type postgres from "../types/index.js";
+import type { open } from "./startup.ts";
+import type { RawSocket } from "./socket.ts";
 
 export default Object.assign(Postgres, {
 	PostgresError,
@@ -206,8 +208,7 @@ function Postgres(a?, b?) {
 			port: null,
 			outcome: null,
 		};
-		let promise;
-		start(channels.transaction, context, () => (promise = transaction(mode, fn, context)));
+		const promise = start(channels.transaction, context, () => transaction(mode, fn, context));
 
 		return promise.then(
 			(result) => {
@@ -671,7 +672,8 @@ const max_delay = 2 ** 31 - 1;
 function default_timers() {
 	const set_timeout = setTimeout;
 	return {
-		setTimeout: (fn, ms, ...args) => set_timeout(fn, Math.min(ms, max_delay), ...args),
+		setTimeout: (fn: (...args: any[]) => void, ms: number, ...args: any[]) =>
+			set_timeout(fn, Math.min(ms, max_delay), ...args),
 		clearTimeout,
 		setImmediate,
 		clearImmediate,
@@ -988,6 +990,40 @@ function read_option(k, rule, o, query, env) {
  * @returns the options of the pool
  * @throws if an option has a value that it may not have
  */
+/** The timer functions that a pool uses: the globals, unless the options gave others (tests do) */
+export type Timers = ReturnType<typeof default_timers>;
+
+/**
+ * The options of a pool, as parse_options() makes them from the url, the options object and the
+ * environment: every option has its value or its default. The public ParsedOptions, plus what only
+ * the library reads.
+ */
+export type Options = postgres.ParsedOptions<Record<string, any>> & {
+	onnotice?: false | ((notice: postgres.Notice) => void);
+	onnotify?: (channel: string, payload: string, pid: number) => void;
+	onparameter?: (key: string, value: string) => void;
+	onclose?: (connection: number) => void;
+	/** Opens the socket of a connection instead of socket.ts; Cloudflare Workers give one */
+	socket?: (
+		options: Options,
+		host: string | undefined,
+		port: number | undefined,
+	) => RawSocket | Promise<RawSocket>;
+	/** Opens a connection instead of startup.ts's open(); tests give one */
+	open?: typeof open;
+	/** Whether the pool makes no Subscribe (which would make a pool of its own) */
+	no_subscribe?: boolean;
+	/** The password file (PGPASSFILE, or ~/.pgpass) */
+	passfile: string | undefined;
+	/** The types of the pool that made this one (a Subscribe's), so that they are looked up once */
+	shared_types?: ReturnType<typeof Types>;
+	/** What the pools made from one set of options share */
+	shared: { retries: number };
+	timers: Timers;
+	/** Resolves a type given by name to its oid, once the types are loaded */
+	resolve: ReturnType<typeof Types>["resolve"];
+};
+
 function parse_options(a, b) {
 	if (a && a.shared) {
 		return a;

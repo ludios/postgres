@@ -1,5 +1,6 @@
 import net from "net";
 import tls from "tls";
+import type { Options } from "./index.ts";
 
 const noop = (..._: any[]) => {},
 	agent = (globalThis.navigator && globalThis.navigator.userAgent) || "",
@@ -7,9 +8,33 @@ const noop = (..._: any[]) => {},
 	onreadSafe =
 		!agent || agent.startsWith("Node.js") || agent.startsWith("Bun") || agent.startsWith("Deno"),
 	node = !agent || agent.startsWith("Node.js"),
-	contexts = new WeakMap();
+	contexts = new WeakMap<
+		object,
+		{ values: tls.ConnectionOptions; secureContext: tls.SecureContext }
+	>();
 
-export async function Socket(options, host?, port?, track = noop) {
+/**
+ * A net.Socket as connect() sets it up, with the properties that wrap() reads. Cloudflare Workers
+ * imitate it (cf.ts).
+ */
+export type RawSocket = net.Socket & {
+	/** Whether `onread` reads into one buffer that is reused, so that a chunk kept must be copied */
+	shared?: boolean;
+	/** Whether the socket was TLS from the start */
+	secure?: boolean;
+	/** Whether TLS was negotiated after connecting (Cloudflare's startTls) */
+	negotiated?: boolean;
+	/** Called with each chunk that `onread` reads */
+	ondata?: (x: Buffer) => void;
+	getPeerCertificate?: tls.TLSSocket["getPeerCertificate"];
+};
+
+export async function Socket(
+	options: Options,
+	host?: string,
+	port?: number,
+	track: (socket: RawSocket) => void = noop,
+) {
 	const raw = options.socket
 		? await options.socket(options, host, port)
 		: await connect(options, host, port, track);
@@ -17,7 +42,7 @@ export async function Socket(options, host?, port?, track = noop) {
 	return wrap(raw, host);
 }
 
-export function secureOptions(ssl) {
+export function secureOptions(ssl: Options["ssl"]) {
 	return ssl === "require" || ssl === "allow" || ssl === "prefer"
 		? workers
 			? {}
@@ -27,7 +52,7 @@ export function secureOptions(ssl) {
 			: {};
 }
 
-function context(ssl) {
+function context(ssl: tls.ConnectionOptions) {
 	if (!node || ssl.secureContext || !ssl.ca) {
 		return ssl;
 	}
@@ -40,8 +65,11 @@ function context(ssl) {
 	return { ...values, secureContext: last.secureContext };
 }
 
-function same(a, b) {
-	return [...Object.keys(a), ...Object.keys(b)].every((k) => a[k] === b[k]);
+/** @returns whether `a` and `b` have the same keys, with identical values */
+function same(a: object, b: object) {
+	const x = a as Record<string, unknown>,
+		y = b as Record<string, unknown>;
+	return [...Object.keys(x), ...Object.keys(y)].every((k) => x[k] === y[k]);
 }
 
 /**
@@ -49,30 +77,41 @@ function same(a, b) {
  * @returns whether a connection asks for TLS: when `ssl` is set, except over a Unix-domain socket,
  *          where libpq never asks for it, and the server always says no
  */
-export const secured = (options) => !!options.ssl && !options.path;
+export const secured = (options: Options) => !!options.ssl && !options.path;
 
-export const direct = (options) => secured(options) && options.sslnegotiation === "direct";
+export const direct = (options: Options) => secured(options) && options.sslnegotiation === "direct";
 
-function connect(options, host, port, track) {
-	return new Promise((resolve, reject) => {
+function connect(
+	options: Options,
+	host: string | undefined,
+	port: number | undefined,
+	track: (socket: RawSocket) => void,
+) {
+	return new Promise<RawSocket>((resolve, reject) => {
 		const tlsNow = direct(options),
 			plain = !secured(options),
-			reads = (plain || tlsNow) &&
+			reads: net.OnReadOpts | false = (plain || tlsNow) &&
 				onreadSafe &&
 				options.onread !== false && {
 					buffer: Buffer.allocUnsafe(65536),
-					callback: (n, b) => socket.ondata(b.subarray(0, n)),
+					// `b` is `buffer`, the Buffer above; true keeps the socket reading (false would pause it)
+					callback: (n, b) => {
+						socket.ondata((b as Buffer).subarray(0, n));
+						return true;
+					},
 				},
-			target = options.path ? { path: options.path } : { port, host },
-			socket = tlsNow
-				? tls.connect({
-						...target,
-						servername: net.isIP(host || "") || options.path ? undefined : host,
-						...secureOptions(options.ssl),
-						ALPNProtocols: ["postgresql"],
-						...(reads ? { onread: reads } : {}),
-					})
-				: net.connect({ ...target, ...(reads ? { onread: reads } : {}) });
+			target: net.NetConnectOpts = options.path ? { path: options.path } : { port, host };
+		if (reads) {
+			target.onread = reads;
+		}
+		const socket: RawSocket = tlsNow
+			? tls.connect({
+					...target,
+					servername: net.isIP(host || "") || options.path ? undefined : host,
+					...secureOptions(options.ssl),
+					ALPNProtocols: ["postgresql"],
+				})
+			: net.connect(target);
 		track(socket);
 		socket.shared = !!reads;
 		socket.secure = tlsNow;
@@ -86,9 +125,9 @@ function connect(options, host, port, track) {
 	});
 }
 
-function wrap(socket, host) {
+function wrap(socket: RawSocket, host: string | undefined) {
 	let closed = false,
-		failure = null;
+		failure: Error | null = null;
 
 	if (socket.shared) {
 		socket.ondata = data;
@@ -105,22 +144,22 @@ function wrap(socket, host) {
 			return closed;
 		},
 		get shared() {
-			return !!socket.shared;
+			return socket.shared === true;
 		},
 		get negotiated() {
-			return !!socket.secure || !!socket.negotiated;
+			return socket.secure === true || socket.negotiated === true;
 		},
 		certificate() {
 			const cert = typeof socket.getPeerCertificate === "function" && socket.getPeerCertificate();
 			return (cert && cert.raw) || null;
 		},
-		write: (chunk) => !closed && socket.write(chunk),
+		write: (chunk: Buffer | string) => !closed && socket.write(chunk),
 		upgrade,
 		pause: () => socket.pause(),
 		resume: () => socket.resume(),
 		ref: () => socket.ref && socket.ref(),
 		unref: () => socket.unref && socket.unref(),
-		end(chunk) {
+		end(chunk?: Buffer | string) {
 			if (!closed) {
 				if (chunk) {
 					socket.end(chunk);
@@ -129,13 +168,13 @@ function wrap(socket, host) {
 				}
 			}
 		},
-		destroy(reason?) {
+		destroy(reason?: Error) {
 			if (reason && !failure) {
 				failure = reason;
 			}
 			socket.destroy();
 		},
-		keepAlive(seconds) {
+		keepAlive(seconds: number | null) {
 			if (seconds && socket.setKeepAlive) {
 				socket.setKeepAlive(true, 1000 * seconds);
 			}
@@ -159,13 +198,13 @@ function wrap(socket, host) {
 		socket.off("close", close);
 	}
 
-	function data(buffer) {
+	function data(buffer: Buffer) {
 		x.ondata(buffer);
 	}
 	function drain() {
 		x.ondrain();
 	}
-	function error(err) {
+	function error(err: Error) {
 		if (!failure) {
 			failure = err;
 		}
@@ -182,15 +221,15 @@ function wrap(socket, host) {
 		x.onclose(failure);
 	}
 
-	function upgrade(options = {}) {
-		return new Promise((resolve, reject) => {
+	function upgrade(options: tls.ConnectionOptions = {}) {
+		return new Promise<typeof x>((resolve, reject) => {
 			unlisten();
 			const secure = tls.connect({
 				socket,
 				servername: net.isIP(host || "") ? undefined : host,
 				...options,
 			});
-			const fail = (err) => {
+			const fail = (err: Error) => {
 				secure.off("secureConnect", ready);
 				reject(err);
 			};

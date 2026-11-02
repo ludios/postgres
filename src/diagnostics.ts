@@ -1,4 +1,9 @@
 import dc from "diagnostics_channel";
+import type { Channel, TracingChannel } from "diagnostics_channel";
+import type { Options } from "./index.ts";
+
+/** A tracing channel; Node 22 and later also tell whether any of its channels has subscribers */
+type Tracing = TracingChannel & { hasSubscribers?: boolean };
 
 export const channels = {
 	query: tracing("postgres:query"),
@@ -12,9 +17,10 @@ const done = Symbol("done");
 
 export const now = () => performance.now();
 
-export const userName = (options) => (typeof options.user === "function" ? null : options.user);
+export const userName = (options: Options) =>
+	typeof options.user === "function" ? null : options.user;
 
-export function active(t) {
+export function active(t: Tracing | null) {
 	return (
 		!!t &&
 		(t.hasSubscribers !== undefined
@@ -27,11 +33,11 @@ export function active(t) {
 	);
 }
 
-export function listened(channel) {
+export function listened(channel: Channel | null) {
 	return !!channel && channel.hasSubscribers;
 }
 
-export function start(t, context, fn) {
+export function start<T>(t: Tracing, context: object, fn: () => T): T {
 	if (typeof t.start.runStores === "function") {
 		return t.start.runStores(context, run);
 	}
@@ -47,25 +53,26 @@ export function start(t, context, fn) {
 	}
 }
 
-export function finish(t, context, error, result?) {
-	if (context[done]) {
+export function finish(t: Tracing, context: object, error: unknown, result?: unknown) {
+	const x = context as { [done]?: boolean; error?: unknown; result?: unknown };
+	if (x[done]) {
 		return;
 	}
 
-	context[done] = true;
+	x[done] = true;
 
 	if (error) {
-		context.error = error;
+		x.error = error;
 		t.error.publish(context);
 	} else {
-		context.result = result;
+		x.result = result;
 	}
 
 	t.asyncStart.publish(context);
 	t.asyncEnd.publish(context);
 }
 
-function tracing(name) {
+function tracing(name: string): Tracing | null {
 	try {
 		return typeof dc.tracingChannel === "function" ? dc.tracingChannel(name) : null;
 	} catch {
@@ -73,7 +80,7 @@ function tracing(name) {
 	}
 }
 
-function plain(name) {
+function plain(name: string): Channel | null {
 	try {
 		return dc.channel(name);
 	} catch {

@@ -73,8 +73,9 @@ function traced(options, host, port, signal) {
 		ssl: secured(options),
 		sslnegotiation: options.sslnegotiation || "postgres",
 	};
-	let promise;
-	trace_start(channels.connect, context, () => (promise = attempt(options, host, port, signal)));
+	const promise = trace_start(channels.connect, context, () =>
+		attempt(options, host, port, signal),
+	);
 
 	return promise.then(
 		(ready) => {
@@ -103,11 +104,28 @@ function fits(want, { readOnly, standby }) {
 	);
 }
 
+/** A connection that is ready for queries, as attempt() resolves it */
+export type Ready = {
+	socket: Awaited<ReturnType<typeof Socket>>;
+	/** What the socket had read after ReadyForQuery, which the connection's frames get first */
+	rest: Buffer;
+	backend: { pid: number | null; secret: number | null };
+	/** The server's ParameterStatus values, by name */
+	parameters: Record<string, string>;
+	/** The transaction status of ReadyForQuery: "I", "T" or "E" */
+	status: string;
+	attributes: { readOnly: boolean; standby: boolean };
+	host: string;
+	port: number;
+	/** Sends a cancel request for the connection's backend */
+	cancel: () => ReturnType<typeof cancel>;
+};
+
 function attempt(options, host, port, signal) {
 	const { setTimeout, clearTimeout } = options.timers,
 		fail = (code) => Errors.connection(code, options, host, port);
 
-	return new Promise((resolve, reject) => {
+	return new Promise<Ready>((resolve, reject) => {
 		const timer =
 			options.connect_timeout &&
 			setTimeout(() => done(true, fail("CONNECT_TIMEOUT")), options.connect_timeout * 1000);

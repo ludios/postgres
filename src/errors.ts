@@ -1,3 +1,7 @@
+import util from "util";
+import type { Options } from "./index.ts";
+import type { Query } from "./query.ts";
+
 export class PostgresError extends Error {
 	// The fields of the ErrorResponse that PostgreSQL sent, then `query`, `parameters`,
 	// and `types`, which this library adds to some errors.
@@ -22,7 +26,7 @@ export class PostgresError extends Error {
 	declare parameters?: any[];
 	declare types?: number[];
 
-	constructor(x) {
+	constructor(x: string | ({ message?: string } & Record<string, unknown>)) {
 		super(typeof x === "string" ? x : x && x.message);
 		this.name = this.constructor.name;
 		if (x && typeof x === "object") {
@@ -44,7 +48,7 @@ export const Errors = {
 	notSupported,
 };
 
-function connection(code, options, host, port) {
+function connection(code: string, options: Options, host: string, port: number) {
 	const address = options.path || host,
 		error = Object.assign(
 			new Error("write " + code + " " + (options.path || host + ":" + port)),
@@ -56,13 +60,13 @@ function connection(code, options, host, port) {
 	return error;
 }
 
-function postgres(x) {
+function postgres(x: Record<string, string>) {
 	const error = new PostgresError(x);
 	Error.captureStackTrace(error, postgres);
 	return error;
 }
 
-function generic(code, message) {
+function generic(code: string, message: string) {
 	const error = Object.assign(new Error(code + ": " + message), { code });
 	Error.captureStackTrace(error, generic);
 	return error;
@@ -78,7 +82,7 @@ function canceled() {
 	return error;
 }
 
-function notSupported(x) {
+function notSupported(x: string) {
 	const error = Object.assign(new Error(x + " (B) is not supported"), {
 		code: "MESSAGE_NOT_SUPPORTED",
 		name: x,
@@ -89,7 +93,7 @@ function notSupported(x) {
 
 const places = locations();
 
-export const ours = (line) =>
+export const ours = (line: string) =>
 	places.some(
 		(here) =>
 			line.includes(here) &&
@@ -108,7 +112,7 @@ function locations() {
 	}
 }
 
-export function withOrigin(error, origin) {
+export function withOrigin(error: Error, origin: string | null | undefined) {
 	if (origin) {
 		Object.defineProperty(error, "stack", {
 			value: [
@@ -135,7 +139,7 @@ export function withOrigin(error, origin) {
  *   `error` has them). If `error` is an `Error`, the copy is a native `Error` too, so that
  *   `Error.isError` and `structuredClone` treat it as one.
  */
-export function copy_error(error) {
+export function copy_error<T>(error: T): T {
 	if (!error || typeof error !== "object") {
 		return error;
 	}
@@ -145,17 +149,29 @@ export function copy_error(error) {
 		Object.getPrototypeOf(error),
 	);
 	Object.defineProperties(x, Object.getOwnPropertyDescriptors(error));
-	Object.defineProperty(x, "stack", { value: error.stack, writable: true, configurable: true });
+	Object.defineProperty(x, "stack", {
+		value: (error as unknown as Error).stack,
+		writable: true,
+		configurable: true,
+	});
 	for (const k of ["query", "parameters", "args", "types"]) {
 		delete x[k];
 	}
 	return x;
 }
 
-export function queryError(error, q, debug) {
-	if (!error || typeof error !== "object") {
-		error = new Error(error);
-	}
+/**
+ * @param thrown - what failed the query: an error, or whatever a callback threw
+ * @param q - the query, or null for no query
+ * @param debug - the `debug` option: whether the query's text and values are enumerable on the error
+ * @returns the error, an Error made of `thrown` if it was not an object, with the query's text,
+ *   values, args and types as (non-enumerable, unless `debug`) properties, and its origin in the stack
+ */
+export function queryError(thrown: unknown, q: Query | null, debug: unknown) {
+	const error =
+		thrown && typeof thrown === "object"
+			? (thrown as Error)
+			: new Error(typeof thrown === "string" ? thrown : util.inspect(thrown));
 
 	if (!q || "query" in error) {
 		return error;
@@ -206,7 +222,7 @@ const casing_transforms = [
  * `Object.assign` (which reads only enumerable properties) does not throw when it copies `target`.
  * @param target - the default export of the package's entry point (for example, `postgres`)
  */
-export function throw_on_casing_transforms(target) {
+export function throw_on_casing_transforms(target: object) {
 	for (const name of casing_transforms) {
 		Object.defineProperty(target, name, {
 			configurable: true,

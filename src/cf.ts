@@ -1,11 +1,17 @@
 import { connect } from "cloudflare:sockets";
+import type { Socket } from "cloudflare:sockets";
 import { EventEmitter } from "node:events";
 import { Buffer } from "node:buffer";
 import postgres, { PostgresError } from "./index.ts";
 import { Errors, throw_on_casing_transforms } from "./errors.ts";
 import { secured, direct } from "./socket.ts";
+import type { RawSocket } from "./socket.ts";
+import type { Options } from "./index.ts";
 
-export default function Postgres(a, b) {
+export default function Postgres(
+	a?: string | Record<string, unknown>,
+	b?: Record<string, unknown>,
+) {
 	return typeof a === "string" || !a ? postgres(a, { socket, ...b }) : postgres({ socket, ...a });
 }
 
@@ -14,7 +20,7 @@ throw_on_casing_transforms(Postgres);
 
 export { PostgresError };
 
-export async function socket(options, host, port) {
+export async function socket(options: Options, host: string, port: number): Promise<RawSocket> {
 	if (direct(options)) {
 		throw Errors.generic(
 			"SSL_NEGOTIATION_NOT_SUPPORTED",
@@ -52,20 +58,21 @@ export async function socket(options, host, port) {
 		}
 	}
 
-	return Stream(raw, secure, host, port);
+	// Stream() adds what wrap() (socket.ts) reads of a net.Socket
+	return Stream(raw, secure, host, port) as unknown as RawSocket;
 }
 
 const sslRequest = Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]),
 	chunk = 16384;
 
-function Stream(raw, secure, host, port) {
+function Stream(raw: Socket, secure: boolean, host: string, port: number) {
 	// Looks like a net.Socket: the Object.assign below adds its properties.
 	const x: EventEmitter & Record<string, any> = new EventEmitter(),
 		writer = raw.writable.getWriter(),
 		reader = raw.readable.getReader();
 
 	let paused = false,
-		wake = null,
+		wake: (() => void) | null = null,
 		closed = false,
 		pending = 0,
 		answered = !secure;
@@ -76,7 +83,7 @@ function Stream(raw, secure, host, port) {
 		secure,
 		negotiated: true,
 		destroyed: false,
-		write(data) {
+		write(data: Buffer) {
 			if (closed) {
 				return false;
 			}
@@ -87,7 +94,7 @@ function Stream(raw, secure, host, port) {
 			}
 			return pending < 16;
 		},
-		end(data) {
+		end(data?: Buffer) {
 			if (data) {
 				x.write(data);
 			}
@@ -116,7 +123,7 @@ function Stream(raw, secure, host, port) {
 	return x;
 
 	function resumed() {
-		return new Promise((r) => (wake = r));
+		return new Promise<void>((r) => (wake = r));
 	}
 
 	async function read() {
@@ -142,7 +149,7 @@ function Stream(raw, secure, host, port) {
 		finish();
 	}
 
-	function fail(error) {
+	function fail(error: unknown) {
 		if (!closed) {
 			x.emit("error", handshake(error));
 		}
@@ -161,7 +168,7 @@ function Stream(raw, secure, host, port) {
 		x.emit("close");
 	}
 
-	function handshake(error?) {
+	function handshake(error?: unknown) {
 		if (answered) {
 			return error;
 		}

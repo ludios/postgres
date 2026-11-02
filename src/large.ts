@@ -1,4 +1,5 @@
 import Stream from "stream";
+import type postgres from "../types/index.js";
 
 /**
  * Opens large object `oid` in a transaction that stays open until the handle's close() is called.
@@ -8,7 +9,11 @@ import Stream from "stream";
  * @returns the handle, once the large object is open. Its close() resolves once the transaction
  *   has committed, and rejects if lo_close or the commit fails.
  */
-export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
+export default function largeObject(
+	sql: postgres.Sql,
+	oid: number | undefined,
+	mode = 0x00020000 | 0x00040000,
+) {
 	return new Promise((resolve, reject) => {
 		const transaction = sql.begin(async (tx) => {
 			const { promise: finished, resolve: finish, reject: fail } = Promise.withResolvers();
@@ -25,10 +30,10 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
 					return transaction;
 				},
 				tell: () => tx`select lo_tell64(${fd})`,
-				read: (x) => tx`select loread(${fd}, ${x}) as data`,
-				write: (x) => tx`select lowrite(${fd}, ${x})`,
-				truncate: (x) => tx`select lo_truncate64(${fd}, ${x})`,
-				seek: (x, whence = 0) => tx`select lo_lseek64(${fd}, ${x}, ${whence})`,
+				read: (x: number) => tx`select loread(${fd}, ${x}) as data`,
+				write: (x: Uint8Array) => tx`select lowrite(${fd}, ${x})`,
+				truncate: (x: number) => tx`select lo_truncate64(${fd}, ${x})`,
+				seek: (x: number, whence = 0) => tx`select lo_lseek64(${fd}, ${x}, ${whence})`,
 				size: () => tx`
           select
             lo_lseek64(${fd}, location, 0) as position,
@@ -58,7 +63,8 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
 						const l = Math.min(size, max);
 						max -= l;
 						lo.read(l).then(
-							([{ data }]) => {
+							(rows) => {
+								const [{ data }] = rows;
 								if (data.length) {
 									this.push(data);
 								}
@@ -66,7 +72,7 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
 									this.push(null);
 								}
 							},
-							(error) => this.destroy(error),
+							(error: Error) => this.destroy(error),
 						);
 					},
 				});

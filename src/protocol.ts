@@ -7,7 +7,7 @@ export function Writer(size = 16384) {
 		get length() {
 			return i;
 		},
-		type(x) {
+		type(x: number) {
 			fit(5);
 			at = i;
 			b[i] = x;
@@ -28,13 +28,13 @@ export function Writer(size = 16384) {
 			b.writeInt32BE(i - at, at);
 			return w;
 		},
-		str(x) {
+		str(x: string) {
 			fit(x.length * 3 + 1);
 			i += b.write(x, i);
 			b[i++] = 0;
 			return w;
 		},
-		bytes(x) {
+		bytes(x: string | Uint8Array) {
 			if (typeof x === "string") {
 				fit(x.length * 3);
 				i += b.write(x, i);
@@ -45,7 +45,7 @@ export function Writer(size = 16384) {
 			}
 			return w;
 		},
-		value(x) {
+		value(x: Value) {
 			if (x === null || x === undefined) {
 				return w.i32(-1);
 			}
@@ -55,30 +55,30 @@ export function Writer(size = 16384) {
 			b.writeInt32BE(i - n - 4, n);
 			return w;
 		},
-		u8(x) {
+		u8(x: number) {
 			fit(1);
 			b[i++] = x;
 			return w;
 		},
-		i16(x) {
+		i16(x: number) {
 			fit(2);
 			b.writeInt16BE(x, i);
 			i += 2;
 			return w;
 		},
-		u16(x) {
+		u16(x: number) {
 			fit(2);
 			b.writeUInt16BE(x, i);
 			i += 2;
 			return w;
 		},
-		i32(x) {
+		i32(x: number) {
 			fit(4);
 			b.writeInt32BE(x, i);
 			i += 4;
 			return w;
 		},
-		truncate(n) {
+		truncate(n: number) {
 			i = n;
 			return w;
 		},
@@ -94,7 +94,7 @@ export function Writer(size = 16384) {
 
 	return w;
 
-	function fit(n) {
+	function fit(n: number) {
 		if (b.length - i >= n) {
 			return;
 		}
@@ -104,6 +104,12 @@ export function Writer(size = 16384) {
 		prev.copy(b, 0, 0, i);
 	}
 }
+
+/** Writes the messages of the protocol into a buffer, which take() hands over */
+export type Writer = ReturnType<typeof Writer>;
+
+/** A parameter's value as sent: text, bytes, or null */
+export type Value = string | Uint8Array | null | undefined;
 
 const scratch = Writer(1024);
 
@@ -121,20 +127,23 @@ const S = 83,
 	P = 80,
 	B = 66;
 
-export const sync = (w) => w.type(S).end();
-export const flush = (w) => w.type(H).end();
-export const terminate = (w) => w.type(X).end();
-export const copyDone = (w) => w.type(c).end();
-export const sslRequest = (w) => w.untyped().i32(80877103).endUntyped();
-export const query = (w, text) => w.type(Q).str(text).end();
-export const password = (w, x) => w.type(p).str(x).end();
-export const saslResponse = (w, x) => w.type(p).bytes(x).end();
-export const copyData = (w, x) => w.type(d).bytes(x).end();
-export const copyFail = (w, x) => w.type(f).str(x).end();
-export const describe = (w, kind, name) => w.type(D).u8(kind.charCodeAt(0)).str(name).end();
-export const close = (w, kind, name) => w.type(C).u8(kind.charCodeAt(0)).str(name).end();
-export const execute = (w, portal, rows = 0) => w.type(E).str(portal).i32(rows).end();
-export const cancel = (w, pid, secret) =>
+export const sync = (w: Writer) => w.type(S).end();
+export const flush = (w: Writer) => w.type(H).end();
+export const terminate = (w: Writer) => w.type(X).end();
+export const copyDone = (w: Writer) => w.type(c).end();
+export const sslRequest = (w: Writer) => w.untyped().i32(80877103).endUntyped();
+export const query = (w: Writer, text: string) => w.type(Q).str(text).end();
+export const password = (w: Writer, x: string) => w.type(p).str(x).end();
+export const saslResponse = (w: Writer, x: string | Uint8Array) => w.type(p).bytes(x).end();
+export const copyData = (w: Writer, x: string | Uint8Array) => w.type(d).bytes(x).end();
+export const copyFail = (w: Writer, x: string) => w.type(f).str(x).end();
+export const describe = (w: Writer, kind: string, name: string) =>
+	w.type(D).u8(kind.charCodeAt(0)).str(name).end();
+export const close = (w: Writer, kind: string, name: string) =>
+	w.type(C).u8(kind.charCodeAt(0)).str(name).end();
+export const execute = (w: Writer, portal: string, rows = 0) =>
+	w.type(E).str(portal).i32(rows).end();
+export const cancel = (w: Writer, pid: number, secret: number) =>
 	w.untyped().i32(80877102).i32(pid).i32(secret).endUntyped();
 
 export const Sync = one(sync);
@@ -157,8 +166,9 @@ export const Parse = one(parse);
 export const Bind = one(bind);
 export const Run = one(run);
 
-function one(fn) {
-	return (...xs) => {
+/** @returns a function that writes `fn`'s message with the arguments it is given, and takes it as a Buffer */
+function one<A extends unknown[]>(fn: (w: Writer, ...xs: A) => unknown) {
+	return (...xs: A) => {
 		try {
 			fn(scratch, ...xs);
 		} catch (thrown) {
@@ -169,7 +179,10 @@ function one(fn) {
 	};
 }
 
-export function startup(w, parameters) {
+export function startup(
+	w: Writer,
+	parameters: Record<string, string | number | boolean | undefined>,
+) {
 	w.untyped().i32(196608);
 	for (const k in parameters) {
 		if (parameters[k]) {
@@ -180,7 +193,7 @@ export function startup(w, parameters) {
 	return w.u8(0).endUntyped();
 }
 
-function unbroken(k, x) {
+function unbroken(k: string, x: string) {
 	if (x.indexOf("\0") !== -1) {
 		throw Object.assign(new Error("The connection parameter " + k + " contains a NUL character"), {
 			code: "NUL_CHARACTER",
@@ -190,11 +203,11 @@ function unbroken(k, x) {
 	return x;
 }
 
-export function sasl(w, mechanism, initial) {
+export function sasl(w: Writer, mechanism: string, initial: string | Uint8Array) {
 	return w.type(p).str(mechanism).i32(Buffer.byteLength(initial)).bytes(initial).end();
 }
 
-export function parse(w, name, text, oids = []) {
+export function parse(w: Writer, name: string, text: string, oids: number[] = []) {
 	w.type(P).str(name).str(text).u16(oids.length);
 	for (let j = 0; j < oids.length; j++) {
 		w.i32(oids[j] | 0);
@@ -203,7 +216,14 @@ export function parse(w, name, text, oids = []) {
 	return w.end();
 }
 
-export function bind(w, portal, name, values = [], formats = [], resultFormats = []) {
+export function bind(
+	w: Writer,
+	portal: string,
+	name: string,
+	values: Value[] = [],
+	formats: number[] = [],
+	resultFormats: number[] = [],
+) {
 	w.type(B).str(portal).str(name).i16(formats.length);
 	for (let j = 0; j < formats.length; j++) {
 		w.i16(formats[j]);
@@ -222,7 +242,15 @@ export function bind(w, portal, name, values = [], formats = [], resultFormats =
 	return w.end();
 }
 
-export function run(w, portal, name, values, rows, flushing, result_formats = null) {
+export function run(
+	w: Writer,
+	portal: string,
+	name: string,
+	values: Value[],
+	rows: number,
+	flushing: boolean,
+	result_formats: number[] | null = null,
+) {
 	bind(w, portal, name, values, [], result_formats || []);
 	execute(w, portal, rows);
 	return flushing ? flush(w) : sync(w);
@@ -230,21 +258,33 @@ export function run(w, portal, name, values, rows, flushing, result_formats = nu
 
 const largest = 0x40000000;
 
-export function Frames(onframe, shared = false, onerror = null) {
-	const chunks = [],
+/**
+ * Splits what the socket reads into the server's messages.
+ * @param onframe - called with each message: its type byte, and the buffer with the start and end of
+ *   the message in it
+ * @param shared - whether the buffers pushed are reused by the socket, so that a message kept past
+ *   the call of `onframe` (while paused, or when own() says so) must be copied
+ * @param onerror - called with the error of a message whose length is invalid
+ */
+export function Frames(
+	onframe: (type: number, x: Buffer, start: number, end: number) => void,
+	shared = false,
+	onerror: ((error: Error) => void) | null = null,
+) {
+	const chunks: Buffer[] = [],
 		owned = new WeakSet();
 
-	let data = null,
+	let data: Buffer | null = null,
 		owning = false,
 		at = 0,
-		part = null,
+		part: Buffer | null = null,
 		filled = 0,
 		paused = false,
 		running = false,
 		broken = false;
 
 	return {
-		push(x) {
+		push(x: Buffer) {
 			if (broken) {
 				return;
 			}
@@ -255,10 +295,10 @@ export function Frames(onframe, shared = false, onerror = null) {
 		get paused() {
 			return paused;
 		},
-		owns(x) {
+		owns(x: Buffer) {
 			return !shared || owned.has(x);
 		},
-		own(x) {
+		own(x: boolean) {
 			owning = x;
 			if (x) {
 				settle();
@@ -274,7 +314,7 @@ export function Frames(onframe, shared = false, onerror = null) {
 		},
 	};
 
-	function own(x) {
+	function own(x: Buffer) {
 		const copy = Buffer.from(x);
 		owned.add(copy);
 		return copy;
@@ -318,7 +358,7 @@ export function Frames(onframe, shared = false, onerror = null) {
 		}
 	}
 
-	function invalid(length) {
+	function invalid(length: number) {
 		if (length >= 4 && length <= largest) {
 			return false;
 		}
@@ -364,7 +404,7 @@ export function Frames(onframe, shared = false, onerror = null) {
 		onframe(data[begin], data, begin, end);
 	}
 
-	function start(length) {
+	function start(length: number) {
 		part = Buffer.allocUnsafe(length);
 		if (shared) {
 			owned.add(part);
@@ -405,7 +445,7 @@ export function Frames(onframe, shared = false, onerror = null) {
 	}
 }
 
-const errorFields = {
+const errorFields: Record<number, string> = {
 	83: "severity_local",
 	86: "severity",
 	67: "code",
@@ -426,7 +466,7 @@ const errorFields = {
 	82: "routine",
 };
 
-export function error(x, start, end) {
+export function error(x: Buffer, start: number, end: number) {
 	const fields: Record<string, string> = {};
 	for (let i = start + 5; i < end - 1;) {
 		const zero = x.indexOf(0, i + 1);
@@ -441,14 +481,23 @@ export function error(x, start, end) {
 	return fields;
 }
 
-export const text =
-	typeof Buffer.prototype.utf8Slice === "function"
-		? (x, start, end) => x.utf8Slice(start, end)
+/** A Buffer with Node's undocumented utf8Slice(), which skips the argument checks of toString() */
+type Sliceable = Buffer & { utf8Slice(start: number, end: number): string };
+
+export const text: (x: Buffer, start: number, end: number) => string =
+	typeof (Buffer.prototype as Partial<Sliceable>).utf8Slice === "function"
+		? (x, start, end) => (x as Sliceable).utf8Slice(start, end)
 		: (x, start, end) => x.toString("utf8", start, end);
 
-const u32 = (x, i) => ((x[i] << 24) | (x[i + 1] << 16) | (x[i + 2] << 8) | x[i + 3]) >>> 0,
-	u16 = (x, i) => (x[i] << 8) | x[i + 1],
-	field = (name, table, number, type): Column => ({ name, table, number, type });
+const u32 = (x: Buffer, i: number) =>
+		((x[i] << 24) | (x[i + 1] << 16) | (x[i + 2] << 8) | x[i + 3]) >>> 0,
+	u16 = (x: Buffer, i: number) => (x[i] << 8) | x[i + 1],
+	field = (name: string, table: number, number: number, type: number): Column => ({
+		name,
+		table,
+		number,
+		type,
+	});
 
 /** A column of a RowDescription. The connection adds `parser` and `decode` to the columns it makes. */
 export type Column = {
@@ -465,7 +514,7 @@ export type Column = {
 	decode?: ((x: Buffer, start: number, end: number) => unknown) | null;
 };
 
-export function rowDescription(x, start, end, make = field) {
+export function rowDescription(x: Buffer, start: number, end: number, make = field) {
 	const columns = new Array((x[start + 5] << 8) | x[start + 6]);
 	for (let i = start + 7, j = 0; j < columns.length; j++) {
 		let zero = i;
@@ -478,7 +527,7 @@ export function rowDescription(x, start, end, make = field) {
 	return columns;
 }
 
-export function parameterDescription(x, start) {
+export function parameterDescription(x: Buffer, start: number) {
 	const oids = new Array(x.readUInt16BE(start + 5));
 	for (let j = 0; j < oids.length; j++) {
 		oids[j] = x.readUInt32BE(start + 7 + j * 4);
@@ -487,7 +536,7 @@ export function parameterDescription(x, start) {
 	return oids;
 }
 
-export function commandComplete(x, start, end) {
+export function commandComplete(x: Buffer, start: number, end: number) {
 	const first = start + 5;
 
 	let e = end - 1,
@@ -510,11 +559,11 @@ export function commandComplete(x, start, end) {
 	return { command: text(x, first, e), count };
 }
 
-export function readyForQuery(x, start) {
+export function readyForQuery(x: Buffer, start: number) {
 	return String.fromCharCode(x[start + 5]);
 }
 
-export function notification(x, start) {
+export function notification(x: Buffer, start: number) {
 	const zero = x.indexOf(0, start + 9);
 	return {
 		pid: x.readInt32BE(start + 5),
@@ -523,7 +572,7 @@ export function notification(x, start) {
 	};
 }
 
-export function parameterStatus(x, start) {
+export function parameterStatus(x: Buffer, start: number) {
 	const zero = x.indexOf(0, start + 5);
 	return [
 		x.toString("utf8", start + 5, zero),
@@ -531,6 +580,6 @@ export function parameterStatus(x, start) {
 	];
 }
 
-export function backendKeyData(x, start) {
+export function backendKeyData(x: Buffer, start: number) {
 	return { pid: x.readInt32BE(start + 5), secret: x.readInt32BE(start + 9) };
 }
