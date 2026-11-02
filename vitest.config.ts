@@ -15,8 +15,7 @@ export default defineConfig({
 				extends: true,
 				test: {
 					name: "unit",
-					include: ["tests/unit/*.ts"],
-					exclude: ["tests/unit/build.cases.ts", "tests/unit/setup.ts"],
+					include: ["tests/unit/*.test.ts"],
 					setupFiles: ["tests/unit/setup.ts"],
 				},
 			},
@@ -24,10 +23,7 @@ export default defineConfig({
 				extends: true,
 				test: {
 					name: "integration",
-					include: [
-						"tests/{queries,types,rows,build,transactions,reserve,connection,errors}.ts",
-						"tests/{prepared,transform,cursors,copy,listen,subscribe,startup,tracing}.ts",
-					],
+					include: ["tests/*.test.ts"],
 					globalSetup: ["tests/global_setup.ts"],
 					// One file at a time, because they share the servers, and tables such as `test`
 					fileParallelism: false,

@@ -107,7 +107,7 @@ test("Include table oid and column number in column details", async () => {
 });
 
 test("Large object", async () => {
-	const file = rel("queries.ts"),
+	const file = rel("queries.test.ts"),
 		md5 = crypto.createHash("md5").update(fs.readFileSync(file)).digest("hex");
 
 	const lo = await sql.largeObject();

@@ -169,7 +169,7 @@ test("Debug has long async stack trace", async () => {
 	const expected = inlines ? "true" : "watyo";
 	expect(
 		await yo().catch((x) =>
-			inlines ? String(x.stack.includes("errors.ts")) : x.stack.match(/wat|yo/g).join(""),
+			inlines ? String(x.stack.includes("errors.test.ts")) : x.stack.match(/wat|yo/g).join(""),
 		),
 	).toBe(expected);
 
