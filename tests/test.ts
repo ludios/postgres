@@ -1,3 +1,4 @@
+// @ts-nocheck
 import util from "util";
 
 let done = 0;

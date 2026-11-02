@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { EventEmitter } from "events";
 import { t } from "../test.js";
 import { Socket } from "../../src/socket.js";

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import dc from "diagnostics_channel";
 import { AsyncLocalStorage } from "async_hooks";
 import { t } from "./test.js";

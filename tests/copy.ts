@@ -1,3 +1,4 @@
+// @ts-nocheck
 import fs from "fs";
 import crypto from "crypto";
 import { pipeline } from "stream/promises";

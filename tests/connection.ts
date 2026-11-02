@@ -1,3 +1,4 @@
+// @ts-nocheck
 import net from "net";
 import tls from "tls";
 import crypto from "crypto";

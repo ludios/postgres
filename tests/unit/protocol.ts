@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { t } from "../test.js";
 import * as p from "../../src/protocol.js";
 

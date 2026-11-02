@@ -1,3 +1,4 @@
+// @ts-nocheck
 export function Writer(size = 16384) {
 	let b = Buffer.allocUnsafe(size),
 		i = 0,

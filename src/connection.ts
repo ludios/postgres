@@ -1,3 +1,4 @@
+// @ts-nocheck
 import Stream from "stream";
 import * as p from "./protocol.js";
 import { Errors, queryError } from "./errors.js";

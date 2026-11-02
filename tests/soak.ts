@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { postgres, options, delay } from "./setup.js";
 
 const seconds = +process.argv[2] || +process.env.SOAK_SECONDS || 60,

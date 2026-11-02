@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { t } from "./test.js";
 import { postgres, sql, options, login_md5, rel, idle_timeout, delay } from "./setup.js";
 

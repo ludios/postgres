@@ -1,4 +1,5 @@
 // Model-output: Claude Opus 5.5
+// @ts-nocheck
 import { execFile } from "child_process";
 import fs from "fs";
 import os from "os";

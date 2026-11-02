@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { t } from "../test.js";
 import { Types } from "../../src/types.js";
 

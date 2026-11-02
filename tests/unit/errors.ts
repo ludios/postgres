@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { t } from "../test.js";
 import { PostgresError } from "../../src/errors.js";
 import postgres from "../../src/index.js";

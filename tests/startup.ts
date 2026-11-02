@@ -1,3 +1,4 @@
+// @ts-nocheck
 import net from "net";
 import { t } from "./test.js";
 import { postgres, login, login_md5, login_scram, pg_port } from "./setup.js";

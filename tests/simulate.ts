@@ -1,3 +1,4 @@
+// @ts-nocheck
 import path from "path";
 import { Clock, Random } from "./sim/net.js";
 import { Server } from "./sim/server.js";

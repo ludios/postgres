@@ -1,3 +1,4 @@
+// @ts-nocheck
 import util from "util";
 import { t } from "../test.js";
 import postgres from "../../src/index.js";

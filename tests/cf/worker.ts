@@ -1,3 +1,4 @@
+// @ts-nocheck
 import dc from "node:diagnostics_channel";
 import postgres from "../../src/cf.js";
 

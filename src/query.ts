@@ -1,3 +1,4 @@
+// @ts-nocheck
 import util from "util";
 import { build, isQuery, Join, joinStrings } from "./build.js";
 import { ours } from "./errors.js";

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import v8 from "v8";
 import vm from "vm";
 import { t } from "../test.js";

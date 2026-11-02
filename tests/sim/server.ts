@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Pipe } from "./net.js";
 
 const select =

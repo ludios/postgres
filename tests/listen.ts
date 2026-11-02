@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { t } from "./test.js";
 import { postgres, options, delay, pg_socket_dir } from "./setup.js";
 

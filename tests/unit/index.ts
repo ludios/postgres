@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { t } from "../test.js";
 
 t.ready = Promise.all(

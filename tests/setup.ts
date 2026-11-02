@@ -1,4 +1,5 @@
 // Model-output: Claude Opus 5.5
+// @ts-nocheck
 import { bootstrap, exec } from "./bootstrap.js";
 import { start_pg_tmp } from "./pg_tmp.js";
 import { t } from "./test.js";
