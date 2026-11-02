@@ -9,8 +9,11 @@ export default defineConfig({
 			include: ["src/**"],
 			reporter: ["text"],
 		},
+		// A test that never calls `expect` fails, instead of passing without checking anything
+		expect: { requireAssertions: true },
 		projects: [
 			{
+				extends: true,
 				test: {
 					name: "unit",
 					include: ["tests/unit/*.ts"],
@@ -18,6 +21,7 @@ export default defineConfig({
 				},
 			},
 			{
+				extends: true,
 				test: {
 					name: "integration",
 					include: [
