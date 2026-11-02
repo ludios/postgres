@@ -1200,23 +1200,11 @@ test("A server that ends SCRAM without its signature is not trusted", async () =
 });
 
 test("A cancel request on a TLS connection is sent over TLS", async () => {
-	const firsts = [];
-	const server = net.createServer((c) => {
-		const up = net.connect(pg_port, "localhost");
-		let first = true;
-		c.on("data", (d) => (first && firsts.push(d.readInt32BE(4)), (first = false), up.write(d)));
-		up.on("data", (d) => c.write(d));
-		up.on("error", () => c.destroy());
-		c.on("error", () => up.destroy());
-		up.on("close", () => c.destroy());
-		c.on("close", () => up.destroy());
-	});
-	await new Promise<void>((r) => server.listen(0, "localhost", r));
-	await using _close = defer(() => server.close());
+	await using proxy = await proxy_to_server();
 	await using sql = postgres({
 		...options,
-		host: "localhost",
-		port: port_of(server),
+		host: proxy.host,
+		port: proxy.port,
 		ssl: "require",
 		max: 1,
 	});
@@ -1227,6 +1215,8 @@ test("A cancel request on a TLS connection is sent over TLS", async () => {
 		() => "not cancelled",
 		(e) => e.code,
 	);
+	// Both connections, the pool's and the cancel request's, began with an SSLRequest
+	const firsts = proxy.connections.map((c) => c.first.readInt32BE(4));
 	expect([code, firsts]).toEqual(["57014", [80877103, 80877103]]);
 });
 

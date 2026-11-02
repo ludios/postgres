@@ -238,15 +238,14 @@ test("Tracing: the pool publishes no idle for a connection that is closing", asy
 });
 
 test("Tracing: the pool publishes idle for a cancelled query's connection once its cancel request has been handled", async () => {
-	// The proxy passes the server's close of the cancel request's connection (the second one, after
-	// the pool's) on to the client only when the test says so, so that the cancelled query's
-	// ReadyForQuery is sure to arrive first. The client half-closes that connection as soon as it
-	// has sent the request, so the proxy must not answer its FIN with one of its own
+	// The proxy passes the server's close of the cancel request's connection on to the client only
+	// when the test says so, so that the cancelled query's ReadyForQuery is sure to arrive first
 	const releasable = Promise.withResolvers<() => void>();
 	await using proxy = await proxy_to_server({
-		allow_half_open: true,
 		server_closed: (c) => {
-			if (c.number !== 2) {
+			// A CancelRequest has the code 80877102 after its length, where a StartupMessage has
+			// the protocol version
+			if (c.first?.readInt32BE(4) !== 80877102) {
 				return false;
 			}
 			releasable.resolve(() => c.client.destroy());

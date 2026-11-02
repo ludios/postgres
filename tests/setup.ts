@@ -1,10 +1,11 @@
 import { spawn } from "child_process";
+import { once } from "events";
 import fs from "fs";
 import net from "net";
 import os from "os";
 import path from "path";
 import { beforeEach, expect, inject } from "vitest";
-import { delay, login, options as common_options, port_of, postgres } from "./common.ts";
+import { delay, login, options as common_options, postgres } from "./common.ts";
 import { replace_pg_vars } from "./pg_env.ts";
 
 // Point the PG* variables at the `postgres` superuser of the server that tests/global_setup.ts
@@ -122,6 +123,8 @@ export type Proxied = {
 	client: net.Socket;
 	/** The proxy's socket to the server */
 	server: net.Socket;
+	/** The first chunk that the client sent, once it has sent one */
+	first?: Buffer;
 };
 
 /** What the proxy of proxy_to_server() does with what passes through it */
@@ -130,28 +133,28 @@ export type ProxyHooks = {
 	 * Called with each chunk that the client of connection `c` sends. Returns true to have the proxy
 	 * leave the chunk alone (the hook may have written it, or something else, to `c.server` or
 	 * `c.client` itself), or false to have the proxy write it to the server. Without the hook, the
-	 * proxy forwards every chunk.
+	 * proxy forwards every chunk. The proxy does not wait for a chunk that a hook holds back: when
+	 * a side closes, the proxy passes the close on at once.
 	 */
 	from_client?: (chunk: Buffer, c: Proxied) => boolean;
-	/** The same, for each chunk that the server sends on connection `c` */
+	/**
+	 * The same, for each chunk that the server sends on connection `c`: false has the proxy write
+	 * the chunk to the client
+	 */
 	from_server?: (chunk: Buffer, c: Proxied) => boolean;
 	/**
-	 * Called when the server has closed connection `c`. Returns true to have the proxy leave its
-	 * socket to the client as it is, or false to have the proxy end that socket, as it does without
-	 * the hook.
+	 * Called when the server has closed its side of connection `c`. Returns true to have the proxy
+	 * leave its socket to the client as it is, or false to have the proxy end that socket, as it
+	 * does without the hook.
 	 */
 	server_closed?: (c: Proxied) => boolean;
-	/**
-	 * Whether the proxy keeps its socket to a client open after the client has half-closed it, so
-	 * that what the server sends still gets through; otherwise (the default) the proxy half-closes
-	 * that socket back, and the client sees the connection close
-	 */
-	allow_half_open?: boolean;
 };
 
 /**
  * Starts a TCP proxy to the server at `pg_port`, for a test that meddles with what a client and the
- * server send each other, or with when a connection closes.
+ * server send each other, or with when a connection closes. A side's close reaches the other side
+ * only through the proxy, after whatever that side wrote before it, so a client that closes right
+ * after a write (as one sending a cancel request does) still gets the write through.
  * @param hooks - what the proxy does with the chunks and the closes of each connection
  * @returns the proxy: `host` and `port` to connect to, and `connections`, one entry per connection
  *   that a client made, oldest first. Declare it with `await using`: its disposal destroys the
@@ -159,14 +162,15 @@ export type ProxyHooks = {
  */
 export async function proxy_to_server(hooks: ProxyHooks = {}) {
 	const connections: Proxied[] = [];
-	const proxy = net.createServer({ allowHalfOpen: hooks.allow_half_open }, (client) => {
+	const proxy = net.createServer({ allowHalfOpen: true }, (client) => {
 		const c: Proxied = {
 			number: connections.length + 1,
 			client,
-			server: net.connect(pg_port, "localhost"),
+			server: net.connect({ port: pg_port, host: "localhost", allowHalfOpen: true }),
 		};
 		connections.push(c);
 		client.on("data", (x) => {
+			c.first ??= x;
 			if (!hooks.from_client?.(x, c) && c.server.writable) {
 				c.server.write(x);
 			}
@@ -176,19 +180,22 @@ export async function proxy_to_server(hooks: ProxyHooks = {}) {
 				client.write(x);
 			}
 		});
-		client.on("error", () => c.server.destroy());
-		c.server.on("error", () => client.destroy());
-		client.on("close", () => c.server.destroy());
-		c.server.on("close", () => {
-			if (!hooks.server_closed?.(c) && !client.destroyed) {
+		// end() first writes what is still to be written, also on a socket that is still connecting
+		client.on("end", () => c.server.end());
+		c.server.on("end", () => {
+			if (!hooks.server_closed?.(c)) {
 				client.end();
 			}
 		});
+		client.on("error", () => c.server.destroy());
+		c.server.on("error", () => client.destroy());
 	});
-	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
+	proxy.listen(0, "localhost");
+	await once(proxy, "listening");
+	const { address, port } = proxy.address() as net.AddressInfo;
 	return {
-		host: "localhost",
-		port: port_of(proxy),
+		host: address,
+		port,
 		connections,
 		async [Symbol.asyncDispose]() {
 			for (const c of connections) {

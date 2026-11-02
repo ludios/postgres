@@ -856,7 +856,13 @@ test("A tagged savepoint runs its query in a savepoint", async () => {
 });
 
 test("Queries in a Promise.all inside a transaction are pipelined in the order they were made (#951)", async () => {
-	// The proxy delays what each side sends by 50 ms, so that a round trip takes a measurable time
+	/**
+	 * A hook for proxy_to_server() that delays what each side sends by 50 ms, so that a round trip
+	 * takes a measurable time.
+	 * @param socket - the proxy's socket to the side that `x` is for
+	 * @param x - a chunk that the other side sent
+	 * @returns true, so that the proxy itself leaves `x` alone
+	 */
 	const later = (socket: net.Socket, x: Buffer) => {
 		setTimeout(() => {
 			if (socket.writable) {
