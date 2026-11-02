@@ -45,7 +45,6 @@
 	],
 
 	"rules": {
-		"typescript/no-floating-promises": "error",
 		"import/no-cycle": ["error", { "maxDepth": 8 }],
 		"no-console": ["error", { "allow": ["warn", "error"] }],
 		"no-debugger": "error",
