@@ -1,7 +1,6 @@
 // Model-output: Claude Opus 5.5
 // @ts-nocheck
 import { expect, test } from "vitest";
-import { t } from "./test.ts";
 import { postgres, sql, options, delay, idle_timeout, pg_port } from "./setup.ts";
 
 test("Throws on illegal transactions", async () => {
@@ -591,25 +590,30 @@ test("Disconnect rejects queued transaction queries and allows reconnect", async
 	}
 });
 
-t("Disconnected transaction cannot query a reused connection", async () =>
-	withDisconnectedTransaction(({ sql, disconnected }) =>
+test("Disconnected transaction cannot query a reused connection", async () => {
+	const code = await withDisconnectedTransaction(({ sql, disconnected }) =>
 		sql.begin(async (sql) => {
 			await sql`select set_config('postgres_js.test', 'replacement', true)`;
 			const result = await disconnected`select current_setting('postgres_js.test') as x`.catch(
 				(x) => x,
 			);
-			return ["CONNECTION_CLOSED", result.code];
+			return result.code;
 		}),
-	),
-);
+	);
+	expect(code).toBe("CONNECTION_CLOSED");
+});
 
-t("Disconnected transaction cannot commit a reused connection", async () =>
-	finishDisconnectedTransaction(),
-);
+test("Disconnected transaction cannot commit a reused connection", async () => {
+	const [before, after] = await finishDisconnectedTransaction();
+	expect(after).toBe(before);
+});
 
-t("Disconnected transaction cannot roll back a reused connection", async () =>
-	finishDisconnectedTransaction(new Error("original callback failed")),
-);
+test("Disconnected transaction cannot roll back a reused connection", async () => {
+	const [before, after] = await finishDisconnectedTransaction(
+		new Error("original callback failed"),
+	);
+	expect(after).toBe(before);
+});
 
 function finishDisconnectedTransaction(error) {
 	return withDisconnectedTransaction(({ sql, finish }) =>

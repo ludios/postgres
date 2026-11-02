@@ -5,7 +5,6 @@ import crypto from "crypto";
 import { pipeline } from "stream/promises";
 import stream from "stream";
 import { expect, test } from "vitest";
-import { t } from "./test.ts";
 import { postgres, sql, options, delay, rel } from "./setup.ts";
 
 test("Copy read", async () => {
@@ -160,8 +159,13 @@ test("Copy read with back-pressure", async () => {
 	await sql`drop table test`;
 });
 
-t("Copy read through a slow pipeline keeps every byte and never stalls", { timeout: 30 }, () =>
-	slowCopy(sql),
+test(
+	"Copy read through a slow pipeline keeps every byte and never stalls",
+	{ timeout: 30_000 },
+	async () => {
+		const [expected, got] = await slowCopy(sql);
+		expect(got).toBe(expected);
+	},
 );
 
 test(

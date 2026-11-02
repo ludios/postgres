@@ -139,7 +139,7 @@ We're reworking all of it to follow the code conventions above and to test with 
 
 Renaming anything public (see `types/index.d.ts`) breaks users of the library; ask first.
 
-Vitest runs all the tests (see `vitest.config.ts`). The tests that are not yet rewritten to use vitest's `test()` and `expect()` call `t(name, fn)` from `tests/test.ts`, where `fn` returns `[expected, got]`, and the test passes if `expected === got`.
+Vitest runs the tests (see `vitest.config.ts`): the unit tests in `tests/unit/`, and the integration tests in `tests/`, which need PostgreSQL. Node runs the scripts `tests/simulate.ts` (which needs no PostgreSQL server) and `tests/soak.ts` directly.
 
 # Before committing
 
