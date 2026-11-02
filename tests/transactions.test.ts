@@ -954,9 +954,12 @@ test("sql.rollback() comes after the queries already made, and the connection is
 	await sql`create table test (x int)`;
 	let same;
 	await sql.begin(async (tx) => {
-		await tx`insert into test values (1)`;
+		const insert = tx`insert into test values (1)`.execute();
+		// One microtask, by which Query.handle() has sent the insert
+		await Promise.resolve();
 		const a = tx.rollback();
 		same = a === tx.rollback();
+		await insert;
 		return a;
 	});
 	const [{ n }] = await sql`select count(*)::int as n from test`,
