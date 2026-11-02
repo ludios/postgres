@@ -6,16 +6,19 @@ export * from "./helpers.ts";
 export const library = (await import(process.env.POSTGRES_JS || "../src/index.ts")).default;
 
 /**
- * The library's default export, except that a pool that it returns ends with `{ timeout: 0 }` when
+ * The library's default export (with all its properties, such as the getters that throw
+ * CASING_TRANSFORM_REMOVED), except that a pool that it returns ends with `{ timeout: 0 }` when
  * disposed (`await using sql = postgres(...)`), instead of waiting for its queries and leases to
  * finish. A test that fails while one of its queries is still running then reports its own error,
  * instead of waiting for that query until vitest's timeout replaces the error.
  */
-export const postgres = Object.assign((...args) => {
-	const sql = library(...args);
-	sql[Symbol.asyncDispose] = () => sql.end({ timeout: 0 });
-	return sql;
-}, library);
+export const postgres = new Proxy(library, {
+	apply(target, self, args) {
+		const sql = target(...args);
+		sql[Symbol.asyncDispose] = () => sql.end({ timeout: 0 });
+		return sql;
+	},
+});
 
 /**
  * @param {number} ms - milliseconds
