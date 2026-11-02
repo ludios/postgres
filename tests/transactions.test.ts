@@ -9,6 +9,7 @@ import {
 	port_of,
 	server_major,
 	terminate,
+	until_sleeping,
 } from "./setup.ts";
 
 test("Throws on illegal transactions", async () => {
@@ -1037,25 +1038,17 @@ test("A transaction ended by transaction_timeout rejects with the FATAL error in
 });
 
 test("A transaction whose backend is terminated mid-query rejects with the FATAL error (#1283)", async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		killer = postgres({ ...options, max: 1 });
+	const sql = postgres({ ...options, max: 1 });
 	const error = await sql
 		.begin(async (sql) => {
 			const [{ pid }] = await sql`select pg_backend_pid() as pid`;
 			const query = sql`select pg_sleep(2)`.execute();
-			while (
-				!(
-					await killer`select wait_event = 'PgSleep' as sleeping from pg_stat_activity where pid = ${pid}`
-				)[0].sleeping
-			) {
-				await delay(1);
-			}
-			await killer`select pg_terminate_backend(${pid})`;
+			await until_sleeping(pid);
+			await terminate(pid);
 			await query;
 		})
 		.catch((e) => e);
 	expect([error.code, error.severity]).toEqual(["57P01", "FATAL"]);
-	await killer.end();
 	await sql.end();
 });
 

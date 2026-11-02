@@ -1,6 +1,6 @@
 import path from "path";
 import { beforeEach, expect, inject } from "vitest";
-import { login, options as common_options, postgres } from "./common.ts";
+import { delay, login, options as common_options, postgres } from "./common.ts";
 import { replace_pg_vars } from "./pg_env.ts";
 
 // Point the PG* variables at the `postgres` superuser of the server that tests/global_setup.ts
@@ -93,6 +93,25 @@ export async function terminate(pid: number) {
 		await helper_pool`select pg_terminate_backend(${pid}::int) as terminated`;
 	if (!terminated) {
 		throw new Error("No backend of the server at port " + pg_port + " has the process ID " + pid);
+	}
+}
+
+/**
+ * Waits until a backend of the server at `pg_port` is in `pg_sleep()`.
+ * @param pid - the process ID of the backend
+ * @throws if no backend of that server has the process ID `pid`
+ */
+export async function until_sleeping(pid: number) {
+	for (;;) {
+		const [backend] =
+			await helper_pool`select wait_event = 'PgSleep' as sleeping from pg_stat_activity where pid = ${pid}::int`;
+		if (!backend) {
+			throw new Error("No backend of the server at port " + pg_port + " has the process ID " + pid);
+		}
+		if (backend.sleeping) {
+			return;
+		}
+		await delay(1);
 	}
 }
 

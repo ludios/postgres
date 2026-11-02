@@ -9,6 +9,7 @@ import {
 	pg_port,
 	port_of,
 	terminate,
+	until_sleeping,
 } from "./setup.ts";
 
 test("Ensure reserve on connection throws proper error", async () => {
@@ -108,13 +109,7 @@ test("reserve after a terminated query", async () => {
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	const query = reserved`select pg_sleep(30)`.catch((e) => e);
 
-	while (
-		!(
-			await sql`select wait_event = 'PgSleep' as sleeping from pg_stat_activity where pid = ${pid}`
-		)[0].sleeping
-	) {
-		await delay(1);
-	}
+	await until_sleeping(pid);
 
 	await terminate(pid);
 	await query;
