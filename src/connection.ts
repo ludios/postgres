@@ -568,8 +568,8 @@ export function Connection(ready, options, events) {
 	 */
 	function stop(x) {
 		// A cancel request for anything else would hit whatever the backend runs next
-		if (sent[0] !== x || x.done) {
-			return Promise.resolve();
+		if (sent[0] !== x) {
+			throw new Error("Bug: stop() got an exchange that is not the head of sent");
 		}
 		if (!x.stopping) {
 			x.stopped = true;
