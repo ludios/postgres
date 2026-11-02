@@ -391,7 +391,7 @@ export function Pool(options, types) {
 
 		for (const c of connections) {
 			const v =
-				usable(c) && c.inflight < options.max_pipeline && (!heavy || c.costly(slow))
+				usable(c) && c.inflight < max_inflight && (!heavy || c.costly(slow))
 					? c.backlog(t)
 					: Infinity;
 			if (v <= most && v < value) {
