@@ -741,53 +741,57 @@ function one_of(...allowed) {
 }
 
 /**
- * Reads an option that is on or off.
- *
- * @param value  - the value of the option
- * @param source - where the value comes from (as for `seconds`)
- * @returns `true` for `true` and the text `true`; `false` for `false` and the texts `false` and
- *          `disable`
- * @throws for any other value
+ * @param other     - tells whether a value is one of the other things, besides on or off, that the
+ *                    option may be; such a value is used as it is
+ * @param described - every kind of value that the option may have, as an error lists them
+ * @returns a reader of an option that is on or off, or else one of the other things: the reader
+ *          takes the value of the option and where it comes from (as `seconds` does), returns the
+ *          value if `other` accepts it, and otherwise `true` or `false` as `on_or_off` reads it,
+ *          and throws for any other value
  */
-function boolean(value, source) {
-	const x = on_or_off(value);
-	if (typeof x !== "boolean") {
-		throw new Error(source + " must be true or false, but it is " + shown(value));
-	}
-	return x;
+function on_off_or(other, described) {
+	return (value, source) => {
+		if (other(value)) {
+			return value;
+		}
+		const x = on_or_off(value);
+		if (typeof x !== "boolean") {
+			throw new Error(source + " must be " + described + ", but it is " + shown(value));
+		}
+		return x;
+	};
 }
 
 /**
- * Reads an option that is on or off, or a function, such as `debug`.
- *
- * @param value  - the value of the option
- * @param source - where the value comes from (as for `seconds`)
- * @returns `value` if it is a function; otherwise what `boolean` returns for it
- * @throws for a value that is neither a function nor one that `boolean` reads
+ * Reads an option that is on or off: `true` for `true` and the text `true`, and `false` for
+ * `false` and the texts `false` and `disable`
  */
-function boolean_or_function(value, source) {
-	if (typeof value === "function") {
-		return value;
-	}
-	const x = on_or_off(value);
-	if (typeof x !== "boolean") {
-		throw new Error(source + " must be true, false or a function, but it is " + shown(value));
-	}
-	return x;
-}
+const boolean = on_off_or(() => false, "true or false");
 
-/** The modes of ssl that encrypt the connection, besides `true` */
+/** Reads an option that is on or off, as `boolean` does, or a function, such as `debug` */
+const boolean_or_function = on_off_or(
+	(value) => typeof value === "function",
+	"true, false or a function",
+);
+
+/** The modes of ssl besides `disable`, as libpq names them, but without `verify-ca` */
 const ssl_modes = ["allow", "prefer", "require", "verify-full"];
+
+/** Reads any ssl except `verify-ca`: on or off, as `boolean` does, TLS options, or one of `ssl_modes` */
+const ssl_mode = on_off_or(
+	(value) => (value !== null && typeof value === "object") || ssl_modes.includes(value),
+	"true, false, an object of TLS options, or one of " +
+		["disable", ...ssl_modes].map(shown).join(", "),
+);
 
 /**
  * Reads ssl, which says whether and how to encrypt the connection.
  *
  * @param value  - the value of the option
  * @param source - where the value comes from (as for `seconds`)
- * @returns `value` if it is an object of TLS options or one of `ssl_modes`; otherwise what
- *          `boolean` returns for it, so that the text `disable` is `false`
- * @throws for any other value, such as `verify-ca`, which libpq refuses with the system's
- *         certificate authorities, the only ones that a mode can use
+ * @returns what `ssl_mode` returns for `value`
+ * @throws for `verify-ca`, which libpq refuses with the system's certificate authorities, the only
+ *         ones that a mode can use, and for any value that `ssl_mode` throws for
  */
 function ssl_option(value, source) {
 	if (value === "verify-ca") {
@@ -799,20 +803,7 @@ function ssl_option(value, source) {
 				"ssl: { ca, checkServerIdentity: () => undefined } with a certificate authority of your own",
 		);
 	}
-	if ((value !== null && typeof value === "object") || ssl_modes.includes(value)) {
-		return value;
-	}
-	const x = on_or_off(value);
-	if (typeof x !== "boolean") {
-		throw new Error(
-			source +
-				" must be true, false, an object of TLS options, or one of " +
-				["disable", ...ssl_modes].map(shown).join(", ") +
-				", but it is " +
-				shown(value),
-		);
-	}
-	return x;
+	return ssl_mode(value, source);
 }
 
 /** Reads the value of target_session_attrs, which may be `any` too, as in libpq. */

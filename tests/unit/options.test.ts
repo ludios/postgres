@@ -400,16 +400,16 @@ test("debug is true or false, the text true, false or disable, or a function; an
 	const f = vi.fn<() => void>();
 	const must = (source, shown) =>
 		"The " + source + " must be true, false or a function, but it is " + shown;
-	const read = with_env({ PGDEBUG: "false" }, () => [
+	const read = with_env({ PGDEBUG: "true" }, () => [
 		postgres({ max: 1 }).options.debug,
-		postgres("postgres://u@h/db?debug=true", { max: 1 }).options.debug,
+		postgres("postgres://u@h/db?debug=disable", { max: 1 }).options.debug,
 		postgres({ max: 1, debug: f }).options.debug,
 	]);
 	expect([
 		read,
 		thrown(() => postgres("postgres://u@h/db?debug=0", { max: 1 })).message,
 		thrown(() => postgres({ max: 1, debug: 1 })).message,
-	]).toEqual([[false, true, f], must("url parameter debug", '"0"'), must("option debug", "1")]);
+	]).toEqual([[true, false, f], must("url parameter debug", '"0"'), must("option debug", "1")]);
 });
 
 test("The names of a publication and a replication slot are used as they are given, even false or disable", async () => {
