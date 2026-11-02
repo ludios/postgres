@@ -631,7 +631,7 @@ Destroying the readable stream partway through (as `pipeline` does when the dest
 
 ### Canceling Queries in Progress
 
-Postgres.js supports, [canceling queries in progress](https://www.postgresql.org/docs/7.1/protocol-protocol.html#AEN39000). It works by opening a new connection with a protocol level startup message to cancel the current query running on a specific connection. That means there is no guarantee that the query will be canceled, and due to the possible race conditions it might even result in canceling another query. This is fine for long running queries, but in the case of high load and fast queries it might be better to simply ignore results instead of canceling.
+Postgres.js supports, [canceling queries in progress](https://www.postgresql.org/docs/7.1/protocol-protocol.html#AEN39000). It works by opening a new connection with a protocol level startup message to cancel the current query running on a specific connection. That means there is no guarantee that the query will be canceled. Until the server has handled the cancel request, the connection sends no more queries, so the request can't cancel a query sent after it. But if the query has already finished when the request arrives, a query that was already pipelined behind it on the same connection gets canceled instead. This is fine for long running queries, but in the case of high load and fast queries it might be better to simply ignore results instead of canceling.
 
 ```js
 const query = sql`select pg_sleep 100`.execute()

@@ -279,6 +279,24 @@ test("Cancel returns a promise", async () => {
 	expect([cancelled instanceof Promise, error.code]).toEqual([true, "57014"]);
 });
 
+test("A cancel that reaches the server after its query has finished does not cancel the next query", async () => {
+	const sql = postgres({ ...options, max: 1 });
+	try {
+		await sql`select 1`;
+		const fast = sql`select 1`.execute();
+		fast.catch(() => {});
+		// Let the query go out, then block, so that the server finishes it while its reply stays unread
+		await new Promise((resolve) => process.nextTick(resolve));
+		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+		const cancelled = fast.cancel(),
+			[{ x }] = await sql`select pg_sleep(0.3), 1 as x`;
+		await cancelled;
+		expect(x).toBe(1);
+	} finally {
+		await sql.end();
+	}
+});
+
 test("result.statement and query.statement have the documented name, string, types and columns", async () => {
 	const q = sql`select ${1}::int as a`;
 	const r = await q;

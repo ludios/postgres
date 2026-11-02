@@ -41,6 +41,8 @@ export function Connection(ready, options, events) {
 
 	let blocker = null,
 		rolling = false,
+		// How many CancelRequests are in flight; until there are none, nothing more is written.
+		cancelling = 0,
 		fence = null,
 		drained = null,
 		status = ready.status,
@@ -76,7 +78,7 @@ export function Connection(ready, options, events) {
 			return sent.length + pending.length;
 		},
 		get exclusive() {
-			return !!blocker && exclusive(blocker);
+			return (!!blocker && exclusive(blocker)) || cancelling > 0;
 		},
 		get copying() {
 			return !!blocker && blocker.streaming && blocker.open;
@@ -177,7 +179,7 @@ export function Connection(ready, options, events) {
 			pending.splice(pending.indexOf(fence), 0, x);
 		} else if (x.ends && open.size) {
 			pending.push((fence = x));
-		} else if (blocker || pending.length) {
+		} else if (blocker || cancelling || pending.length) {
 			pending.push(x);
 		} else {
 			return (write(x), schedule());
@@ -187,7 +189,7 @@ export function Connection(ready, options, events) {
 	}
 
 	function release() {
-		while (!blocker && pending.length && pending[0] !== fence) {
+		while (!blocker && !cancelling && pending.length && pending[0] !== fence) {
 			write(pending.shift());
 		}
 
@@ -540,6 +542,25 @@ export function Connection(ready, options, events) {
 		);
 	}
 
+	/**
+	 * Sends one CancelRequest for exchange `x`, the head of `sent`, and writes
+	 * nothing more on this connection until the server has closed the cancel
+	 * connection. PostgreSQL drops a cancel that reaches a backend waiting for its
+	 * next command, so the cancel can't hit a query written after that.
+	 *
+	 * @returns a promise that settles as the CancelRequest does
+	 */
+	function stop(x) {
+		if (!x.stopping) {
+			cancelling++;
+			x.stopping = ready.cancel().finally(() => {
+				cancelling--;
+				release();
+			});
+		}
+		return x.stopping;
+	}
+
 	function cancel(query) {
 		if (running.has(query) || (sent[0] && sent[0].query === query && sent[0].awaiting)) {
 			return (
@@ -565,7 +586,7 @@ export function Connection(ready, options, events) {
 
 		// A COPY's query resolves with its stream (which makes it inactive) while the server still runs it
 		return x === sent[0] && (query.active || query.streaming)
-			? ready.cancel()
+			? stop(x)
 			: new Promise((resolve, reject) => (x.cancel = { resolve, reject }));
 	}
 
@@ -967,7 +988,7 @@ export function Connection(ready, options, events) {
 		const next = sent[0];
 		if (next && next.query) {
 			next.query.active = true;
-			next.cancel && ready.cancel().then(next.cancel.resolve, next.cancel.reject);
+			next.cancel && stop(next).then(next.cancel.resolve, next.cancel.reject);
 		}
 
 		closing && idle() && terminate();
@@ -1371,6 +1392,7 @@ function Exchange(kind, query, lease, write) {
 		error: null,
 		own: null,
 		cancel: null,
+		stopping: null,
 		stream: null,
 		copied: false,
 		wanted: false,
