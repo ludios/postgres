@@ -26,6 +26,10 @@ export default defineConfig({
 					include: ["tests/*.test.ts"],
 					globalSetup: ["tests/global_setup.ts"],
 					// Many of these tests need more than vitest's default of 5 seconds
+					// A test that needs more than 10 seconds passes its timeout as the
+					// third argument of test, after the function. oxfmt keeps the first line
+					// of a test call unbroken only in that form, not when the timeout is in
+					// an options object before the function.
 					testTimeout: 10_000,
 				},
 			},

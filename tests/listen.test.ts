@@ -191,7 +191,7 @@ test("listen reconnects", async () => {
 	expect(connects).toBe(2);
 });
 
-test("listen keeps retrying when a reconnect attempt fails", { timeout: 20_000 }, async () => {
+test("listen keeps retrying when a reconnect attempt fails", async () => {
 	const admin = postgres({ ...options, user: "postgres", pass: "", max: 1 });
 	await admin`drop role if exists postgres_js_test_listen`;
 	await admin`create role postgres_js_test_listen login`;
@@ -224,7 +224,7 @@ test("listen keeps retrying when a reconnect attempt fails", { timeout: 20_000 }
 		await admin`drop role postgres_js_test_listen`;
 		await admin.end();
 	}
-});
+}, 20_000);
 
 test("listen result reports correct connection state after reconnection", async () => {
 	const sql = postgres(options),

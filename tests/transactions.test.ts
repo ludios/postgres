@@ -212,9 +212,6 @@ test("Helpers in Transaction", async () => {
 
 test(
 	"Connection errors are caught using begin()",
-	{
-		timeout: 2000,
-	},
 	async () => {
 		const sql = postgres({ host: "localhost", port: 1 });
 		const code = await sql
@@ -228,6 +225,7 @@ test(
 		await sql.end();
 		expect(code).toBe("ECONNREFUSED");
 	},
+	2000,
 );
 
 test("Throws correct error when retrying in transactions", async () => {

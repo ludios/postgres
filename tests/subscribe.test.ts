@@ -381,7 +381,6 @@ test(
 
 test(
 	"subscribe does not pile up listeners across reconnects (#1087)",
-	{ timeout: 20_000 },
 	async () => {
 		const until = async (fn) => {
 			while (!fn()) {
@@ -430,6 +429,7 @@ test(
 			await sql.end();
 		}
 	},
+	20_000,
 );
 
 test(
@@ -610,7 +610,6 @@ test(
 
 test(
 	"subscribe gives unchanged TOAST values as undefined, transforms values and reports a throwing handler",
-	{ timeout: 30_000 },
 	async () => {
 		const { sql, done } = await replicating(),
 			seen = [],
@@ -643,6 +642,7 @@ test(
 			await done();
 		}
 	},
+	30_000,
 );
 
 test(

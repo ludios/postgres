@@ -163,16 +163,15 @@ test("Copy read with back-pressure", async () => {
 
 test(
 	"Copy read through a slow pipeline keeps every byte and never stalls",
-	{ timeout: 30_000 },
 	async () => {
 		const [expected, got] = await slowCopy(sql);
 		expect(got).toBe(expected);
 	},
+	30_000,
 );
 
 test(
 	"Copy read through a slow pipeline over direct TLS keeps every byte",
-	{ timeout: 30_000 },
 	async ({ skip }) => {
 		const major = await server_major();
 		skip(major < 17, "direct TLS needs PostgreSQL 17 or later");
@@ -183,6 +182,7 @@ test(
 		await tls.end();
 		expect([got, ssl]).toEqual([expected, true]);
 	},
+	30_000,
 );
 
 async function slowCopy(sql) {
@@ -489,7 +489,6 @@ test(
 
 test(
 	"Destroying a copy to stdout whose end is already buffered does not cancel the next query",
-	{ timeout: 20_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null }),
 			xs = [];
@@ -518,6 +517,7 @@ test(
 			await sql.end({ timeout: 0 });
 		}
 	},
+	20_000,
 );
 
 test(

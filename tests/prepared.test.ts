@@ -614,7 +614,6 @@ test(
 
 test(
 	"Statements past the connection and pool limits are closed and prepared again when used",
-	{ timeout: 30_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, prepare: true }),
 			run = (i) => sql.unsafe("select $1::int + " + i + " as x", [1], { prepare: true });
@@ -626,4 +625,5 @@ test(
 		expect([n <= 1001, x]).toEqual([true, 1]);
 		await sql.end();
 	},
+	30_000,
 );

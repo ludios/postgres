@@ -175,9 +175,6 @@ test("Login using scram-sha-256", async () => {
 
 test(
 	"Parallel connections using scram-sha-256",
-	{
-		timeout: 2000,
-	},
 	async () => {
 		const sql = postgres({ ...options, ...login_scram });
 		expect(
@@ -190,6 +187,7 @@ test(
 			)[0][0].x,
 		).toBe(true);
 	},
+	2000,
 );
 
 test("Support dynamic password function", async () => {
@@ -325,7 +323,7 @@ test("Unix socket", async () => {
 	expect((await sql`select 1 as x`)[0].x).toBe(1);
 });
 
-test("connect_timeout", { timeout: 20_000 }, async () => {
+test("connect_timeout", async () => {
 	const connect_timeout = 0.2;
 	const server = net.createServer();
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -340,7 +338,7 @@ test("connect_timeout", { timeout: 20_000 }, async () => {
 	});
 	server.close();
 	expect(Math.round((end - start) / 100) / 10).toBe(connect_timeout);
-});
+}, 20_000);
 
 test("connect_timeout throws proper error", async () => {
 	expect(
@@ -352,7 +350,7 @@ test("connect_timeout throws proper error", async () => {
 	).toBe("CONNECT_TIMEOUT");
 });
 
-test("connect_timeout error message includes host:port", { timeout: 20_000 }, async () => {
+test("connect_timeout error message includes host:port", async () => {
 	const connect_timeout = 0.2;
 	const server = net.createServer();
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -368,7 +366,7 @@ test("connect_timeout error message includes host:port", { timeout: 20_000 }, as
 	server.close();
 	const expected = ["write CONNECT_TIMEOUT 127.0.0.1:", port].join("");
 	expect(err).toBe(expected);
-});
+}, 20_000);
 
 test("requests works after single connect_timeout", async () => {
 	let first = true;
@@ -423,9 +421,6 @@ test("Catches connection config errors with end", async () => {
 
 test(
 	"Multiple hosts",
-	{
-		timeout: 1000,
-	},
 	async () => {
 		const s1 = postgres({ idle_timeout }),
 			s2 = postgres({ idle_timeout, port: second_pg_port }),
@@ -452,6 +447,7 @@ test(
 
 		expect(result).toEqual([id1, id2, id1]);
 	},
+	1000,
 );
 
 test("multiple queries before connect", async () => {
@@ -1504,7 +1500,6 @@ test(
 
 test(
 	"unref_sockets lets the process exit while connections are idle",
-	{ timeout: 20_000 },
 	async () => {
 		const script = (idle) =>
 			[
@@ -1521,11 +1516,11 @@ test(
 		const [unref, kept] = await Promise.all([exits(script(true)), exits(script(false))]);
 		expect([unref.out, unref.exited, kept.exited]).toEqual(["done", true, false]);
 	},
+	20_000,
 );
 
 test(
 	"unref_sockets lets the process exit after a connection waited for the types to load",
-	{ timeout: 20_000 },
 	async () => {
 		// min: 2 opens a second connection while the first one loads the types: both `open`s come
 		// before the `lease`, which the pool grants only once the types are loaded. If the second
@@ -1557,11 +1552,11 @@ test(
 		const { out, exited } = await exits(script);
 		expect([out, exited]).toEqual(["done", true]);
 	},
+	20_000,
 );
 
 test(
 	"unref_sockets lets the process exit after a query fails before it is sent",
-	{ timeout: 20_000 },
 	async () => {
 		// JSON.stringify throws on a BigInt, so the query fails while the connection writes it, and
 		// the server never gets the query
@@ -1578,6 +1573,7 @@ test(
 		const { out, exited } = await exits(script);
 		expect([out, exited]).toEqual(["TypeError", true]);
 	},
+	20_000,
 );
 
 test("sql and reserved connections are async disposable", async () => {
@@ -1832,19 +1828,19 @@ async function short_query_ms(scheduler, retried = false) {
 
 test(
 	"A query is pipelined behind the work that should finish first, not behind a long query, unless the scheduler is off",
-	{ timeout: 20_000 },
 	async () => {
 		const [on, off] = [await short_query_ms(true), await short_query_ms(false)];
 		expect([on < 500, off > 800]).toEqual([true, true]);
 	},
+	20_000,
 );
 
 test(
 	"A query is pipelined behind the work that should finish first, even after each connection retried a statement",
-	{ timeout: 20_000 },
 	async () => {
 		expect(await short_query_ms(true, true)).toBeLessThan(500);
 	},
+	20_000,
 );
 
 test("A query rejected during a COPY on a reserved connection doesn't leave the connection notable", async () => {
