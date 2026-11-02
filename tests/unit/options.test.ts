@@ -221,7 +221,44 @@ test("Another ssl throws, and so does verify-ca, which libpq refuses with the sy
 	]).toEqual([
 		must("url parameter ssl", '"foo"'),
 		must("option ssl", "null"),
-		expect.stringMatching(/^The url parameter ssl is "verify-ca", which checks only that /),
+		expect.stringMatching(/^The url parameter sslmode is "verify-ca", which checks only that /),
+	]);
+});
+
+test("sslmode in a url is read as ssl, and its errors name it, even when it is empty", async () => {
+	const must = (shown) =>
+		"The url parameter sslmode must be true, false, an object of TLS options, or one of " +
+		'"disable", "allow", "prefer", "require", "verify-full", but it is ' +
+		shown;
+	expect([
+		postgres("postgres://u@h/db?sslmode=require", { max: 1 }).options.ssl,
+		thrown(() => postgres("postgres://u@h/db?sslmode=foo", { max: 1 })).message,
+		thrown(() => postgres("postgres://u@h/db?sslmode=", { max: 1 })).message,
+	]).toEqual(["require", must('"foo"'), must('""')]);
+});
+
+test("sslrootcert=system makes verify-full the ssl mode, and any other mode throws, as in libpq", async () => {
+	const url = "postgres://u@h/db?sslrootcert=system";
+	const must = (shown) =>
+		'The url parameter sslrootcert is "system", which, as in libpq, needs the ssl mode ' +
+		'"verify-full", but ssl is ' +
+		shown;
+	expect([
+		postgres(url, { max: 1 }).options.ssl,
+		postgres(url + "&sslmode=verify-full", { max: 1 }).options.ssl,
+		postgres(url, { max: 1, ssl: true }).options.ssl,
+		thrown(() => postgres(url + "&sslmode=require", { max: 1 })).message,
+		thrown(() => postgres(url + "&sslmode=disable", { max: 1 })).message,
+		thrown(() => postgres(url, { max: 1, ssl: "require" })).message,
+		thrown(() => postgres(url + "&sslmode=verify-ca", { max: 1 })).message,
+	]).toEqual([
+		"verify-full",
+		"verify-full",
+		true,
+		must('"require"'),
+		must("false"),
+		must('"require"'),
+		expect.stringMatching(/^The url parameter sslmode is "verify-ca", which checks only that /),
 	]);
 });
 
@@ -372,7 +409,7 @@ test("Url parameters named like Object.prototype properties go to the server", a
 });
 
 test("The url parameters that the client reads are not sent to the server", async () => {
-	const url = "postgres://u@h/db?sslmode=require&sslrootcert=system&max=2&host=h2&port=1";
+	const url = "postgres://u@h/db?sslmode=verify-full&sslrootcert=system&max=2&host=h2&port=1";
 	const { connection, ssl } = postgres(url, { max: 1 }).options;
 	expect([connection, ssl]).toEqual([{ application_name: "postgres.js" }, "verify-full"]);
 });

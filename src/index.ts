@@ -856,13 +856,19 @@ function max_lifetime() {
 /**
  * The options that the url and environment variables can set too. Each has its value when nothing
  * sets it (`default`); its environment variable, if that is not `PG` followed by its name in upper
- * case (`variable`); and the reader that checks a value of it and turns text into what the option
- * holds (`read`), if the option has one. An option without a reader, such as the name of a
- * replication slot, is used as it is given.
+ * case (`variable`); its other name in the url, as libpq names it, if it has one (`parameter`); and
+ * the reader that checks a value of it and turns text into what the option holds (`read`), if the
+ * option has one. An option without a reader, such as the name of a replication slot, is used as
+ * it is given.
  */
 const option_rules: Record<
 	string,
-	{ default: unknown; variable?: string; read?: (value: unknown, source: string) => unknown }
+	{
+		default: unknown;
+		variable?: string;
+		parameter?: string;
+		read?: (value: unknown, source: string) => unknown;
+	}
 > = {
 	max: { default: globalThis.Cloudflare ? 3 : 10, read: integer(1) },
 	min: { default: 0, read: integer(0) },
@@ -877,7 +883,7 @@ const option_rules: Record<
 	prepare: { default: true, read: boolean },
 	fetch_types: { default: true, read: boolean },
 	infer: { default: false, read: boolean },
-	ssl: { default: false, read: ssl_option },
+	ssl: { default: false, parameter: "sslmode", read: ssl_option },
 	// Or a function that is called with every query
 	debug: { default: false, read: boolean_or_function },
 	sslnegotiation: { default: null, read: one_of(null, "postgres", "direct") },
@@ -895,9 +901,19 @@ const option_rules: Record<
 	slot: { default: null },
 };
 
+/** The parameters of a url that the client reads, and so does not send to the server */
+const client_parameters = new Set([
+	"host",
+	"port",
+	...Object.entries(option_rules).flatMap(([k, rule]) =>
+		rule.parameter ? [k, rule.parameter] : [k],
+	),
+]);
+
 /**
  * Reads an option from the first of these places that sets it: the options object, the query of
- * the url, and the option's environment variable.
+ * the url (by the option's name, or else by its other name there), and the option's environment
+ * variable.
  *
  * @param k     - the name of the option
  * @param rule  - the option's entry in `option_rules`
@@ -909,14 +925,15 @@ const option_rules: Record<
  * @throws whatever `rule.read` throws for a value that the option may not have
  */
 function read_option(k, rule, o, query, env) {
-	const variable = rule.variable || "PG" + k.toUpperCase();
+	const variable = rule.variable || "PG" + k.toUpperCase(),
+		parameter = Object.hasOwn(query, k) ? k : rule.parameter;
 	let value, source;
 	if (o[k] !== undefined) {
 		value = o[k];
 		source = "The option " + k;
-	} else if (Object.hasOwn(query, k)) {
-		value = query[k];
-		source = "The url parameter " + k;
+	} else if (parameter !== undefined && Object.hasOwn(query, parameter)) {
+		value = query[parameter];
+		source = "The url parameter " + parameter;
 	} else if (env[variable]) {
 		value = env[variable];
 		source = "The environment variable " + variable;
@@ -951,20 +968,20 @@ function parse_options(a, b) {
 	if (o.no_prepare) {
 		o.prepare = false;
 	}
-	if (query.sslmode) {
-		query.ssl = query.sslmode;
-		delete query.sslmode;
-	}
 	if ("timeout" in o) {
 		console.log("The timeout option is deprecated, use idle_timeout instead");
 		o.idle_timeout = o.timeout;
 	}
 	// Only "system" is supported. Any other sslrootcert, such as the path of a CA file, is sent to
 	// the server as a setting, which PostgreSQL refuses; connecting without checking the
-	// certificate against that CA would be worse.
-	if (query.sslrootcert === "system") {
-		query.ssl = "verify-full";
+	// certificate against that CA would be worse. As in libpq, system makes verify-full the mode
+	// when the url gives none, and any other mode an error, which is checked below.
+	const system_roots = query.sslrootcert === "system";
+	if (system_roots) {
 		delete query.sslrootcert;
+		if (!Object.hasOwn(query, "ssl") && !Object.hasOwn(query, "sslmode")) {
+			query.ssl = "verify-full";
+		}
 	}
 
 	const options: Record<string, any> = {
@@ -989,11 +1006,7 @@ function parse_options(a, b) {
 		connection: {
 			application_name: env.PGAPPNAME || "postgres.js",
 			...o.connection,
-			...Object.fromEntries(
-				Object.entries(query).filter(
-					([k]) => !Object.hasOwn(option_rules, k) && k !== "host" && k !== "port",
-				),
-			),
+			...Object.fromEntries(Object.entries(query).filter(([k]) => !client_parameters.has(k))),
 		},
 		types: o.types || {},
 		onnotice: o.onnotice,
@@ -1013,6 +1026,14 @@ function parse_options(a, b) {
 		timers: o.timers || default_timers(),
 	};
 
+	// true checks the certificate as verify-full does
+	if (system_roots && options.ssl !== "verify-full" && options.ssl !== true) {
+		throw new Error(
+			'The url parameter sslrootcert is "system", which, as in libpq, needs the ssl mode ' +
+				'"verify-full", but ssl is ' +
+				shown(options.ssl),
+		);
+	}
 	if (options.max === 1) {
 		options.scheduler = false;
 	}
