@@ -33,11 +33,7 @@ export function Connection(ready, options, events) {
 		open = new Set(),
 		prepared = new Map(),
 		out = p.Writer(),
-		frames = p.Frames(
-			frame,
-			socket.shared,
-			(error) => ((connection_error = error), socket.destroy()),
-		);
+		frames = p.Frames(frame, socket.shared, abandon);
 
 	let blocker = null,
 		rolling = false,
@@ -51,11 +47,11 @@ export function Connection(ready, options, events) {
 		closing = null,
 		// Resolves `closing`.
 		resolve_closing: (() => void) | null = null,
-		// Whether destroy() was called, which gives `closed` the code CONNECTION_DESTROYED. Otherwise
-		// (also after close()), `closed` gets CONNECTION_CLOSED.
+		// Whether destroy() was called. If it was called before the socket closed, `closed` gets the
+		// code CONNECTION_DESTROYED; otherwise (also after close()), `closed` gets CONNECTION_CLOSED.
 		destroyed = false,
-		// A fatal error that came with no query to give it to: a broken frame, or an
-		// ErrorResponse while nothing was in flight.
+		// A fatal error that came with no query to give it to: a broken frame, a frame that no
+		// query asked for, or an ErrorResponse while nothing was in flight.
 		connection_error = null,
 		portals = 0,
 		traced = 0,
@@ -639,10 +635,22 @@ export function Connection(ready, options, events) {
 		socket.end(p.Terminate());
 	}
 
-	function destroy(error?) {
+	function destroy() {
 		destroyed = true;
-		closing || (closing = Promise.resolve());
-		socket.destroy(error);
+		if (!closing) {
+			closing = Promise.resolve();
+		}
+		socket.destroy();
+	}
+
+	/**
+	 * Destroys the socket because of an error that came with no query to give it to.
+	 *
+	 * @param error - the error, which becomes the cause of `closed`
+	 */
+	function abandon(error) {
+		connection_error = error;
+		socket.destroy();
 	}
 
 	function onclose(error) {
@@ -778,7 +786,11 @@ export function Connection(ready, options, events) {
 																									: null;
 		} catch (error) {
 			const x = sent[0];
-			x ? fail(x, error) : destroy(error);
+			if (x) {
+				fail(x, error);
+			} else {
+				abandon(error);
+			}
 		}
 		blocker && !holds(blocker) && ((blocker = null), release());
 		out.length && schedule();

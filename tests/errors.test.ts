@@ -389,6 +389,28 @@ test("Queries that a reserved connection gets just as it closes each get their o
 	}
 });
 
+test("A frame that no query asked for closes the connection with CONNECTION_CLOSED", async () => {
+	let raw, onclose;
+	const closed = new Promise((r) => (onclose = r));
+	const sql = postgres({
+		...options,
+		max: 1,
+		onclose: () => onclose(),
+		socket: () => (raw = net.connect(pg_port, "localhost")),
+	});
+	const reserved = await sql.reserve();
+	try {
+		// A ReadyForQuery while nothing is in flight
+		raw.emit("data", Buffer.from([0x5a, 0, 0, 0, 5, 0x49]));
+		await closed;
+		const error = await reserved`select 1`.catch((e) => e);
+		expect([error.code, error.cause instanceof Error]).toEqual(["CONNECTION_CLOSED", true]);
+	} finally {
+		reserved.release();
+		await sql.end();
+	}
+});
+
 test("Query and parameters on an error are not enumerable if debug is not set", async () => {
 	const sql = postgres({ ...options, debug: false });
 
