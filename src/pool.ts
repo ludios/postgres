@@ -252,7 +252,9 @@ export function Pool(options, types) {
 					? grant(c, job)
 					: run(c, job);
 		}
-		waiting.length && listened(channels.pool) && event("wait", null, { waiting: waiting.length });
+		if (waiting.length) {
+			event("wait", null, { waiting: waiting.length });
+		}
 		grow();
 	}
 
@@ -459,9 +461,7 @@ export function Pool(options, types) {
 		const c = Connection(ready, options, events) as Pooled;
 		c.index = ready.index || 0;
 		connections.add(c);
-		if (listened(channels.pool)) {
-			event("open", c);
-		}
+		event("open", c);
 		lifetime(c);
 		typesLoaded || typesLoading ? (c.loading = !typesLoaded) : loadTypes(c);
 		c.loading || recovered();
@@ -578,7 +578,17 @@ export function Pool(options, types) {
 		idle(c);
 	}
 
+	/**
+	 * Publishes a message on the pool channel, if anyone listens to it.
+	 * @param name - the event
+	 * @param c - the connection that the event is about, or null
+	 * @param extra - more fields for the message
+	 */
 	function event(name, c, extra?) {
+		if (!listened(channels.pool)) {
+			return;
+		}
+
 		channels.pool.publish({
 			event: name,
 			connection: c ? c.id : null,
@@ -601,9 +611,7 @@ export function Pool(options, types) {
 			return;
 		}
 
-		if (listened(channels.pool)) {
-			event("idle", c);
-		}
+		event("idle", c);
 		if (options.unref_sockets && !c.loading && waiting.length === 0) {
 			c.unref();
 		}
@@ -695,7 +703,7 @@ export function Pool(options, types) {
 			);
 		}
 		options.onclose && options.onclose(c.id);
-		listened(channels.pool) && event("close", c, { error });
+		event("close", c, { error });
 		connections.size === 0 && opening === 0 && statements.clear();
 		drain();
 		ending && finishing();
@@ -777,7 +785,7 @@ export function Pool(options, types) {
 				}
 				released = true;
 				c.lease === x && (c.lease = null);
-				listened(channels.pool) && event("release", c, { kind: job.kind });
+				event("release", c, { kind: job.kind });
 				if (c.closed) {
 					return;
 				}
@@ -795,8 +803,7 @@ export function Pool(options, types) {
 		};
 
 		c.lease = x;
-		listened(channels.pool) &&
-			event("lease", c, { kind: job.kind, waited: job.queued ? now() - job.queued : 0 });
+		event("lease", c, { kind: job.kind, waited: job.queued ? now() - job.queued : 0 });
 		job.resolve(x);
 		return x;
 	}
