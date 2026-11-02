@@ -16,7 +16,7 @@ test("Transform undefined in array", async () => {
 test("transform column", async () => {
 	const sql = postgres({
 		...options,
-		transform: { column: (x) => x.split("").reverse().join("") },
+		transform: { column: (x) => x.split("").toReversed().join("") },
 	});
 
 	await sql`create table test (hello_world int)`;

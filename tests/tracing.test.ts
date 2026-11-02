@@ -96,7 +96,7 @@ test("Tracing: a failing query publishes error with the error, then asyncStart a
 test("Tracing: start runs in the context of the code that made the query", async () => {
 	await using sql = postgres({ ...options, max: 1 });
 	const store = new AsyncLocalStorage(),
-		seen = [],
+		seen: string[] = [],
 		start = (context) => seen.push(store.getStore() + ":" + context.query);
 	dc.subscribe("tracing:postgres:query:start", start);
 	onTestFinished(() => {
@@ -106,7 +106,7 @@ test("Tracing: start runs in the context of the code that made the query", async
 		store.run("a", async () => await sql`select 1 as a`),
 		store.run("b", async () => await sql`select 2 as b`),
 	]);
-	expect(seen.sort()).toEqual(["a:select 1 as a", "b:select 2 as b"]);
+	expect(seen.toSorted()).toEqual(["a:select 1 as a", "b:select 2 as b"]);
 });
 
 test("Tracing: a store bound to start is current while the query is dispatched", async () => {
@@ -188,9 +188,9 @@ test("Tracing: the pool publishes open, lease, release, idle and close", async (
 	reserved.release();
 	await sql.end();
 	stop();
-	const kinds = [...new Set(messages.map((x) => x.event))];
+	const kinds = new Set(messages.map((x) => x.event));
 	expect([
-		["open", "idle", "lease", "release", "close"].filter((x) => kinds.includes(x)),
+		["open", "idle", "lease", "release", "close"].filter((x) => kinds.has(x)),
 		messages.filter((x) => typeof x.stats?.connections !== "number"),
 	]).toEqual([["open", "idle", "lease", "release", "close"], []]);
 });

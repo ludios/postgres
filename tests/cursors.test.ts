@@ -165,13 +165,11 @@ test("concurrent cursors", async () => {
 	const xs = [];
 
 	await Promise.all(
-		[...Array(7)]
-			.map((x, i) => [
-				sql`select ${i}::int as a, generate_series(1, 2) as x`.cursor(([row]) =>
-					xs.push(row.a + row.x),
-				),
-			])
-			.flat(),
+		[...Array(7)].map((_, i) =>
+			sql`select ${i}::int as a, generate_series(1, 2) as x`.cursor(([row]) =>
+				xs.push(row.a + row.x),
+			),
+		),
 	);
 
 	expect(xs).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8]);
@@ -182,16 +180,14 @@ test("concurrent cursors multiple connections", async () => {
 	const xs = [];
 
 	await Promise.all(
-		[...Array(7)]
-			.map((x, i) => [
-				sql`select ${i}::int as a, generate_series(1, 2) as x`.cursor(([row]) =>
-					xs.push(row.a + row.x),
-				),
-			])
-			.flat(),
+		[...Array(7)].map((_, i) =>
+			sql`select ${i}::int as a, generate_series(1, 2) as x`.cursor(([row]) =>
+				xs.push(row.a + row.x),
+			),
+		),
 	);
 
-	expect(xs.sort((a, b) => a - b)).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8]);
+	expect(xs.toSorted((a, b) => a - b)).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8]);
 });
 
 test("Async iterator cursor surfaces an error arriving between batches", async () => {

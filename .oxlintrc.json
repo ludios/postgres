@@ -47,8 +47,7 @@
 			// it, so that it is an error again.
 			"files": ["**/*.ts"],
 			"rules": {
-				"typescript/no-base-to-string": "warn",
-				"typescript/require-array-sort-compare": "warn"
+				"typescript/no-base-to-string": "warn"
 			}
 		}
 	],
