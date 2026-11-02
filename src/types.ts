@@ -256,7 +256,6 @@ function binary_array(read) {
 		return level(0);
 
 		function level(d) {
-			// oxlint-disable-next-line unicorn/no-new-array -- a length; filling it in place is faster than push()
 			const xs = new Array(sizes[d]);
 			for (let k = 0; k < xs.length; k++) {
 				if (d < dimensions - 1) {

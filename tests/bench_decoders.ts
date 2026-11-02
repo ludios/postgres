@@ -108,7 +108,6 @@ function text_case(name, oid, text): Case {
  * @returns the elements' text, or null for a NULL element
  */
 function int8_array(x, start) {
-	// oxlint-disable-next-line unicorn/no-new-array -- a length, as in the decoders of src/types.ts
 	const xs = new Array(x.readInt32BE(start + 12));
 	for (let k = 0, at = start + 20; k < xs.length; k++) {
 		const length = x.readInt32BE(at),
