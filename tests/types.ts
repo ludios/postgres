@@ -23,7 +23,7 @@ test("Boolean true", async () => {
 
 test("Date", async () => {
 	const now = new Date();
-	expect(now - (await sql`select ${now}::timestamptz as x`)[0].x).toBe(0);
+	expect(+now - (await sql`select ${now}::timestamptz as x`)[0].x).toBe(0);
 });
 
 test("infer: true types booleans, dates and arrays of them without a cast, as v3 did", async () => {
@@ -31,7 +31,7 @@ test("infer: true types booleans, dates and arrays of them without a cast, as v3
 	const now = new Date();
 	const [x] =
 		await sql`select ${true} as a, ${false} as b, ${now} as c, ${[now, now]} as d, ${[true, false]} as e`;
-	expect([x.a, x.b, now - x.c, now - x.d[1], x.e.join()].join(" ")).toBe(
+	expect([x.a, x.b, +now - x.c, +now - x.d[1], x.e.join()].join(" ")).toBe(
 		"true false 0 0 true,false",
 	);
 	await sql.end();

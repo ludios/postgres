@@ -10,7 +10,9 @@ const single = process.env.SEED !== undefined,
 
 const postgres = (
 	await import(
-		modulePath.startsWith(".") ? new URL(modulePath, import.meta.url) : path.resolve(modulePath)
+		modulePath.startsWith(".")
+			? new URL(modulePath, import.meta.url).href
+			: path.resolve(modulePath)
 	)
 ).default;
 

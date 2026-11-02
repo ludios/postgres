@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import dc from "diagnostics_channel";
 import { AsyncLocalStorage } from "async_hooks";
 import { expect, test } from "vitest";
@@ -6,12 +7,14 @@ import { postgres, options, delay, pg_port } from "./setup.ts";
 function record(name) {
 	const events = [],
 		channel = dc.tracingChannel(name),
-		handlers = Object.fromEntries(
-			["start", "end", "asyncStart", "asyncEnd", "error"].map((event) => [
-				event,
-				(context) => events.push({ event, context, snapshot: { ...context } }),
-			]),
-		);
+		recorder = (event) => (context) => events.push({ event, context, snapshot: { ...context } }),
+		handlers = {
+			start: recorder("start"),
+			end: recorder("end"),
+			asyncStart: recorder("asyncStart"),
+			asyncEnd: recorder("asyncEnd"),
+			error: recorder("error"),
+		};
 	channel.subscribe(handlers);
 	return { events, stop: () => channel.unsubscribe(handlers) };
 }
@@ -91,7 +94,7 @@ test("Tracing: start runs in the context of the code that made the query", async
 test("Tracing: a store bound to start is current while the query is dispatched", async () => {
 	const sql = postgres({ ...options, max: 1 }),
 		store = new AsyncLocalStorage(),
-		channel = dc.tracingChannel("postgres:query"),
+		channel = dc.tracingChannel<unknown, { queued: number }>("postgres:query"),
 		seen = [],
 		end = () => seen.push(store.getStore());
 	channel.start.bindStore(store, (context) => "span for " + context.queued.toFixed(0).length);

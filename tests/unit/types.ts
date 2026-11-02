@@ -12,7 +12,7 @@ const show = (x) =>
 		: x === null
 			? "null"
 			: x instanceof Date
-				? "date:" + (isNaN(x) ? "invalid" : x.toISOString())
+				? "date:" + (isNaN(x.getTime()) ? "invalid" : x.toISOString())
 				: Buffer.isBuffer(x)
 					? "buffer:" + x.toString("hex")
 					: typeof x === "object"
