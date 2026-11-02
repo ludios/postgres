@@ -602,6 +602,8 @@ test("sql.end() resolves after the types fail to load for a waiting query", asyn
 
 test("A custom type created after a failed lookup is found on a later query", async () => {
 	await sql`drop type if exists later_t cascade`;
+	// Declared before sql2, so that sql2 ends before the type is dropped
+	await using _drop_type = defer(() => sql`drop type if exists later_t`);
 	await using sql2 = postgres({
 		...options,
 		types: {
@@ -613,7 +615,6 @@ test("A custom type created after a failed lookup is found on a later query", as
 		(e) => e.code,
 	);
 	await sql`create type later_t as enum ('a')`;
-	await using _drop_type = defer(() => sql`drop type later_t`);
 	await delay(1100);
 	const [{ x }] = await sql2`select 'a'::later_t as x`;
 	expect([first, x]).toEqual(["TYPE_NOT_FOUND", "parsed a"]);

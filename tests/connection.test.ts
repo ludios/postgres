@@ -651,7 +651,8 @@ test("Query runs on a new connection if the backend dies while fetching array ty
 		([x]) => x.x,
 		(e) => e.code,
 	);
-	// Before the check, so that it also counts any unhandled rejection from ending the pool
+	// Ended before the check, not by `await using` after it, so that the check also counts the
+	// unhandled rejections that Node reports while the pool ends
 	await sql.end();
 
 	expect([x, unhandled, killed]).toEqual([1, 0, true]);
@@ -773,7 +774,8 @@ test("A query refused with a FATAL error rejects with the peer error instead of 
 	await using _close = defer(() => server.close());
 	const sql = postgres({ ...options, host: "localhost", port: port_of(server) });
 	const code = await sql`select 1`.catch((e) => e.code);
-	// Before the check, so that it also counts any unhandled rejection from ending the pool
+	// Ended before the check, not by `await using` after it, so that the check also counts the
+	// unhandled rejections that Node reports while the pool ends
 	await sql.end();
 
 	expect([code, attempts < 10, unhandled]).toEqual(["08P01", true, 0]);
@@ -805,7 +807,8 @@ test("Failed array type fetch on a live connection is not an unhandled rejection
 	await using _close = defer(() => server.close());
 	const sql = postgres({ ...options, host: "localhost", port: port_of(server) });
 	await sql`select 1`.catch(() => null);
-	// Before the check, so that it also counts any unhandled rejection from ending the pool
+	// Ended before the check, not by `await using` after it, so that the check also counts the
+	// unhandled rejections that Node reports while the pool ends
 	await sql.end();
 
 	expect(unhandled).toBe(0);
@@ -1568,6 +1571,14 @@ test("A password file readable by others is ignored, as in libpq", async () => {
 	).toBe("28P01");
 });
 
+/**
+ * Runs `fn` with a pool that logs in as `login_md5.user` with no password given, while PGPASSFILE
+ * names a new password file.
+ * @param content - the content of the password file
+ * @param mode - the permissions of the password file, e.g. 0o600
+ * @param fn - a function that gets the pool
+ * @returns what `fn` returns, awaited
+ */
 async function passfile(content, mode, fn) {
 	const fs = await import("fs"),
 		os = await import("os"),
@@ -1578,7 +1589,7 @@ async function passfile(content, mode, fn) {
 	fs.writeFileSync(file, content);
 	fs.chmodSync(file, mode);
 	process.env.PGPASSFILE = file;
-	onTestFinished(() => {
+	await using _restore = defer(() => {
 		if (before === undefined) {
 			delete process.env.PGPASSFILE;
 		} else {
