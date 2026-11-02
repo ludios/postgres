@@ -495,8 +495,6 @@ export function Pool(options, types) {
 
 		failure = !transient || expired ? { error } : null;
 		if (stuck() && opening === 0 && (failure || ending)) {
-			// Each job gets a copy (the first job too), so that queryError never adds a query's
-			// properties or stack to `failure.error`, which later fail-fast jobs get copies of
 			for (const job of waiting.take()) {
 				reject(job, copy_error(error));
 			}
