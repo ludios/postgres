@@ -2,16 +2,17 @@
 // @ts-nocheck
 import { beforeEach, inject } from "vitest";
 import { exec } from "./bootstrap.ts";
+import { replace_pg_vars } from "./pg_tmp.ts";
 
 // Point the PG* variables at the `postgres` superuser of the server that tests/global_setup.ts
 // started for the tests, replacing any that this process was started with
 const pg_vars = inject("pg_vars");
-for (const name of Object.keys(process.env)) {
-	if (name.startsWith("PG")) {
-		delete process.env[name];
-	}
+if (!pg_vars) {
+	throw new Error(
+		"tests/setup.ts works only in the vitest project `integration`, whose globalSetup starts the servers",
+	);
 }
-Object.assign(process.env, pg_vars);
+replace_pg_vars(pg_vars);
 
 /** The port (on localhost) of the server that the tests use, which the PG* variables point at */
 export const pg_port = +pg_vars.PGPORT;

@@ -25,6 +25,29 @@ export function without_pg_vars(env) {
 }
 
 /**
+ * Delete every PG* variable from this process's environment, and then set `vars`.
+ *
+ * @param {Record<string, string>} vars - the PG* variables to set (or none, to only delete)
+ */
+export function replace_pg_vars(vars) {
+	for (const name of Object.keys(process.env)) {
+		if (name.startsWith("PG")) {
+			delete process.env[name];
+		}
+	}
+	Object.assign(process.env, vars);
+}
+
+/**
+ * @param {number} port - the port (on localhost) of a server that `start_pg_tmp` started
+ * @returns {{ PGHOST: string, PGPORT: string, PGUSER: string }} the PG* variables that point
+ *   PostgreSQL client programs (and this library's defaults) at that server's `postgres` superuser
+ */
+export function pg_vars(port) {
+	return { PGHOST: "localhost", PGPORT: String(port), PGUSER: "postgres" };
+}
+
+/**
  * @param {string} s - any string
  * @returns {string} `s` quoted for the shell that pg_ctl starts the server with
  */

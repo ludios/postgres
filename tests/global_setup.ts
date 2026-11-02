@@ -1,7 +1,7 @@
 // Model-output: Claude Opus 5.5
 import type { TestProject } from "vitest/node";
 import { bootstrap } from "./bootstrap.ts";
-import { start_pg_tmp, without_pg_vars } from "./pg_tmp.ts";
+import { pg_vars, start_pg_tmp, without_pg_vars } from "./pg_tmp.ts";
 
 declare module "vitest" {
 	export interface ProvidedContext {
@@ -22,10 +22,10 @@ declare module "vitest" {
  */
 export async function setup(project: TestProject): Promise<void> {
 	const [first, second] = await Promise.all([start_pg_tmp(), start_pg_tmp()]);
-	const pg_vars = { PGHOST: "localhost", PGPORT: String(first.port), PGUSER: "postgres" };
-	bootstrap({ ...without_pg_vars(process.env), ...pg_vars });
+	const first_vars = pg_vars(first.port);
+	bootstrap({ ...without_pg_vars(process.env), ...first_vars });
 
-	project.provide("pg_vars", pg_vars);
+	project.provide("pg_vars", first_vars);
 	project.provide("second_pg_port", second.port);
 	project.provide("pg_socket_dir", first.socket_dir);
 }
