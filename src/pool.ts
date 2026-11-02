@@ -63,7 +63,11 @@ export function Pool(options, types) {
 			onparameter,
 			ontimed,
 		},
-		work = { fast: 0, slow: 0, at: 0 };
+		work = { fast: 0, slow: 0, at: 0 },
+		// How many queries a connection may have in flight before the pool sends it no more. A
+		// connection with nothing in flight takes a query even with max_pipeline: 0, which turns
+		// pipelining off, as it did in v3.
+		max_inflight = Math.max(1, options.max_pipeline);
 
 	const signal: Signal = { aborted: false, sockets: new Set() },
 		replacing = [];
@@ -311,7 +315,7 @@ export function Pool(options, types) {
 				free &&
 				!job.lease &&
 				!job.exclusive &&
-				c.inflight < options.max_pipeline &&
+				c.inflight < max_inflight &&
 				(!best || c.inflight < best.inflight)
 			) {
 				best = c;
@@ -741,13 +745,13 @@ export function Pool(options, types) {
 		while (
 			waiting.length > connections.size &&
 			usable(c) &&
-			c.inflight < options.max_pipeline &&
+			c.inflight < max_inflight &&
 			plain(waiting.peek())
 		) {
 			run(c, waiting.shift());
 		}
 
-		if (waiting.length && !c.lease && c.inflight < options.max_pipeline) {
+		if (waiting.length && !c.lease && c.inflight < max_inflight) {
 			drain();
 		}
 		idle(c);

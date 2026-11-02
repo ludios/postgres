@@ -1262,7 +1262,7 @@ Since this library automatically creates prepared statements, it also has a defa
 
 What a statement takes and returns is learned once for the whole pool, not once per connection, so a new connection never has to ask about a query the pool already knows. Each connection still prepares a statement itself the first time it runs it.
 
-Up to `max_pipeline` queries (100 by default) are sent on one connection before the answers come back, which is what makes many small queries fast. A query that waits on a lock holds up those behind it on the same connection; lower `max_pipeline` if that matters more to you than throughput.
+Up to `max_pipeline` queries (100 by default) are sent on one connection before the answers come back, which is what makes many small queries fast. A query that waits on a lock holds up those behind it on the same connection; lower `max_pipeline` if that matters more to you than throughput. With `max_pipeline: 1`, or 0 as in v3, each connection has at most one query in flight.
 
 #### Scheduling
 
