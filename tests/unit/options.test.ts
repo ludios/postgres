@@ -306,6 +306,22 @@ test("An option that is on or off is true or false, or the text true, false or d
 	]);
 });
 
+test("debug is true or false, the text true, false or disable, or a function; anything else throws", async () => {
+	const f = vi.fn();
+	const must = (source, shown) =>
+		"The " + source + " must be true, false or a function, but it is " + shown;
+	const read = with_env({ PGDEBUG: "false" }, () => [
+		postgres({ max: 1 }).options.debug,
+		postgres("postgres://u@h/db?debug=true", { max: 1 }).options.debug,
+		postgres({ max: 1, debug: f }).options.debug,
+	]);
+	expect([
+		read,
+		thrown(() => postgres("postgres://u@h/db?debug=0", { max: 1 })).message,
+		thrown(() => postgres({ max: 1, debug: 1 })).message,
+	]).toEqual([[false, true, f], must("url parameter debug", '"0"'), must("option debug", "1")]);
+});
+
 test("The names of a publication and a replication slot are used as they are given, even false or disable", async () => {
 	const x = postgres("postgres://u@h/db?publications=false", { max: 1, slot: "disable" }).options;
 	expect([x.publications, x.slot]).toEqual(["false", "disable"]);

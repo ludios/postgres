@@ -749,6 +749,25 @@ function boolean(value, source) {
 	return x;
 }
 
+/**
+ * Reads an option that is on or off, or a function, such as `debug`.
+ *
+ * @param value  - the value of the option
+ * @param source - where the value comes from (as for `seconds`)
+ * @returns `value` if it is a function; otherwise what `boolean` returns for it
+ * @throws for a value that is neither a function nor one that `boolean` reads
+ */
+function boolean_or_function(value, source) {
+	if (typeof value === "function") {
+		return value;
+	}
+	const x = value === "true" ? true : off(value);
+	if (typeof x !== "boolean") {
+		throw new Error(source + " must be true, false or a function, but it is " + shown(value));
+	}
+	return x;
+}
+
 /** Reads the value of target_session_attrs, which may be `any` too, as in libpq. */
 const session_attrs = one_of(
 	null,
@@ -813,8 +832,8 @@ const option_rules: Record<
 	infer: { default: false, read: boolean },
 	// Besides false: true, a mode such as "require", or options for tls.connect()
 	ssl: { default: false, read: off },
-	// Besides false: true, or a function that is called with every query
-	debug: { default: false, read: off },
+	// Or a function that is called with every query
+	debug: { default: false, read: boolean_or_function },
 	sslnegotiation: { default: null, read: one_of(null, "postgres", "direct") },
 	channel_binding: {
 		default: "prefer",
