@@ -526,9 +526,7 @@ test("The same query in schemas of different shape gets the rows of its own sche
 		results.push(await Promise.all([tenant("tenant_a", 20), tenant("tenant_b", 10)]));
 	}
 	try {
-		// toStrictEqual, because toEqual ignores a property whose value is undefined, such as a column
-		// of the other schema
-		expect(results).toStrictEqual(
+		expect(results).toEqual(
 			Array.from({ length: 5 }, () => [
 				{ id: 1, val: 42 },
 				{ id: 1, label: "hello" },

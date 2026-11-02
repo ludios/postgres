@@ -566,7 +566,13 @@ function parseOptions(a, b) {
 	"timeout" in o &&
 		(console.log("The timeout option is deprecated, use idle_timeout instead"),
 		(o.idle_timeout = o.timeout));
-	query.sslrootcert === "system" && (query.ssl = "verify-full");
+	// Only "system" is supported. Any other sslrootcert, such as the path of a CA file, is sent to
+	// the server as a setting, which PostgreSQL refuses; connecting without checking the
+	// certificate against that CA would be worse.
+	if (query.sslrootcert === "system") {
+		query.ssl = "verify-full";
+		delete query.sslrootcert;
+	}
 
 	const defaults = {
 		max: globalThis.Cloudflare ? 3 : 10,

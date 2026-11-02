@@ -242,3 +242,9 @@ test("Url parameters named like Object.prototype properties go to the server", a
 		["search_path", "d"],
 	]);
 });
+
+test("The url parameters that the client reads are not sent to the server", async () => {
+	const url = "postgres://u@h/db?sslmode=require&sslrootcert=system&max=2&host=h2&port=1";
+	const { connection, ssl } = postgres(url, { max: 1 }).options;
+	expect([connection, ssl]).toEqual([{ application_name: "postgres.js" }, "verify-full"]);
+});
