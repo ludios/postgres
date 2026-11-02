@@ -11,8 +11,6 @@ import {
 	userName,
 } from "./diagnostics.ts";
 
-const noop = (..._: any[]) => {};
-
 const R = 82,
 	S = 83,
 	K = 75,
@@ -232,8 +230,8 @@ function attempt(options, host, port, signal) {
 							// oxlint-disable-next-line no-console -- the default onnotice prints to stdout, as documented
 							console.log(x);
 						}
-					} catch (error) {
-						noop(error);
+					} catch {
+						// An onnotice that throws must not break the connection
 					}
 				}
 

@@ -1163,7 +1163,11 @@ export function Connection(ready, options, events) {
 	function unsafe(item) {
 		rolling = true;
 		item.own = unsafe_transaction();
-		sent.forEach((x) => x.kind !== "local" && (x.own = unsafe_transaction()));
+		for (const x of sent) {
+			if (x.kind !== "local") {
+				x.own = unsafe_transaction();
+			}
+		}
 		pending.unshift(
 			Exchange("internal", null, null, (x) => {
 				p.query(out, "rollback");
@@ -1793,8 +1797,8 @@ function finish(x) {
 function guard(fn, ...xs) {
 	try {
 		fn(...xs);
-	} catch (error) {
-		noop(error);
+	} catch {
+		// A handler that throws must not break the connection
 	}
 }
 
