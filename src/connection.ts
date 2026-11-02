@@ -49,6 +49,9 @@ export function Connection(ready, options, events) {
 		closing = null,
 		// Resolves `closing`.
 		resolve_closing: (() => void) | null = null,
+		// Whether destroy() was called, which gives `closed` the code CONNECTION_DESTROYED. Otherwise
+		// (also after close()), `closed` gets CONNECTION_CLOSED.
+		destroyed = false,
 		// A fatal error that came with no query to give it to: a broken frame, or an
 		// ErrorResponse while nothing was in flight.
 		connection_error = null,
@@ -589,6 +592,7 @@ export function Connection(ready, options, events) {
 	}
 
 	function destroy(error?) {
+		destroyed = true;
 		closing || (closing = Promise.resolve());
 		socket.destroy(error);
 	}
@@ -607,7 +611,7 @@ export function Connection(ready, options, events) {
 				connection_error ||
 				(head && !head.ends && head.error && head.error.severity === "FATAL" && head.error);
 		closed = Errors.connection(
-			closing ? "CONNECTION_DESTROYED" : "CONNECTION_CLOSED",
+			destroyed ? "CONNECTION_DESTROYED" : "CONNECTION_CLOSED",
 			options,
 			ready.host,
 			ready.port,

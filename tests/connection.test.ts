@@ -260,6 +260,24 @@ test("Connection destroyed with query before", async () => {
 	expect(await error).toBe("CONNECTION_DESTROYED");
 });
 
+test("A query that sql.close() waits for gets CONNECTION_CLOSED, not CONNECTION_DESTROYED, if the connection's socket is lost", async () => {
+	let raw;
+	const sql = postgres({
+		...options,
+		max: 1,
+		socket: () => (raw = net.connect(pg_port, "localhost")),
+	});
+	await sql`select 1`;
+	const error = sql`select pg_sleep(1)`.catch((e) => e.code);
+	// So that the query is in flight, and sql.close() has to wait for it
+	await delay(50);
+	const closing = sql.close();
+	raw.destroy();
+	expect(await error).toBe("CONNECTION_CLOSED");
+	await closing;
+	await sql.end();
+});
+
 test("responds with server parameters (application_name)", async () => {
 	expect(
 		await new Promise((resolve, reject) =>
