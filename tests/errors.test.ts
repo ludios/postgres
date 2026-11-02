@@ -1,5 +1,5 @@
 import net from "net";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import {
 	postgres,
 	sql,
@@ -231,11 +231,23 @@ test("Queries waiting for a connection when end() destroys the pool each get the
 });
 
 test("Queries waiting for a connection when end() gives up connecting each get their own error", async () => {
-	const server = net.createServer((socket) => socket.destroy());
+	let attempts = 0;
+	// A clean close, which the pool treats as a transient failure (and so keeps the queries waiting)
+	const server = net.createServer((socket) => {
+		attempts++;
+		socket.end();
+	});
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-	const sql = postgres({ ...options, host: "127.0.0.1", port: port_of(server), max: 1 });
+	// A long backoff, so that the pool does not try again before end()
+	const sql = postgres({
+		...options,
+		host: "127.0.0.1",
+		port: port_of(server),
+		max: 1,
+		backoff: 60,
+	});
 	const errors = failures(sql, ["a", "b"]);
-	await delay(10);
+	await vi.waitUntil(() => attempts === 1 && sql.stats.opening === 0);
 	await sql.end();
 	server.close();
 	expect((await Promise.all(errors)).map((e) => [e.code, e.args])).toEqual([
