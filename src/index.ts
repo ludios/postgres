@@ -399,7 +399,8 @@ function Listen(options) {
 		 * connection's `{ pid, secret }`, which is one object for the channel's lifetime, so that a
 		 * listener sees reconnects in it; `result`, the promise of the latest LISTEN; `listening`,
 		 * whether that LISTEN succeeded, and onclose() has not seen the listener connection close
-		 * since; and `timer`, the timer of the next retry of a failed LISTEN, if one is pending.
+		 * since; `retries`, how many of the LISTENs that relisten() sent have failed in a row; and
+		 * `timer`, the timer of the next retry of a failed LISTEN, if one is pending.
 		 */
 		channels = new Map();
 	let sql = null,
@@ -478,14 +479,14 @@ function Listen(options) {
 	 * succeeds, the channel has no listeners left, or the listener connection is ending.
 	 * @param channel - the channel
 	 * @param name - the channel's name
-	 * @param retries - how many of these LISTENs have failed so far
 	 */
-	function relisten(channel, name, retries = 0) {
+	function relisten(channel, name) {
 		// A listener that joins while this LISTEN is in flight gets its onlisten call from listen()
 		const listeners = [...channel.listeners];
 		channel.timer = null;
 		send_listen(channel, name).then(
 			() => {
+				channel.retries = 0;
 				if (closing) {
 					return;
 				}
@@ -505,12 +506,14 @@ function Listen(options) {
 					return;
 				}
 
-				retries++;
+				channel.retries++;
 				const seconds =
-					typeof options.backoff === "function" ? options.backoff(retries) : options.backoff;
+					typeof options.backoff === "function"
+						? options.backoff(channel.retries)
+						: options.backoff;
 				channel.timer = setTimeout(() => {
 					if (!closing && channels.get(name) === channel) {
-						relisten(channel, name, retries);
+						relisten(channel, name);
 					}
 				}, seconds * 1000);
 			},
@@ -570,6 +573,7 @@ function Listen(options) {
 				state: {},
 				result: null,
 				listening: false,
+				retries: 0,
 				timer: null,
 			};
 			// Not stored if the LISTEN cannot be sent, which connection() may throw for
@@ -577,8 +581,9 @@ function Listen(options) {
 			channels.set(name, channel);
 		} else if (channel.timer !== null) {
 			// The channel's latest LISTEN failed, and the channel waits to send it again. Sending it
-			// now gives this listen() the result of a LISTEN sent after the call, instead of the
-			// failed LISTEN's error.
+			// now makes this listen() await a new attempt, instead of rejecting with the failed
+			// LISTEN's error. relisten() runs before this listener joins, so that only listen() calls
+			// this listener's onlisten.
 			clearTimeout(channel.timer);
 			relisten(channel, name);
 		}

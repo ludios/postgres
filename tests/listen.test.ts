@@ -599,3 +599,40 @@ test("A listen() that joins a channel that waits to retry its LISTEN sends the L
 		proxy.close();
 	}
 });
+
+test("A failed LISTEN of a listen() that joins a retrying channel counts as one more retry", async () => {
+	const { pending, timers } = tracked_timers(),
+		// The numbers of failed LISTENs that `sql` gives `backoff`
+		counts = [];
+	// The proxy drops its second and third connections as soon as the client sends a LISTEN on them
+	let dropped = 0;
+	const proxy = await proxy_to_server((x, connection, client, server) => {
+			if ((connection === 2 || connection === 3) && sends_listen(x)) {
+				dropped++;
+				server.destroy();
+				client.destroy();
+				return true;
+			}
+			return false;
+		}),
+		sql = postgres({
+			...options,
+			host: "localhost",
+			port: port_of(proxy),
+			backoff: (retries) => {
+				counts.push(retries);
+				return 10;
+			},
+			timers,
+		});
+	try {
+		const { state } = await sql.listen("test", () => {});
+		await terminate(state.pid);
+		await until(() => dropped === 1 && pending.size === 1);
+		const error = await sql.listen("test", () => {}).catch((e) => e.code);
+		expect([dropped, error, counts, pending.size]).toEqual([2, "CONNECTION_CLOSED", [1, 2], 1]);
+	} finally {
+		await sql.end();
+		proxy.close();
+	}
+});
