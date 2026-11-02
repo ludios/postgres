@@ -202,8 +202,9 @@ export function Connection(ready, options, events) {
 	}
 
 	/**
-	 * Settles local exchange `x` once the code that wrote it has returned, and then calls
-	 * notify_ready(), because no ReadyForQuery comes for an exchange that wrote nothing.
+	 * Settles local exchange `x` once the code that wrote it has returned, and then, unless the
+	 * socket has closed meanwhile, calls notify_ready(), because no ReadyForQuery comes for an
+	 * exchange that wrote nothing.
 	 *
 	 * @param x - a local exchange, with nothing in `sent` ahead of it
 	 */
@@ -686,33 +687,52 @@ export function Connection(ready, options, events) {
 	}
 
 	function close() {
-		closing ||
-			(closing = new Promise<void>((r) => {
+		if (!closing) {
+			closing = new Promise<void>((r) => {
 				resolve_closing = r;
-				idle() && terminate();
-			}));
+			});
+			finish_closing();
+		}
 		return closing;
 	}
 
+	/**
+	 * @returns whether no exchange waits to be written, waits for its ReadyForQuery, or waits for
+	 *   settle_soon(). A cancel request in flight, and a cursor whose callback runs between two of
+	 *   its steps, do not count.
+	 */
 	function idle() {
-		return sent.length === 0 && pending.length === 0 && settling === 0;
+		return connection.inflight === 0;
+	}
+
+	/**
+	 * If close() was called, and destroy() was not: sends Terminate once idle() is true, or, if
+	 * the socket has closed already, resolves the promise that close() returned.
+	 */
+	function finish_closing() {
+		if (closing && !destroyed && (closed || idle())) {
+			terminate();
+		}
 	}
 
 	/**
 	 * Tells the pool that the connection may take queries again, after the end of an exchange or
-	 * of a cancel request's hold. If close() was called and nothing is left in flight, first sends
-	 * Terminate.
+	 * of a cancel request's hold; first calls finish_closing().
 	 */
 	function notify_ready() {
-		if (closing && !terminated && idle()) {
-			terminate();
-		}
+		finish_closing();
 		events.onready(connection);
 	}
 
 	function terminate() {
 		if (closed) {
-			return resolve_closing && resolve_closing();
+			if (resolve_closing) {
+				resolve_closing();
+			}
+			return;
+		}
+		if (terminated) {
+			return;
 		}
 
 		flush();
