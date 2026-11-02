@@ -128,7 +128,7 @@ async function transactions() {
 	expect<Equal<(typeof b)[number], User>>();
 
 	const result = await sql.begin("read write", async (tx) => {
-		const typed: TransactionSql<{ bigint: bigint }> = tx;
+		const bigint_tx: TransactionSql<{ bigint: bigint }> = tx;
 		await tx.savepoint(async (sp) => sp`select 1`);
 		await tx.savepoint("named", (sp) => sp`select 1`);
 		expect<Equal<ReturnType<typeof tx.prepare>, string>>();

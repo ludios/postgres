@@ -1044,8 +1044,8 @@ test("A savepoint or nested begin rejects when the connection is lost while its 
 			child = new Promise((r) => (settled = r));
 		const root = sql
 			.begin((tx) =>
-				tx[method](async (sql) => {
-					const [x] = await sql`select pg_backend_pid() as pid`;
+				tx[method](async (sp) => {
+					const [x] = await sp`select pg_backend_pid() as pid`;
 					started(x.pid);
 					await gate;
 					return "child";

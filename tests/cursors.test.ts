@@ -419,7 +419,7 @@ test("A reserved cursor whose callback throws on the last batch rejects and leav
  * On a new pool with one connection, begins a transaction that runs a cursor and a query that
  * fails, so that the transaction fails while the cursor still runs; then begins a second
  * transaction.
- * @param fn - a function that the cursor's callback calls with the failed transaction's `sql`,
+ * @param fn - a function that the cursor's callback calls with the failed transaction (`tx`),
  *   100 ms after each batch of 2 rows; the callback returns what `fn` returns
  * @returns the outcome of the second transaction ("committed"), and the outcome of the cursor:
  *   "resolved N" for N rows, or the code (or else the message) of its error
@@ -452,7 +452,7 @@ test("A cursor that throws in its failed transaction rejects with its own error,
 });
 
 test("A cursor that closes in its failed transaction rejects with 25P02, and the next transaction commits", async () => {
-	const [second, outcome] = await outlives((sql) => sql.CLOSE);
+	const [second, outcome] = await outlives((tx) => tx.CLOSE);
 	expect([second, outcome]).toEqual(["committed", "25P02"]);
 });
 
