@@ -298,6 +298,24 @@ test("A cancel that reaches the server after its query has finished does not can
 	}
 });
 
+test("A cancel of a query pipelined behind another does not cancel a query sent after it", async () => {
+	const sql = postgres({ ...options, max: 1, idle_timeout: null });
+	try {
+		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+			head = sql`select pg_sleep(0.2)`.execute(),
+			fast = sql`select 1`.execute();
+		fast.catch(() => {});
+		await until_sleeping(pid);
+		// `fast` finishes long before its cancel request, sent once it is the head, arrives
+		const cancelled = fast.cancel(),
+			[{ x }] = await sql`select pg_sleep(0.3), 1 as x`;
+		await Promise.all([cancelled, head]);
+		expect(x).toBe(1);
+	} finally {
+		await sql.end({ timeout: 0 });
+	}
+});
+
 test("Every cancel() of a query pipelined behind another settles when the connection closes", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	try {

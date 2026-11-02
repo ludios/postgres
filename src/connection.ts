@@ -553,6 +553,7 @@ export function Connection(ready, options, events) {
 			return Promise.resolve();
 		}
 		if (!x.stopping) {
+			x.stopped = true;
 			x.stopping = ready.cancel();
 			hold(x.stopping);
 		}
@@ -629,8 +630,13 @@ export function Connection(ready, options, events) {
 		}
 
 		if (x !== sent[0]) {
-			// Settled once `x` is the head, or once the connection closes; every call gets the same promise
-			x.cancel = x.cancel || Promise.withResolvers();
+			// Settled once `x` is the head and its cancel request has been handled, or once the
+			// connection closes; every call gets the same promise. Until then nothing more is
+			// written, since the cancel request could hit it.
+			if (!x.cancel) {
+				x.cancel = Promise.withResolvers();
+				hold(x.cancel.promise);
+			}
 			return x.cancel.promise;
 		}
 		return x.copy ? cancel_copy(x) : stop(x);
@@ -1050,13 +1056,14 @@ export function Connection(ready, options, events) {
 		while (sent.length && sent[0].kind === "local") {
 			settle(sent.shift());
 		}
-		release();
-
 		const next = sent[0];
 		if (next && next.query) {
 			next.query.active = true;
-			next.cancel && stop(next).then(next.cancel.resolve, next.cancel.reject);
+			if (next.cancel) {
+				stop(next).then(next.cancel.resolve, next.cancel.reject);
+			}
 		}
+		release();
 
 		closing && idle() && terminate();
 		events.onready(connection);
@@ -1375,9 +1382,30 @@ export function Connection(ready, options, events) {
 		};
 	}
 
+	/**
+	 * Ends the COPY FROM or COPY BOTH of exchange `item`, which was cancelled before
+	 * it started, with CopyFail or CopyDone; the server holds back a cancel request
+	 * while it waits for COPY data. The query fails with a 57014 error.
+	 */
+	function refuse(item) {
+		if (item.copy === "both") {
+			// walsender, the server of COPY BOTH, takes CopyFail as a FATAL error
+			p.copyDone(out);
+			item.error = item.error || Errors.generic("57014", "canceling statement due to user request");
+		} else {
+			p.copyFail(out, "canceling statement due to user request");
+		}
+		item.copied = true;
+		item.open = false;
+		schedule(true);
+	}
+
 	function CopyInResponse() {
 		const item = sent[0];
 		item.copy = "in";
+		if (item.stopped) {
+			return refuse(item);
+		}
 		item.stream = new Stream.Writable(writable(item));
 		item.query.resolve(item.stream);
 	}
@@ -1412,6 +1440,9 @@ export function Connection(ready, options, events) {
 	function CopyBothResponse() {
 		const item = sent[0];
 		item.copy = "both";
+		if (item.stopped) {
+			return refuse(item);
+		}
 		item.stream = new Stream.Duplex({ ...writable(item), read: readable(item) });
 		frames.own(true);
 		item.query.resolve(item.stream);
@@ -1500,6 +1531,8 @@ function Exchange(kind, query, lease, write) {
 		error: null,
 		own: null,
 		cancel: null,
+		// Whether a cancel request has been sent for this exchange, and the one in flight
+		stopped: false,
 		stopping: null,
 		stream: null,
 		// "in", "out" or "both", once the server has started a COPY FROM, TO or BOTH

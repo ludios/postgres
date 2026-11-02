@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { pipeline } from "stream/promises";
 import stream from "stream";
 import { expect, test } from "vitest";
-import { postgres, sql, options, delay, rel, server_major } from "./setup.ts";
+import { postgres, sql, options, delay, rel, server_major, until_sleeping } from "./setup.ts";
 
 test("Copy read", async () => {
 	const result = [];
@@ -551,6 +551,36 @@ test(
 			reserved.release();
 			expect(x).toBe(1);
 		} finally {
+			await sql.end({ timeout: 0 });
+		}
+	},
+);
+
+test(
+	"Canceling a copy from stdin before it starts fails its query with 57014",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1, idle_timeout: null });
+		try {
+			await sql`create table test (x int)`;
+			// A reserved connection pipelines the COPY behind the sleep; the pool would keep it waiting
+			const reserved = await sql.reserve(),
+				[{ pid }] = await reserved`select pg_backend_pid() as pid`,
+				head = reserved`select pg_sleep(0.2)`.execute(),
+				query = reserved`copy test from stdin`,
+				writable = query.writable();
+			await until_sleeping(pid);
+			// The server would hold back the cancel request while it waits for COPY data
+			const cancelled = query.cancel(),
+				error = await writable.then(
+					(writable) => new Promise((resolve) => writable.on("error", resolve)),
+					(error) => error,
+				);
+			await Promise.all([cancelled, head]);
+			reserved.release();
+			expect(error.code).toBe("57014");
+		} finally {
+			await sql`drop table if exists test`;
 			await sql.end({ timeout: 0 });
 		}
 	},
