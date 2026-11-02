@@ -45,7 +45,7 @@ export function start(t, context, fn) {
 	}
 }
 
-export function finish(t, context, error, result) {
+export function finish(t, context, error, result?) {
 	if (context[done]) return;
 
 	context[done] = true;

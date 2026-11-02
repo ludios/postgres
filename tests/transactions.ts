@@ -616,7 +616,7 @@ test("Disconnected transaction cannot roll back a reused connection", async () =
 	expect(after).toBe(before);
 });
 
-function finishDisconnectedTransaction(error) {
+function finishDisconnectedTransaction(error?) {
 	return withDisconnectedTransaction(({ sql, finish }) =>
 		sql.begin(async (sql) => {
 			const [{ x: before }] = await sql`select txid_current()::text as x`;

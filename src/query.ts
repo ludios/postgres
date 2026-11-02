@@ -259,7 +259,7 @@ export class Query extends Promise<any> {
 		return this;
 	}
 
-	then(fulfilled, rejected) {
+	then(fulfilled?, rejected?) {
 		this.handle();
 		return super.then(fulfilled, rejected);
 	}
@@ -303,7 +303,7 @@ function context(q) {
 	};
 }
 
-function traced(q, error, result) {
+function traced(q, error, result?) {
 	const x = q.trace;
 	q.trace = null;
 	x.complete = now();

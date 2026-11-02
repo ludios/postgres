@@ -9,7 +9,7 @@ export const slow = 100;
 export const notable = 5;
 
 const text = p.text,
-	noop = () => {},
+	noop = (..._: unknown[]) => {},
 	ending = /^\s*(commit|end|abort|rollback(?!\s+to\b)|prepare\s+transaction)\b/i,
 	limit = 1000,
 	refused = "postgres.js: query could not be built",
@@ -108,7 +108,7 @@ export function Connection(ready, options, events) {
 		x && x();
 	}
 
-	function schedule(now) {
+	function schedule(now?) {
 		if (now || out.length >= 65536) return flush();
 
 		flushing || ((flushing = true), defer(flush));
@@ -206,7 +206,7 @@ export function Connection(ready, options, events) {
 		x.trace && wrote(x);
 	}
 
-	function sync(x, refuse) {
+	function sync(x, refuse?) {
 		if (x.synced) return;
 
 		x.synced = true;

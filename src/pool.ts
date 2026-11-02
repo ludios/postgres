@@ -61,7 +61,7 @@ export function Pool(options, types) {
 
 	return pool;
 
-	function query(q, lease) {
+	function query(q, lease?) {
 		if (ending && !lease)
 			return q.reject(
 				queryError(
@@ -121,7 +121,7 @@ export function Pool(options, types) {
 		q.onwrite && q.onwrite();
 	}
 
-	function place(job, lease) {
+	function place(job, lease?) {
 		used = true;
 		const missing = !lease && retype();
 
@@ -502,7 +502,7 @@ export function Pool(options, types) {
 		idle(c);
 	}
 
-	function event(name, c, extra) {
+	function event(name, c, extra?) {
 		channels.pool.publish({
 			event: name,
 			connection: c ? c.id : null,

@@ -2,7 +2,7 @@
 import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";
 
-const parsed = (url, o) => {
+const parsed = (url, o?) => {
 	const x = postgres(url, { max: 1, ...o }).options;
 	return JSON.stringify([x.host, x.port, x.user, x.pass, x.database, x.path || null]);
 };

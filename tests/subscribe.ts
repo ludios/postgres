@@ -145,7 +145,7 @@ test("subscribe reconnects and calls onsubscribe", { timeout: 10_000 }, async ()
 	}
 });
 
-const until = async (fn, ms = 5000, state) => {
+const until = async (fn, ms = 5000, state?) => {
 	const start = Date.now();
 	while (!fn()) {
 		if (Date.now() - start > ms)
@@ -154,7 +154,7 @@ const until = async (fn, ms = 5000, state) => {
 	}
 };
 
-async function replicating(name) {
+async function replicating(name?) {
 	const sql = postgres({ database: "postgres_js_test", publications: "alltables", max: 1 });
 	await sql`drop table if exists test`;
 	await sql`drop publication if exists alltables`;

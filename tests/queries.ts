@@ -130,7 +130,7 @@ test("Large object", async () => {
 
 test("Large object tell, size, truncate, and ranges for readable and writable", async () => {
 	const lo = await sql.largeObject(),
-		read = async (o) => {
+		read = async (o?) => {
 			let s = "";
 			for await (const x of await lo.readable(o)) s += x;
 			return s;

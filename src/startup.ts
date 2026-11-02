@@ -5,7 +5,7 @@ import { Socket, secured, secureOptions } from "./socket.ts";
 import { Errors } from "./errors.ts";
 import { channels, active, start, finish, userName } from "./diagnostics.ts";
 
-const noop = () => {};
+const noop = (..._: unknown[]) => {};
 
 const R = 82,
 	S = 83,
@@ -101,7 +101,7 @@ function attempt(options, host, port, signal) {
 			(e) => done(true, e),
 		);
 
-		function done(failed, error, ready) {
+		function done(failed, error, ready?) {
 			if (settled) return;
 
 			settled = true;

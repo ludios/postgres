@@ -508,7 +508,7 @@ test("Aborting a cursor used as an async iterator stops it with 57014", async ()
 
 test("A cursor waits for the callback of its last batch, and rejects if it does", async () => {
 	const sql = postgres({ ...options, max: 1 }),
-		last = async (sql, fail) => {
+		last = async (sql, fail?) => {
 			const seen = [];
 			const outcome = await sql`select generate_series(1, 3) as x`
 				.cursor(2, async (rows) => {

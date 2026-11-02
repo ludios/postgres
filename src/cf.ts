@@ -137,7 +137,7 @@ function Stream(raw, secure, host, port) {
 		x.emit("close");
 	}
 
-	function handshake(error) {
+	function handshake(error?) {
 		if (answered) return error;
 
 		answered = true;

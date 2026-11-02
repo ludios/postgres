@@ -331,7 +331,7 @@ export function parseArray(x, parse, delimiter = ",") {
 	}
 }
 
-export function serializeArray(xs, serialize = string, delimiter = ",", undefinedValue) {
+export function serializeArray(xs, serialize = string, delimiter = ",", undefinedValue?) {
 	return (
 		"{" +
 		xs

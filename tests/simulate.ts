@@ -168,7 +168,7 @@ async function simulate(seed) {
 
 	return { violations, trace, scenario: name };
 
-	function expect(name, id, scope, rows) {
+	function expect(name, id, scope, rows?) {
 		return (xs) => {
 			if (rows !== undefined && xs.length !== rows)
 				violations.push(name + " " + id + " got " + xs.length + " rows, expected " + rows);

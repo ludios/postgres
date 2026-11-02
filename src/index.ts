@@ -45,7 +45,7 @@ Object.assign(Postgres, {
 export default Postgres;
 export { PostgresError };
 
-function Postgres(a, b) {
+function Postgres(a?, b?) {
 	const options = parseOptions(a, b),
 		types = options.shared_types || Types(options),
 		pool = Pool(options, types),
@@ -218,7 +218,7 @@ function Postgres(a, b) {
 			lease.release();
 		}
 
-		async function scope(fn, name, inside, above = () => false) {
+		async function scope(fn, name?, inside?, above = () => false) {
 			let uncaught,
 				result,
 				rolled = null,
@@ -301,7 +301,7 @@ function Postgres(a, b) {
 
 			return result;
 
-			function savepoint(name, fn) {
+			function savepoint(name, fn?) {
 				if (name && Array.isArray(name.raw)) return savepoint((sql) => sql.apply(sql, arguments));
 
 				arguments.length === 1 && ((fn = name), (name = null));
@@ -351,7 +351,7 @@ function Postgres(a, b) {
 		return q.execute();
 	}
 
-	async function end(options) {
+	async function end(options?) {
 		await Promise.all([listener.end(), subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : null]);
 		return pool.end(options);
 	}

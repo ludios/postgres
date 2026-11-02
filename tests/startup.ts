@@ -13,7 +13,7 @@ const base = {
 	...login,
 };
 
-const session = async (options) => {
+const session = async (options?) => {
 	const ready = await open({ ...base, ...options });
 	ready.socket.end();
 	return ready;
@@ -213,7 +213,7 @@ test("Startup destroys a TCP connection still in progress when connect_timeout p
 	);
 });
 
-const refused = async (auth, options) => {
+const refused = async (auth, options?) => {
 	const x = await fake((socket, type) => {
 		type === "startup" && socket.write(message("R", auth));
 		type === "p" &&

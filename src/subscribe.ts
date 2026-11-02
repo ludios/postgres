@@ -1,6 +1,6 @@
 import { own } from "./connection.ts";
 
-const noop = () => {},
+const noop = (..._: unknown[]) => {},
 	statusInterval = 10000,
 	epoch = BigInt(Date.UTC(2000, 0, 1)) * 1000n;
 
@@ -289,7 +289,7 @@ export default function Subscribe(postgres, options) {
 		}
 	}
 
-	function report(error, subscriber) {
+	function report(error, subscriber?) {
 		const handlers = subscriber
 			? [subscriber.onerror]
 			: [...subscribers.values()].flatMap((x) => [...x].map((x) => x.onerror));

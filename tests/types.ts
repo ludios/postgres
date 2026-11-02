@@ -448,7 +448,7 @@ test("Custom type serializes values the server says are of a type in its from (#
 	await sql.end();
 });
 
-async function enumTable(name, rows) {
+async function enumTable(name, rows?) {
 	await sql.unsafe(
 		[
 			"drop table if exists " + name,

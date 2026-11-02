@@ -1,7 +1,7 @@
 import net from "net";
 import tls from "tls";
 
-const noop = () => {},
+const noop = (..._: unknown[]) => {},
 	agent = (globalThis.navigator && globalThis.navigator.userAgent) || "",
 	workers = agent.startsWith("Cloudflare-Workers"),
 	onreadSafe =
@@ -9,7 +9,7 @@ const noop = () => {},
 	node = !agent || agent.startsWith("Node.js"),
 	contexts = new WeakMap();
 
-export async function Socket(options, host, port, track = noop) {
+export async function Socket(options, host?, port?, track = noop) {
 	const raw = options.socket
 		? await options.socket(options, host, port)
 		: await connect(options, host, port, track);
@@ -113,7 +113,7 @@ function wrap(socket, host) {
 		end(data) {
 			closed || (data ? socket.end(data) : socket.end());
 		},
-		destroy(error) {
+		destroy(error?) {
 			error && !failure && (failure = error);
 			socket.destroy();
 		},
