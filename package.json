@@ -22,7 +22,7 @@
     "test:simulate": "node tests/simulate.ts",
     "coverage": "node tests/coverage.ts",
     "test:cf": "sh tests/cf/run.sh",
-    "prepare": "tsc -p tsconfig.build.json",
+    "prepare": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc && tsc -p types && node node_modules/typescript5/bin/tsc -p types",
     "lint": "eslint src tests"
   },

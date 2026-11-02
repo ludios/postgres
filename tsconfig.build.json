@@ -5,6 +5,8 @@
 	"extends": "./tsconfig.json",
 	"compilerOptions": {
 		"noEmit": false,
+		// `pnpm typecheck` checks the types; the build only emits.
+		"noCheck": true,
 		"rewriteRelativeImportExtensions": true,
 		"rootDir": "src",
 		"outDir": "dist"
