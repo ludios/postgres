@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import { own } from "./connection.ts";
 
 const noop = (..._: any[]) => {},
@@ -11,7 +12,8 @@ export default function Subscribe(postgres, options) {
 	const subscribers = new Map(),
 		persistent = !!options.slot,
 		slot = options.slot || "postgresjs_" + Math.random().toString(36).slice(2),
-		// The backend that streams the replication, for cancelling it.
+		// The backend (its pid and secret key) that streams the replication, which `subscribe`
+		// returns to its caller.
 		state: { pid?: number; secret?: number } = {},
 		timers = options.timers;
 
