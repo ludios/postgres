@@ -1429,10 +1429,10 @@ test(
 		);
 		await delay(300);
 		await admin`alter role postgres_js_test_burst connection limit 1`;
-		const got = (await results).join();
+		const got = await results;
 		await sql.end();
 		await admin`drop role postgres_js_test_burst`;
-		expect(got).toBe("0,1,2,3");
+		expect(got).toEqual([0, 1, 2, 3]);
 		await admin.end();
 	},
 );
@@ -1570,10 +1570,8 @@ test("A password from PGPASSFILE, as libpq reads it (#964)", async () => {
 		"*:*:*:" + login_md5.user + ":" + login_md5.pass.replace(/:/g, "\\:"),
 	];
 	expect(
-		await passfile(lines.join("\n"), 0o600, (sql) =>
-			sql`select 1 as x`.then((x) => String(x[0].x)),
-		),
-	).toBe("1");
+		await passfile(lines.join("\n"), 0o600, (sql) => sql`select 1 as x`.then((x) => x[0].x)),
+	).toBe(1);
 });
 
 test("A password file readable by others is ignored, as in libpq", async () => {

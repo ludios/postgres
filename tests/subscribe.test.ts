@@ -496,6 +496,13 @@ test(
 /** The message of the error that the last console.error (when stubbed by a test below) logged */
 let logged;
 
+/**
+ * Subscribe, make the subscription's next connection fail once (its user function throws), and insert
+ * a row once it has connected again.
+ * @param onerror - whether the subscription has an onerror; without one, the error is logged
+ * @returns the names of the rows that the subscription saw, and the message of the error that it
+ * gave to onerror or logged
+ */
 async function failing(onerror) {
 	const { sql, done } = await replicating(),
 		{ user } = sql.options,
@@ -529,14 +536,14 @@ async function failing(onerror) {
 	await until(() => seen.length);
 	await sub.end();
 	await done();
-	return seen.join() + " " + (errors[0] || logged);
+	return [seen, errors[0] || logged];
 }
 
 test(
 	"subscribe reports a failed reconnect to onerror and retries",
 	{ timeout: 10_000 },
 	async () => {
-		expect(await failing(true)).toBe("after no user now");
+		expect(await failing(true)).toEqual([["after"], "no user now"]);
 	},
 );
 
@@ -548,7 +555,7 @@ test(
 		logged = undefined;
 		console.error = (...xs) => (logged = xs[1] && xs[1].message);
 		try {
-			expect(await failing(false)).toBe("after no user now");
+			expect(await failing(false)).toEqual([["after"], "no user now"]);
 		} finally {
 			console.error = error;
 		}

@@ -251,11 +251,11 @@ test("Answers two stale prepared statements piped together", async () => {
 	const [error, [x]] = await Promise.all([read(1).catch((e) => e), read(2)]);
 	const [y] = await sql`select 3 as id, 'c' as name`;
 	const [z] = await read(1);
-	expect([error.code, x.id + x.name, y.id + y.name, z.id + z.name]).toEqual([
+	expect([error.code, [x.id, x.name], [y.id, y.name], [z.id, z.name]]).toEqual([
 		"0A000",
-		"2b",
-		"3c",
-		"1a",
+		[2, "b"],
+		[3, "c"],
+		[1, "a"],
 	]);
 	await sql`drop table test`;
 	await sql.end();

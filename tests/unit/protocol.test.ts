@@ -145,13 +145,14 @@ test("Password, SASL initial response and SASL response", async () => {
 	).toBe(expected);
 });
 
-const stream = Buffer.concat([
+const messages = [
 	msg("1"),
 	msg("T", i16(1), str("x"), i32(0), i16(0), i32(23), i16(4), i32(-1), i16(0)),
 	msg("D", i16(1), i32(1), Buffer.from("1")),
 	msg("C", str("SELECT 1")),
 	msg("Z", Buffer.from("I")),
-]);
+];
+const stream = Buffer.concat(messages);
 
 /**
  * @param chunks - buffers to push to a Frames, in order
@@ -220,8 +221,7 @@ test("Frames owning a shared read buffer hands over messages that stay intact af
 	read(7, 20);
 	read(20, stream.length);
 	frames.own(false);
-	const expected = hex(stream.subarray(5));
-	expect(kept.map(hex).join("")).toBe(expected);
+	expect(kept.map(hex)).toEqual(messages.slice(1).map(hex));
 });
 
 test("Frames hands over the whole message buffer", async () => {

@@ -582,12 +582,13 @@ test("Several custom type names that do not exist are named in one TYPE_NOT_FOUN
 	});
 	const message = await sql2`select 1`.then(
 		() => "ran",
-		(e) => e.code + " " + e.message,
+		(e) => [e.code, e.message],
 	);
 	await sql2.end();
-	expect(message).toBe(
-		"TYPE_NOT_FOUND TYPE_NOT_FOUND: The types no_such_a, no_such_b do not exist",
-	);
+	expect(message).toEqual([
+		"TYPE_NOT_FOUND",
+		"TYPE_NOT_FOUND: The types no_such_a, no_such_b do not exist",
+	]);
 });
 
 test("A custom type name that does not exist rejects with TYPE_NOT_FOUND", async () => {

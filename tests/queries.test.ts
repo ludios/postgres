@@ -297,11 +297,14 @@ test("debug gets the values as sent and the parameter types, also on first use",
 	const sql = postgres({
 		...options,
 		max: 1,
-		debug: (id, query, values, types) => calls.push(JSON.stringify([values, types])),
+		debug: (id, query, values, types) => calls.push([values, types]),
 	});
 	await sql`select ${1}::int as x`;
 	await sql`select ${1}::int as x`;
-	expect(calls.slice(-2)).toEqual(['[["1"],[23]]', '[["1"],[23]]']);
+	expect(calls.slice(-2)).toEqual([
+		[["1"], [23]],
+		[["1"], [23]],
+	]);
 	await sql.end();
 });
 

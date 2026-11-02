@@ -786,12 +786,16 @@ test("A script with its own BEGIN and COMMIT in one simple query runs on the poo
 	await sql`create table test (a int)`;
 	const commands = await sql
 		.unsafe("begin; insert into test values (1); commit;")
-		.then((x) => x.map((r) => r.command).join());
+		.then((x) => x.map((r) => r.command));
 	const after = await sql
 		.unsafe("select 1; begin; insert into test values (2); commit")
-		.then((x) => x.map((r) => r.command).join());
+		.then((x) => x.map((r) => r.command));
 	const [{ n }] = await sql`select count(*)::int as n from test`;
-	expect([commands, after, n]).toEqual(["BEGIN,INSERT,COMMIT", "SELECT,BEGIN,INSERT,COMMIT", 2]);
+	expect([commands, after, n]).toEqual([
+		["BEGIN", "INSERT", "COMMIT"],
+		["SELECT", "BEGIN", "INSERT", "COMMIT"],
+		2,
+	]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -939,11 +943,11 @@ test(
 				sql`select sum(x)::int as n from test`,
 				sql`select 1`,
 			]);
-			return [Date.now() - start < sequential / 2, counted[0].n, summed[0].n].join(" ");
+			return [Date.now() - start < sequential / 2, counted[0].n, summed[0].n];
 		});
 		await sql.end();
 		proxy.close();
-		expect(result).toBe("true 1 3");
+		expect(result).toEqual([true, 1, 3]);
 	},
 );
 
@@ -1103,10 +1107,13 @@ test(
 			await killer`select pg_terminate_backend(${await pid})`;
 			const outer = await root;
 			release();
-			outcomes.push(outer + " " + (await child));
+			outcomes.push([outer, await child]);
 			await killer.end();
 			await sql.end();
 		}
-		expect(outcomes).toEqual(["57P01 57P01", "57P01 57P01"]);
+		expect(outcomes).toEqual([
+			["57P01", "57P01"],
+			["57P01", "57P01"],
+		]);
 	},
 );

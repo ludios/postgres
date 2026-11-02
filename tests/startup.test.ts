@@ -321,10 +321,10 @@ test("A message the client does not support rejects the query with MESSAGE_NOT_S
 		fetch_types: false,
 		max: 1,
 	});
-	const error = await sql.unsafe("select 1").catch((e) => e.code + " " + e.name);
+	const error = await sql.unsafe("select 1").catch((e) => [e.code, e.name]);
 	await sql.end({ timeout: 0 });
 	x.close();
-	expect(error).toBe("MESSAGE_NOT_SUPPORTED FunctionCallResponse");
+	expect(error).toEqual(["MESSAGE_NOT_SUPPORTED", "FunctionCallResponse"]);
 });
 
 test("Startup with SCRAM-SHA-256-PLUS over TLS when channel_binding is require", async () => {
