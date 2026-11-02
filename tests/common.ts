@@ -1,6 +1,7 @@
 // Model-output: Claude Opus 5.5
 // What the integration tests and tests/soak.ts share: the library that they test, and how they
 // connect to the database that tests/bootstrap.ts creates. Nothing here needs vitest or a server.
+import type net from "net";
 
 /** The library that the tests test: src/, or the module that POSTGRES_JS names (e.g. dist/index.js) */
 export const postgres = (await import(process.env.POSTGRES_JS || "../src/index.ts")).default;
@@ -16,6 +17,18 @@ export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
  * @returns {URL} the file: URL of that path
  */
 export const rel = (x) => new URL(x, import.meta.url);
+
+/**
+ * @param server - a server that listens on a TCP port (not on a Unix socket or a pipe)
+ * @returns the TCP port that `server` listens on
+ */
+export function port_of(server: net.Server): number {
+	const address = server.address();
+	if (address === null || typeof address === "string") {
+		throw new Error("The server listens on " + address + ", not on a TCP port");
+	}
+	return address.port;
+}
 
 /** The `idle_timeout` (in seconds) of `options` */
 export const idle_timeout = 1;

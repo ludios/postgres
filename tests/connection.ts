@@ -15,6 +15,7 @@ import {
 	pg_port,
 	second_pg_port,
 	pg_socket_dir,
+	port_of,
 } from "./setup.ts";
 
 test("Connects with no options", async () => {
@@ -303,7 +304,7 @@ test("connect_timeout", { timeout: 20_000 }, async () => {
 	const connect_timeout = 0.2;
 	const server = net.createServer();
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-	const sql = postgres({ port: server.address().port, host: "127.0.0.1", connect_timeout });
+	const sql = postgres({ port: port_of(server), host: "127.0.0.1", connect_timeout });
 	const start = Date.now();
 	let end;
 	await sql`select 1`.catch((e) => {
@@ -328,8 +329,8 @@ test("connect_timeout error message includes host:port", { timeout: 20_000 }, as
 	const connect_timeout = 0.2;
 	const server = net.createServer();
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-	const sql = postgres({ port: server.address().port, host: "127.0.0.1", connect_timeout });
-	const port = server.address().port;
+	const sql = postgres({ port: port_of(server), host: "127.0.0.1", connect_timeout });
+	const port = port_of(server);
 	let err;
 	await sql`select 1`.catch((e) => {
 		if (e.code !== "CONNECT_TIMEOUT") throw e;
@@ -509,7 +510,7 @@ test(
 		const sql = postgres({
 			...options,
 			host: ["127.0.0.1", "localhost"],
-			port: [server.address().port, pg_port],
+			port: [port_of(server), pg_port],
 			connect_timeout: 1,
 		});
 		const x = (await sql`select 1 as x`)[0].x;
@@ -576,7 +577,7 @@ test(
 		const a = await listening(net.createServer());
 		const b = await listening(net.createServer());
 		const host = ["127.0.0.1", "127.0.0.1"];
-		const port = [a.address().port, b.address().port];
+		const port = [port_of(a), port_of(b)];
 		const sql = postgres({ ...options, host, port, connect_timeout });
 
 		const start = Date.now();
@@ -600,7 +601,7 @@ test(
 		const sql = postgres({
 			...options,
 			host: ["localhost", "127.0.0.1"],
-			port: [pg_port, server.address().port],
+			port: [pg_port, port_of(server)],
 			target_session_attrs: "prefer-standby",
 		});
 
@@ -654,7 +655,7 @@ test("Query runs on a new connection if the backend dies while fetching array ty
 	});
 
 	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
-	const sql = postgres({ ...options, host: "localhost", port: proxy.address().port });
+	const sql = postgres({ ...options, host: "localhost", port: port_of(proxy) });
 	const x = await sql`select 1 as x`.then(
 		([x]) => x.x,
 		(e) => e.code,
@@ -671,7 +672,7 @@ test("Clean closes during startup reject queries and reserves instead of reconne
 
 	const server = net.createServer((socket) => (attempts++, socket.end()));
 	await new Promise<void>((r) => server.listen(0, "localhost", r));
-	const sql = postgres({ ...options, max: 2, host: "localhost", port: server.address().port });
+	const sql = postgres({ ...options, max: 2, host: "localhost", port: port_of(server) });
 	const codes = await Promise.all([
 		sql`select 1`.catch((e) => e.code),
 		sql`select 2`.catch((e) => e.code),
@@ -707,7 +708,7 @@ test(
 		const sql = postgres({
 			...options,
 			host: "localhost",
-			port: proxy.address().port,
+			port: port_of(proxy),
 			connect_timeout: 0.5,
 		});
 		const start = Date.now();
@@ -744,7 +745,7 @@ test("A clean close while fetching array types is retried when connect_timeout i
 	const sql = postgres({
 		...options,
 		host: "localhost",
-		port: proxy.address().port,
+		port: port_of(proxy),
 		connect_timeout: 0,
 	});
 	const x = await sql`select 1 as x`.then(
@@ -776,7 +777,7 @@ test("A query refused with a FATAL error rejects with the peer error instead of 
 	});
 
 	await new Promise<void>((r) => server.listen(0, "localhost", r));
-	const sql = postgres({ ...options, host: "localhost", port: server.address().port });
+	const sql = postgres({ ...options, host: "localhost", port: port_of(server) });
 	const code = await sql`select 1`.catch((e) => e.code);
 	await sql.end();
 	server.close();
@@ -805,7 +806,7 @@ test("Failed array type fetch on a live connection is not an unhandled rejection
 	});
 
 	await new Promise<void>((r) => server.listen(0, "localhost", r));
-	const sql = postgres({ ...options, host: "localhost", port: server.address().port });
+	const sql = postgres({ ...options, host: "localhost", port: port_of(server) });
 	await sql`select 1`.catch(() => null);
 	await sql.end();
 	server.close();
@@ -895,7 +896,7 @@ test("Connection end cancels the first listen attempt", async () => {
 	const sql = postgres({
 		...options,
 		connect_timeout: 30,
-		socket: () => socket.connect(server.address().port, "127.0.0.1"),
+		socket: () => socket.connect(port_of(server), "127.0.0.1"),
 	});
 	const listening = sql.listen("end_connecting", () => {}).catch((x) => x.code);
 	await sql.end();
@@ -962,7 +963,7 @@ test(
 					...options,
 					...o,
 					host: "localhost",
-					port: proxy.address().port,
+					port: port_of(proxy),
 					max: 1,
 				}),
 				query = sql`select 1 as x`,
@@ -1162,7 +1163,7 @@ test("A server whose SCRAM signature is wrong is not trusted", async () => {
 	const server = await lyingServer(true);
 	const sql = postgres({
 		host: "127.0.0.1",
-		port: server.address().port,
+		port: port_of(server),
 		user: "u",
 		pass: "p",
 		db: "d",
@@ -1182,7 +1183,7 @@ test("A server that ends SCRAM without its signature is not trusted", async () =
 	const server = await lyingServer(false);
 	const sql = postgres({
 		host: "127.0.0.1",
-		port: server.address().port,
+		port: port_of(server),
 		user: "u",
 		pass: "p",
 		db: "d",
@@ -1214,7 +1215,7 @@ test("A cancel request on a TLS connection is sent over TLS", { timeout: 10_000 
 	const sql = postgres({
 		...options,
 		host: "localhost",
-		port: server.address().port,
+		port: port_of(server),
 		ssl: "require",
 		max: 1,
 	});

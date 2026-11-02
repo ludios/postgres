@@ -1,6 +1,6 @@
 import net from "net";
 import { expect, test } from "vitest";
-import { postgres, login, login_md5, login_scram, pg_port } from "./setup.ts";
+import { postgres, login, login_md5, login_scram, pg_port, port_of } from "./setup.ts";
 import { open } from "../src/startup.ts";
 import { Query, Frames } from "../src/protocol.ts";
 
@@ -69,16 +69,14 @@ test("Startup tries the next host", async () => {
 test("Startup rejects after connect_timeout", async () => {
 	const x = await server(() => {});
 	const start = Date.now();
-	const code = await session({ port: [x.address().port], connect_timeout: 0.2 }).catch(
-		(e) => e.code,
-	);
+	const code = await session({ port: [port_of(x)], connect_timeout: 0.2 }).catch((e) => e.code);
 	x.close();
 	expect(code + "," + (Date.now() - start < 1000)).toBe("CONNECT_TIMEOUT,true");
 });
 
 test("Startup rejects on a clean close", async () => {
 	const x = await server((socket) => socket.end());
-	const code = await session({ port: [x.address().port] }).catch((e) => e.code);
+	const code = await session({ port: [port_of(x)] }).catch((e) => e.code);
 	x.close();
 	expect(code).toBe("CONNECTION_CLOSED");
 });
@@ -161,16 +159,14 @@ test("Startup rejects a server that is ready before it accepted the authenticati
 			socket.write(message("R", Buffer.concat([int32(10), Buffer.from("SCRAM-SHA-256\0\0")])));
 		type === "p" && socket.write(ready);
 	});
-	const code = await session({ port: [x.address().port], user: "u", pass: "p" }).catch(
-		(e) => e.code,
-	);
+	const code = await session({ port: [port_of(x)], user: "u", pass: "p" }).catch((e) => e.code);
 	x.close();
 	expect(code).toBe("AUTHENTICATION_INCOMPLETE");
 });
 
 test("Startup rejects a server that sends ReadyForQuery without any authentication", async () => {
 	const x = await fake((socket, type) => type === "startup" && socket.write(ready));
-	const code = await session({ port: [x.address().port] }).catch((e) => e.code);
+	const code = await session({ port: [port_of(x)] }).catch((e) => e.code);
 	x.close();
 	expect(code).toBe("AUTHENTICATION_INCOMPLETE");
 });
@@ -182,7 +178,7 @@ test("Startup with a throwing onnotice still connects", async () => {
 			type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), notice, ready])),
 	);
 	const status = await session({
-		port: [x.address().port],
+		port: [port_of(x)],
 		onnotice: () => {
 			throw new Error("nope");
 		},
@@ -221,7 +217,7 @@ const refused = async (auth, options?) => {
 				message("R", Buffer.concat([int32(11), Buffer.from("r=other,s=c2FsdA==,i=4096")])),
 			);
 	});
-	const code = await session({ port: [x.address().port], user: "u", pass: "p", ...options }).catch(
+	const code = await session({ port: [port_of(x)], user: "u", pass: "p", ...options }).catch(
 		(e) => e.code,
 	);
 	x.close();
@@ -257,7 +253,7 @@ test("Startup asks the server for its state when it does not report it, for targ
 			socket.write(Buffer.concat([row("on"), row("t"), message("Z", Buffer.from("I"))]));
 	});
 	const { attributes } = await session({
-		port: [x.address().port],
+		port: [port_of(x)],
 		target_session_attrs: "standby",
 	});
 	x.close();
@@ -277,7 +273,7 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 			(sent.push(body.toString("utf8", 0, body.length - 1)),
 			socket.write(Buffer.concat([message("R", int32(0)), ready])));
 	});
-	const port = x.address().port,
+	const port = port_of(x),
 		login = (passfile) =>
 			session({
 				host: ["localhost"],
@@ -315,7 +311,7 @@ test("A message the client does not support rejects the query with MESSAGE_NOT_S
 	});
 	const sql = postgres({
 		host: "localhost",
-		port: x.address().port,
+		port: port_of(x),
 		user: "u",
 		fetch_types: false,
 		max: 1,
@@ -366,7 +362,7 @@ test("A message with an invalid length during startup rejects with PROTOCOL_ERRO
 			(socket, type) =>
 				type === "startup" && socket.write(Buffer.concat([header("R", length), Buffer.alloc(8)])),
 		);
-		codes.push(await session({ port: [x.address().port] }).catch((e) => e.code));
+		codes.push(await session({ port: [port_of(x)] }).catch((e) => e.code));
 		x.close();
 	}
 	expect(codes.join()).toBe("PROTOCOL_ERROR,PROTOCOL_ERROR,PROTOCOL_ERROR,PROTOCOL_ERROR");
@@ -379,7 +375,7 @@ test("A message with an invalid length after startup rejects the query and close
 	});
 	const sql = postgres({
 		host: "localhost",
-		port: x.address().port,
+		port: port_of(x),
 		user: "u",
 		fetch_types: false,
 		max: 1,
@@ -401,7 +397,7 @@ test("channel_binding: require sends no password when the server asks for cleart
 		});
 		codes.push(
 			await session({
-				port: [x.address().port],
+				port: [port_of(x)],
 				user: "u",
 				pass: "secret",
 				channel_binding: "require",

@@ -1,6 +1,6 @@
 // Model-output: Claude Opus 5.5
 import { expect, test } from "vitest";
-import { postgres, sql, options, delay, idle_timeout, pg_port } from "./setup.ts";
+import { postgres, sql, options, delay, idle_timeout, pg_port, port_of } from "./setup.ts";
 
 test("Throws on illegal transactions", async () => {
 	const sql = postgres({ ...options, max: 2, fetch_types: false });
@@ -910,7 +910,7 @@ test(
 		const sql = postgres({
 			...options,
 			host: "127.0.0.1",
-			port: proxy.address().port,
+			port: port_of(proxy),
 			max: 1,
 			fetch_types: false,
 		});

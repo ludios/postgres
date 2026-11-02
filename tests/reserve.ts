@@ -1,6 +1,6 @@
 import net from "net";
 import { expect, test } from "vitest";
-import { postgres, sql, options, delay, idle_timeout, pg_port } from "./setup.ts";
+import { postgres, sql, options, delay, idle_timeout, pg_port, port_of } from "./setup.ts";
 
 test("Ensure reserve on connection throws proper error", async () => {
 	const sql = postgres({
@@ -154,7 +154,7 @@ test("Writing to a closed reserved connection rejects instead of crashing", asyn
 
 	await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
 
-	const sql = postgres({ ...options, host: "127.0.0.1", port: proxy.address().port, max: 1 }),
+	const sql = postgres({ ...options, host: "127.0.0.1", port: port_of(proxy), max: 1 }),
 		reserved = await sql.reserve();
 
 	await reserved`select 1`;

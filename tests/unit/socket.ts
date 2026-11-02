@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import { expect, test } from "vitest";
 import { Socket } from "../../src/socket.ts";
+import { port_of } from "../common.ts";
 
 function fake() {
 	const x = new EventEmitter();
@@ -74,7 +75,7 @@ test("Socket reads plain TCP through a shared buffer unless onread is false", as
 	const net = await import("net"),
 		server = net.createServer((x) => x.end());
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-	const port = server.address().port,
+	const port = port_of(server),
 		shared = await Socket({ ssl: false }, "127.0.0.1", port),
 		stream = await Socket({ ssl: false, onread: false }, "127.0.0.1", port);
 	shared.destroy();
