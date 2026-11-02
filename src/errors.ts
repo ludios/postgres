@@ -31,6 +31,7 @@ export class PostgresError extends Error {
 	}
 
 	toJSON() {
+		// oxlint-disable-next-line typescript/no-misused-spread -- a plain object of the error's own fields is the point
 		return { ...this, message: this.message };
 	}
 }

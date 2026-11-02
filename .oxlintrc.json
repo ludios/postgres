@@ -49,8 +49,7 @@
 			"rules": {
 				"typescript/no-base-to-string": "warn",
 				"typescript/require-array-sort-compare": "warn",
-				"unicorn/prefer-string-starts-ends-with": "warn",
-				"typescript/no-misused-spread": "warn"
+				"unicorn/prefer-string-starts-ends-with": "warn"
 			}
 		}
 	],
