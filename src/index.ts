@@ -962,6 +962,14 @@ function parse_options(a, b) {
 		port = o.port || query.port || env.PGPORT || 5432,
 		user = o.user || o.username || url.url.username || env.PGUSERNAME || env.PGUSER || osUsername();
 
+	// v3 read ssl from PGSSL, which only postgres.js read. If it were ignored without a word now, a
+	// pool that it gave TLS would connect without TLS.
+	if (env.PGSSL && !env.PGSSLMODE) {
+		throw new Error(
+			"The environment variable PGSSL is not read any more; set PGSSLMODE, which libpq reads " +
+				"too, instead",
+		);
+	}
 	if (o.no_prepare) {
 		o.prepare = false;
 	}

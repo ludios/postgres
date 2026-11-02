@@ -194,8 +194,9 @@ test("channel_binding from options, the url and PGCHANNELBINDING, as libpq reads
 
 test("ssl is true, false, TLS options or a mode, from options, the url and PGSSLMODE, as libpq reads it", async () => {
 	const tls = { rejectUnauthorized: false };
+	const replaced = with_env({ PGSSL: "require" }, () => thrown(() => postgres({ max: 1 })).message);
 	const unread = with_env(
-		{ PGSSL: "require", PGSSLMODE: undefined },
+		{ PGSSL: "require", PGSSLMODE: "disable" },
 		() => postgres({ max: 1 }).options.ssl,
 	);
 	const read = with_env({ PGSSLMODE: "prefer" }, () => [
@@ -207,7 +208,8 @@ test("ssl is true, false, TLS options or a mode, from options, the url and PGSSL
 		postgres({ max: 1, ssl: "verify-full" }).options.ssl,
 		postgres({ max: 1, ssl: tls }).options.ssl,
 	]);
-	expect([unread, read]).toEqual([
+	expect([replaced, unread, read]).toEqual([
+		"The environment variable PGSSL is not read any more; set PGSSLMODE, which libpq reads too, instead",
 		false,
 		["prefer", true, false, "allow", "require", "verify-full", tls],
 	]);

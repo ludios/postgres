@@ -1896,6 +1896,7 @@ If it returns no columns, or the time zone is `UTC` and so is your Node.js proce
 - **Transactions are stricter.** A `COMMIT` the server answers with `ROLLBACK` rejects with `TRANSACTION_ROLLED_BACK`, a query on a transaction or reserved connection after it ended rejects, a query that can't be built inside a transaction aborts it, and a `begin` sent outside `sql.begin`, a reserved connection or `max: 1` rejects with `UNSAFE_TRANSACTION` and is rolled back.
 - **Domains** are read and written as their base type, so a domain over `int[]` comes back as an array of numbers.
 - **`infinity` timestamps** are `Infinity` and `-Infinity` instead of an invalid `Date`.
+- **`ssl` from the environment is `PGSSLMODE`**, as in libpq, instead of `PGSSL`, which only Postgres.js read; `postgres()` throws if `PGSSL` is set and `PGSSLMODE` is not. A `PGSSLMODE` that is set for psql applies to Postgres.js now: `prefer` asks for TLS, and `verify-ca` throws.
 - **TypeScript.** The types are an ES module with a default export and named types: `import postgres, { type Sql } from 'postgres'`.
 
 The [changelog](./CHANGELOG.md) has every change, with the smaller ones about connections and errors.
