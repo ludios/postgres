@@ -2,7 +2,7 @@ import { open as startup } from "./startup.ts";
 import type { Signal } from "./startup.ts";
 import { Connection, slow, notable } from "./connection.ts";
 import { Query } from "./query.ts";
-import { Errors, PostgresError, queryError } from "./errors.ts";
+import { Errors, PostgresError, copy_error, queryError } from "./errors.ts";
 import { channels, listened } from "./diagnostics.ts";
 
 const begins = /\bbegin\b/i,
@@ -179,7 +179,7 @@ export function Pool(options, types) {
 				Errors.connection("CONNECTION_DESTROYED", options, options.host[0], options.port[0]),
 			);
 
-		if (failingFast()) return reject(job, copy(failure.error));
+		if (failingFast()) return reject(job, copy_error(failure.error));
 
 		const c = waiting.length === 0 && pick(job);
 		if (c) return run(c, job);
@@ -389,15 +389,6 @@ export function Pool(options, types) {
 		);
 	}
 
-	function copy(error) {
-		if (!error || typeof error !== "object") return error;
-
-		const x = Object.create(Object.getPrototypeOf(error), Object.getOwnPropertyDescriptors(error));
-		Object.defineProperty(x, "stack", { value: error.stack, writable: true, configurable: true });
-		["query", "parameters", "args", "types"].forEach((k) => delete x[k]);
-		return x;
-	}
-
 	function failingFast() {
 		return !!failure && retries > 1 && opening === 0 && now() < nextAttempt && stuck();
 	}
@@ -437,7 +428,7 @@ export function Pool(options, types) {
 	function retype() {
 		if (!typesError) return null;
 
-		if (now() - typesFailed < 1000) return copy(typesError);
+		if (now() - typesFailed < 1000) return copy_error(typesError);
 
 		typesError = null;
 		connections.forEach((x) => (x.loading = true));
@@ -478,7 +469,7 @@ export function Pool(options, types) {
 				connections.forEach((x) => (x.loading = !typesLoaded && !typesError));
 				(typesLoaded || typesError) && recovered();
 				typesError
-					? waiting.take().forEach((job) => reject(job, copy(typesError)))
+					? waiting.take().forEach((job) => reject(job, copy_error(typesError)))
 					: typesLoaded || [...connections].some((x) => !x.closed && (loadTypes(x), true));
 				drain();
 			});
@@ -506,7 +497,7 @@ export function Pool(options, types) {
 		stuck() &&
 			opening === 0 &&
 			(failure || ending) &&
-			waiting.take().forEach((job, i) => reject(job, i ? copy(error) : error));
+			waiting.take().forEach((job, i) => reject(job, i ? copy_error(error) : error));
 	}
 
 	function reject(job, error) {
@@ -598,7 +589,7 @@ export function Pool(options, types) {
 
 	function onclose(c, error) {
 		connections.delete(c);
-		c.loading && !signal.aborted && attempted(copy(error));
+		c.loading && !signal.aborted && attempted(copy_error(error));
 		ending || replacing.push((c.index + 1) % (options.path ? 1 : options.host.length));
 		replacing.length > options.max && replacing.shift();
 		c.retired && c.retired.forEach((r) => r());
@@ -631,7 +622,7 @@ export function Pool(options, types) {
 		if (ending)
 			throw Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]);
 
-		if (failingFast()) throw copy(failure.error);
+		if (failingFast()) throw copy_error(failure.error);
 
 		const missing = retype();
 		if (missing) throw missing;
