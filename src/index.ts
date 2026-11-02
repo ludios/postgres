@@ -880,7 +880,9 @@ const option_rules: Record<
 	prepare: { default: true, read: boolean },
 	fetch_types: { default: true, read: boolean },
 	infer: { default: false, read: boolean },
-	ssl: { default: false, variable: "PGSSLMODE", parameter: "sslmode", read: ssl_option },
+	// parse_options gives the default: verify-full when sslrootcert, or else PGSSLROOTCERT, is
+	// "system", and otherwise false
+	ssl: { default: undefined, variable: "PGSSLMODE", parameter: "sslmode", read: ssl_option },
 	// Or a function that is called with every query
 	debug: { default: false, read: boolean_or_function },
 	sslnegotiation: { default: null, read: one_of(null, "postgres", "direct") },
@@ -979,19 +981,13 @@ function parse_options(a, b) {
 	}
 	// As in libpq, the url's sslrootcert, or else PGSSLROOTCERT, names the certificate authorities
 	// to check the server's certificate against. With "system", verify-full is the mode when
-	// neither the url nor PGSSLMODE gives one, and any other mode is an error. A file is not read
-	// here, so any mode that encrypts is an error with a file: libpq would check the certificate
-	// against the file in each of those modes. TLS options in ssl replace both. Both are checked
-	// below, once ssl is read.
+	// nothing gives one, and any other mode is an error. A file is not read here, so any mode that
+	// encrypts is an error with a file: libpq would check the certificate against the file in each
+	// of those modes. TLS options in ssl replace both. Both are handled below, once ssl is read.
 	const [roots_source, roots] = Object.hasOwn(query, "sslrootcert")
 		? ["The url parameter sslrootcert", query.sslrootcert]
 		: ["The environment variable PGSSLROOTCERT", env.PGSSLROOTCERT];
 	delete query.sslrootcert;
-	const mode_given =
-		Object.hasOwn(query, "ssl") || Object.hasOwn(query, "sslmode") || env.PGSSLMODE;
-	if (roots === "system" && !mode_given) {
-		query.ssl = "verify-full";
-	}
 
 	const options: Record<string, any> = {
 		host: targets.map((x) => x[0]),
@@ -1035,6 +1031,9 @@ function parse_options(a, b) {
 		timers: o.timers || default_timers(),
 	};
 
+	if (options.ssl === undefined) {
+		options.ssl = roots === "system" ? "verify-full" : false;
+	}
 	// TLS options give their own certificate authorities, or none
 	const tls_options = options.ssl !== null && typeof options.ssl === "object";
 	// true checks the certificate as verify-full does
