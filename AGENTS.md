@@ -145,6 +145,8 @@ The tests not yet moved to vitest use upstream's harness in `tests/test.ts`: `t(
 
 These need no PostgreSQL server:
 
+	pnpm typecheck
+	pnpm lint
 	node tests/unit/index.ts
 	node tests/simulate.ts
 

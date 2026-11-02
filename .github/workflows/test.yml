@@ -44,5 +44,6 @@ jobs:
           node-version: '22'
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm lint
       - name: Run the simulation against dist/, which `pnpm install` built
         run: MODULE=../dist/index.js node tests/simulate.ts
