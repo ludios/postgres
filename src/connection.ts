@@ -188,8 +188,10 @@ export function Connection(ready, options, events) {
 	}
 
 	function release() {
-		while (!blocker && !cancelling && pending.length && pending[0] !== fence) {
-			write(pending.shift());
+		if (!cancelling) {
+			while (!blocker && pending.length && pending[0] !== fence) {
+				write(pending.shift());
+			}
 		}
 
 		schedule();
