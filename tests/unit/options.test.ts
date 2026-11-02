@@ -303,6 +303,11 @@ test("An option that is on or off is true or false, or the text true, false or d
 	]);
 });
 
+test("The names of a publication and a replication slot are used as they are given, even false or disable", async () => {
+	const x = postgres("postgres://u@h/db?publications=false", { max: 1, slot: "disable" }).options;
+	expect([x.publications, x.slot]).toEqual(["false", "disable"]);
+});
+
 test("Url parameters named like Object.prototype properties go to the server", async () => {
 	const url = "postgres://u@h/db?constructor=a&toString=b&__proto__=c&search_path=d";
 	expect(Object.entries(postgres(url, { max: 1 }).options.connection)).toEqual([

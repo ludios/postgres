@@ -767,11 +767,12 @@ function max_lifetime() {
  * The options that the url and environment variables can set too. Each has its value when nothing
  * sets it (`default`); its environment variable, if that is not `PG` followed by its name in upper
  * case (`variable`); and the reader that checks a value of it and turns text into what the option
- * holds (`read`).
+ * holds (`read`), if the option has one. An option without a reader, such as the name of a
+ * replication slot, is used as it is given.
  */
 const option_rules: Record<
 	string,
-	{ default: unknown; variable?: string; read: (value: unknown, source: string) => unknown }
+	{ default: unknown; variable?: string; read?: (value: unknown, source: string) => unknown }
 > = {
 	max: { default: globalThis.Cloudflare ? 3 : 10, read: integer(1) },
 	min: { default: 0, read: integer(0) },
@@ -801,8 +802,8 @@ const option_rules: Record<
 		variable: "PGTARGETSESSIONATTRS",
 		read: one_of(null, "read-write", "read-only", "primary", "standby", "prefer-standby"),
 	},
-	publications: { default: "alltables", read: off },
-	slot: { default: null, read: off },
+	publications: { default: "alltables" },
+	slot: { default: null },
 };
 
 /**
@@ -814,8 +815,8 @@ const option_rules: Record<
  * @param o     - the options object given to `postgres()`
  * @param query - the parameters in the query of the url, by name
  * @param env   - the environment variables
- * @returns the value of the option, as `rule.read` returns it, or `rule.default` if no place sets
- *          the option
+ * @returns the value of the option, as `rule.read` returns it if the option has a reader, or
+ *          `rule.default` if no place sets the option
  * @throws whatever `rule.read` throws for a value that the option may not have
  */
 function read_option(k, rule, o, query, env) {
@@ -833,7 +834,7 @@ function read_option(k, rule, o, query, env) {
 	} else {
 		return rule.default;
 	}
-	return rule.read(value, source);
+	return rule.read ? rule.read(value, source) : value;
 }
 
 function parseOptions(a, b) {
