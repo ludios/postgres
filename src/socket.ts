@@ -43,7 +43,12 @@ function same(a, b) {
 	return [...Object.keys(a), ...Object.keys(b)].every((k) => a[k] === b[k]);
 }
 
-export const secured = (options) => !!options.ssl;
+/**
+ * @param options - the options of the pool
+ * @returns whether a connection asks for TLS: when `ssl` is set, except over a Unix-domain socket,
+ *          where libpq never asks for it, and the server always says no
+ */
+export const secured = (options) => !!options.ssl && !options.path;
 
 export const direct = (options) => secured(options) && options.sslnegotiation === "direct";
 

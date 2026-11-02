@@ -1,6 +1,6 @@
 import { EventEmitter } from "events";
 import { expect, test } from "vitest";
-import { Socket } from "../../src/socket.ts";
+import { Socket, secured } from "../../src/socket.ts";
 import { port_of } from "../helpers.ts";
 
 function fake() {
@@ -85,4 +85,14 @@ test("Socket reads plain TCP through a shared buffer unless onread is false", as
 	stream.destroy();
 	server.close();
 	expect([shared.shared, stream.shared]).toEqual([true, false]);
+});
+
+test("A connection asks for TLS when ssl is set, but not over a Unix-domain socket, as in libpq", async () => {
+	const path = "/run/postgresql/.s.PGSQL.5432";
+	expect([
+		secured({ ssl: "require" }),
+		secured({ ssl: "require", path }),
+		secured({ ssl: { ca: [] }, path }),
+		secured({ ssl: false }),
+	]).toEqual([true, false, false, false]);
 });

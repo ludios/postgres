@@ -319,6 +319,12 @@ test("Unix socket", async () => {
 	expect((await sql`select 1 as x`)[0].x).toBe(1);
 });
 
+test("Unix socket with ssl: require connects without asking for TLS, as libpq does", async () => {
+	await using sql = postgres({ ...options, host: pg_socket_dir, ssl: "require" });
+	const [{ ssl }] = await sql`select ssl from pg_stat_ssl where pid = pg_backend_pid()`;
+	expect(ssl).toBe(false);
+});
+
 test("connect_timeout", async () => {
 	const connect_timeout = 0.2;
 	const server = net.createServer();
