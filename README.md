@@ -1597,6 +1597,8 @@ dc.tracingChannel('postgres:query').subscribe({
 
 #### Metrics
 
+A gauge of the pool should read `sql.stats` when the gauge is collected, not the `stats` in pool messages: the pool publishes no message when a busy connection takes the last waiting query, so the `stats` in the last message can be old.
+
 ```js
 import dc from 'node:diagnostics_channel'
 
@@ -1604,9 +1606,7 @@ dc.subscribe('tracing:postgres:query:asyncEnd', x => {
   histogram.record(x.complete - x.queued, { command: x.command, error: !!x.error })
 })
 
-dc.subscribe('postgres:pool', x => {
-  gauge.record(x.stats.waiting)
-})
+gauge.addCallback(x => x.observe(sql.stats.waiting))
 ```
 
 ## Error handling
