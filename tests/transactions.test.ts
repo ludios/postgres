@@ -537,8 +537,7 @@ test("Transaction queries fail after its connection is gone even if the callback
 });
 
 test("Disconnect rejects queued transaction queries and allows reconnect", async () => {
-	const sql = postgres({ ...options, max_pipeline: 1, fetch_types: false });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max_pipeline: 1, fetch_types: false });
 	let queries;
 
 	const error = await sql
@@ -609,8 +608,7 @@ function finishDisconnectedTransaction(error?) {
  * @returns what `fn` returns, awaited
  */
 async function with_disconnected_transaction(fn) {
-	const pool = postgres({ ...options, fetch_types: false });
-	await using _end = defer(() => pool.end({ timeout: 0 }));
+	await using pool = postgres({ ...options, fetch_types: false });
 	let finish, ready;
 	const gate = new Promise<void>(
 		(resolve, reject) => (finish = (error) => (error ? reject(error) : resolve())),
@@ -1010,10 +1008,7 @@ test("A transaction terminated between statements rejects with the FATAL error, 
 test("A savepoint or nested begin rejects when the connection is lost while its callback runs (#1281)", async () => {
 	const outcomes = [];
 	for (const method of ["savepoint", "begin"]) {
-		const sql = postgres({ ...options, max: 1 });
-		// Not end() without a timeout: if a step fails before release(), that end() would wait forever
-		// for the transaction, which waits on `gate`
-		await using _end = defer(() => sql.end({ timeout: 0 }));
+		await using sql = postgres({ ...options, max: 1 });
 		let started, release, settled;
 		const pid = new Promise<number>((r) => (started = r)),
 			gate = new Promise((r) => (release = r)),

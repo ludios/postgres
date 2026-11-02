@@ -2,15 +2,7 @@ import dc from "diagnostics_channel";
 import net from "net";
 import { AsyncLocalStorage } from "async_hooks";
 import { expect, onTestFinished, test, vi } from "vitest";
-import {
-	postgres,
-	options,
-	delay,
-	defer,
-	pg_port,
-	until_sleeping,
-	proxy_to_server,
-} from "./setup.ts";
+import { postgres, options, delay, pg_port, until_sleeping, proxy_to_server } from "./setup.ts";
 
 function record(name) {
 	const events = [],
@@ -205,10 +197,7 @@ test("Tracing: the pool publishes open, lease, release, idle and close", async (
 
 test("Tracing: the pool publishes idle only for a connection with nothing in flight and no lease", async () => {
 	const { messages, stop } = listen("postgres:pool");
-	const sql = postgres({ ...options, max: 1 });
-	// Not end() without a timeout: if the first iteration below throws, that end() would wait forever
-	// for the second lease, which nothing releases
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1 });
 	await sql`select 1`;
 	const before_pipelining = messages.length;
 	// Both queries are in flight on the one connection, so the first to finish leaves it busy

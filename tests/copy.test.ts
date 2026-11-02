@@ -236,8 +236,7 @@ test("Copy write waits for the socket to drain between large chunks", async () =
 });
 
 test("Destroying a copy to stdout readable while back-pressure has paused it leaves the connection usable", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	const readable =
 		await sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`.readable();
 	// Nothing reads, so the connection stops reading the socket once the buffer is full
@@ -250,9 +249,8 @@ test("Destroying a copy to stdout readable while back-pressure has paused it lea
 });
 
 test("Destroying a copy to stdout readable from a data handler leaves the connection usable", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null }),
-		xs = [];
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
+	const xs = [];
 	// Once the stream flows with an empty buffer, `push` emits "data" synchronously,
 	// so destroying after a later chunk does so from inside `push`.
 	for (const after of [1, 2, 50, 500]) {
@@ -276,8 +274,7 @@ const SLOW_COPY =
 	"copy (select i, case when i > 5000 then pg_sleep(1)::text end from generate_series(1, 90000) i) to stdout";
 
 test("Canceling a copy to stdout that is being read fails its readable with 57014", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	const query = sql.unsafe(SLOW_COPY),
 		readable = await query.readable();
 	let cancelled;
@@ -293,8 +290,7 @@ test("Canceling a copy to stdout that is being read fails its readable with 5701
 });
 
 test("Canceling a copy to stdout whose readable was destroyed in a transaction stops it, and aborts the transaction", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	const error = await sql
 		.begin(async (sql) => {
 			const query = sql.unsafe(SLOW_COPY),
@@ -311,8 +307,7 @@ test("Canceling a copy to stdout whose readable was destroyed in a transaction s
 });
 
 test("A query is not queued behind a copy to stdout that nobody reads", async () => {
-	const sql = postgres({ ...options, max: 2 });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 2 });
 	using reserved = await sql.reserve();
 	const readable =
 			await sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`.readable(),
@@ -326,8 +321,7 @@ test("A query is not queued behind a copy to stdout that nobody reads", async ()
 });
 
 test("Canceling a copy from stdin that waits for data fails its writable with 57014", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	await sql`create table test (x int)`;
 	const query = sql`copy test from stdin`,
 		writable = await query.writable();
@@ -381,8 +375,7 @@ test("Destroying a copy both stream ends it with CopyDone, which keeps the conne
 });
 
 test("Destroying a copy to stdout outside a transaction makes the server stop it", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	const readable = await sql.unsafe(SLOW_COPY).readable();
 	await new Promise((resolve) => readable.once("data", resolve));
 	readable.destroy();
@@ -391,8 +384,7 @@ test("Destroying a copy to stdout outside a transaction makes the server stop it
 });
 
 test("Destroying a copy to stdout in a transaction only drops the rest, which keeps the transaction", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	const x = await sql.begin(async (sql) => {
 		// Still running when destroyed, but only for about a second more
 		const readable =
@@ -406,9 +398,8 @@ test("Destroying a copy to stdout in a transaction only drops the rest, which ke
 });
 
 test("Destroying a copy to stdout whose end is already buffered does not cancel the next query", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null }),
-		xs = [];
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
+	const xs = [];
 	using reserved = await sql.reserve();
 	// With these sizes, back-pressure pauses the connection inside the last chunk of the
 	// output, so the end of the COPY waits unread in that chunk
@@ -431,8 +422,7 @@ test("Destroying a copy to stdout whose end is already buffered does not cancel 
 }, 20_000);
 
 test("Destroying a copy to stdout after a begin in the same query keeps the transaction", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	using reserved = await sql.reserve();
 	// Still running when destroyed, but only for about a second more
 	const readable = await reserved
@@ -448,8 +438,7 @@ test("Destroying a copy to stdout after a begin in the same query keeps the tran
 });
 
 test("Canceling a copy from stdin before it starts fails its query with 57014", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	await sql`create table test (x int)`;
 	// A reserved connection pipelines the COPY behind the sleep; the pool would keep it waiting
 	using reserved = await sql.reserve();
@@ -469,8 +458,7 @@ test("Canceling a copy from stdin before it starts fails its query with 57014", 
 });
 
 test("Canceling a query after the end of its copy to stdout stops the statements after the COPY", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	const query = sql.unsafe(
 			// The server flushes its output only when its buffer is full, which the long row does
 			"copy (select 1) to stdout; select repeat('x', 70000); select pg_sleep(100)",

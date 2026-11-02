@@ -5,6 +5,7 @@ import { expect, onTestFinished, test } from "vitest";
 import { notable } from "../src/pool.ts";
 import {
 	postgres,
+	library,
 	sql,
 	options,
 	login,
@@ -143,9 +144,8 @@ test("Reconnect using SSL", async () => {
 
 test("An ssl object without a ca builds a TLS context per connection, and with one a context its connections share until a value changes", async () => {
 	const create = tls.createSecureContext,
-		ssl: { rejectUnauthorized: boolean; ca?: readonly string[] } = { rejectUnauthorized: false },
-		sql = postgres({ ...options, ssl, max: 6 });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+		ssl: { rejectUnauthorized: boolean; ca?: readonly string[] } = { rejectUnauthorized: false };
+	await using sql = postgres({ ...options, ssl, max: 6 });
 	let built = 0;
 	tls.createSecureContext = (...xs) => (built++, create(...xs));
 	onTestFinished(() => {
@@ -943,19 +943,18 @@ test("A query cancelled while its connection starts up leaves the connection in 
 				c.client.write(x);
 			}
 		};
-		const sql = postgres({
-				...options,
-				...o,
-				host: proxy.host,
-				port: proxy.port,
-				max: 1,
-			}),
-			query = sql`select 1 as x`,
+		await using sql = postgres({
+			...options,
+			...o,
+			host: proxy.host,
+			port: proxy.port,
+			max: 1,
+		});
+		const query = sql`select 1 as x`,
 			outcome = query.then(
 				() => "ran",
 				(x) => x.code,
 			);
-		await using _end = defer(() => sql.end({ timeout: 0 }));
 
 		await delay(100);
 		await query.cancel();
@@ -998,8 +997,7 @@ test("sql.begin works with max_pipeline: 0 and max: 1 (#1264)", async () => {
 
 test("With max_pipeline: 0, a query that waits for the only connection runs once it is free", async () => {
 	// Without an idle timeout, the waiting query has to run on the same connection
-	const sql = postgres({ ...options, max: 1, max_pipeline: 0, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, max_pipeline: 0, idle_timeout: null });
 	await sql`select 1`;
 	const both = Promise.all([sql`select pg_sleep(0.2), 1 as x`, sql`select 2 as x`]).then((xs) =>
 		xs.map((x) => x[0].x),
@@ -1066,8 +1064,7 @@ function code_of(query) {
 }
 
 test("Queries keep working after the backend dies under a burst of pipelined writes (#1250)", async () => {
-	const sql = postgres({ ...options, max: 1, max_pipeline: 100 });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, max_pipeline: 100 });
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
 	// The connection gets and writes the sleep and the first 99 queries of the burst, which wait
 	// behind the sleep until the backend dies. The other 101 queries wait in the pool for the next
@@ -1167,7 +1164,7 @@ function lyingServer(final) {
 test("A server whose SCRAM signature is wrong is not trusted", async () => {
 	const server = await lyingServer(true);
 	await using _close = defer(() => server.close());
-	const sql = postgres({
+	await using sql = postgres({
 		host: "127.0.0.1",
 		port: port_of(server),
 		user: "u",
@@ -1176,7 +1173,6 @@ test("A server whose SCRAM signature is wrong is not trusted", async () => {
 		fetch_types: false,
 		max: 1,
 	});
-	await using _end = defer(() => sql.end({ timeout: 0 }));
 	const code = await sql`select 1`.then(
 		() => "connected",
 		(e) => e.code,
@@ -1187,7 +1183,7 @@ test("A server whose SCRAM signature is wrong is not trusted", async () => {
 test("A server that ends SCRAM without its signature is not trusted", async () => {
 	const server = await lyingServer(false);
 	await using _close = defer(() => server.close());
-	const sql = postgres({
+	await using sql = postgres({
 		host: "127.0.0.1",
 		port: port_of(server),
 		user: "u",
@@ -1196,7 +1192,6 @@ test("A server that ends SCRAM without its signature is not trusted", async () =
 		fetch_types: false,
 		max: 1,
 	});
-	await using _end = defer(() => sql.end({ timeout: 0 }));
 	const code = await sql`select 1`.then(
 		() => "connected",
 		(e) => e.code,
@@ -1494,7 +1489,8 @@ test("unref_sockets lets the process exit after a query fails before it is sent"
 }, 20_000);
 
 test("sql and reserved connections are async disposable", async () => {
-	const sql = postgres(options);
+	// The library's own pool, whose disposal the `postgres` of tests/common.ts replaces
+	const sql = library(options);
 	const reserved = await sql.reserve();
 	await reserved`select 1`;
 	await reserved[Symbol.asyncDispose]();
@@ -1779,8 +1775,7 @@ test("A NUL character in a startup parameter rejects instead of adding parameter
 		{ connection: { application_name: "x\0replication\0database" } },
 	];
 	for (const o of attempts) {
-		const sql = postgres({ ...options, ...o });
-		await using _end = defer(() => sql.end({ timeout: 0 }));
+		await using sql = postgres({ ...options, ...o });
 		codes.push(
 			await sql`select current_user`.then(
 				(x) => x[0].current_user,

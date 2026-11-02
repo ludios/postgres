@@ -326,14 +326,13 @@ test("A message the client does not support rejects the query with MESSAGE_NOT_S
 			socket.write(Buffer.concat([message("V", int32(0)), message("Z", Buffer.from("I"))]));
 	});
 	await using _close = defer(() => x.close());
-	const sql = postgres({
+	await using sql = postgres({
 		host: "localhost",
 		port: port_of(x),
 		user: "u",
 		fetch_types: false,
 		max: 1,
 	});
-	await using _end = defer(() => sql.end({ timeout: 0 }));
 	const error = await sql.unsafe("select 1").catch((e) => [e.code, e.name]);
 	expect(error).toEqual(["MESSAGE_NOT_SUPPORTED", "FunctionCallResponse"]);
 });
@@ -389,14 +388,13 @@ test("A message with an invalid length after startup rejects the query and close
 		type === "Q" && socket.write(Buffer.concat([header("Z", -1), Buffer.alloc(8)]));
 	});
 	await using _close = defer(() => x.close());
-	const sql = postgres({
+	await using sql = postgres({
 		host: "localhost",
 		port: port_of(x),
 		user: "u",
 		fetch_types: false,
 		max: 1,
 	});
-	await using _end = defer(() => sql.end({ timeout: 0 }));
 	const error = await sql.unsafe("select 1").catch((e) => e.code + " " + (e.cause && e.cause.code));
 	expect(/PROTOCOL_ERROR/.test(error)).toBe(true);
 });

@@ -295,8 +295,7 @@ test("A cancel that reaches the server after its query has finished does not can
 });
 
 test("A cancel of a query pipelined behind another does not cancel a query sent after it", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
 		head = sql`select pg_sleep(0.2)`.execute(),
 		fast = sql`select 1`.execute();
@@ -311,7 +310,7 @@ test("A cancel of a query pipelined behind another does not cancel a query sent 
 
 test("A cancel request that times out closes its connection, so that it can't cancel a later query", async () => {
 	let sockets = 0;
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		max: 1,
 		idle_timeout: null,
@@ -319,7 +318,6 @@ test("A cancel request that times out closes its connection, so that it can't ca
 		// The second socket is the cancel request's, which never connects
 		socket: () => (++sockets === 2 ? new Promise(() => {}) : net.connect(pg_port, "localhost")),
 	});
-	await using _end = defer(() => sql.end({ timeout: 0 }));
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
 		sleeping = sql`select pg_sleep(0.1)`.execute();
 	await until_sleeping(pid);
@@ -334,8 +332,7 @@ test("A cancel request that times out closes its connection, so that it can't ca
 });
 
 test("A cancel of a pipelined query holds its connection for as long as the query ahead of it runs", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: 1 });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: 1 });
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
 		first = sql`select pg_sleep(1.5)`.execute(),
 		second = sql`select 1`.execute();
@@ -351,8 +348,7 @@ test("A cancel of a pipelined query holds its connection for as long as the quer
 });
 
 test("Canceling a pipelined query whose parameters failed to serialize does not hold its connection", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: null });
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
 		circular: any = {};
 	circular.self = circular;
@@ -371,8 +367,7 @@ test("Canceling a pipelined query whose parameters failed to serialize does not 
 });
 
 test("sql.close() resolves when a query that waited behind a cancel request fails to serialize", async () => {
-	const sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: null });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: null });
 	const reserved = await sql.reserve(),
 		fast = reserved`select 1`.execute();
 	fast.catch(() => {});
@@ -397,8 +392,7 @@ test("sql.close() resolves when a query that waited behind a cancel request fail
 });
 
 test("Every cancel() of a query pipelined behind another settles when the connection closes", async () => {
-	const sql = postgres({ ...options, max: 1 });
-	await using _end = defer(() => sql.end({ timeout: 0 }));
+	await using sql = postgres({ ...options, max: 1 });
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
 		first = sql`select pg_sleep(10)`.execute(),
 		second = sql`select 1`.execute();
