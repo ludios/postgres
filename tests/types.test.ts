@@ -188,19 +188,9 @@ test("numeric is returned as string", async () => {
 	expect(typeof (await sql`select 1.2 as x`)[0].x).toBe("string");
 });
 
-const show = (x) =>
-	Array.isArray(x)
-		? "[" + x.map(show) + "]"
-		: x === null
-			? "null"
-			: x instanceof Date
-				? "date:" + x.getTime()
-				: typeof x + ":" + x;
-
 test("Null in text array", async () => {
-	expect(show((await sql`select array['a', null, 'b']::text[] as x`)[0].x)).toBe(
-		"[string:a,null,string:b]",
-	);
+	const [{ x }] = await sql`select array['a', null, 'b']::text[] as x`;
+	expect(x).toStrictEqual(["a", null, "b"]);
 });
 
 test("Null in arrays of other types", async () => {
@@ -216,26 +206,24 @@ test("Null in arrays of other types", async () => {
   `
 	)[0];
 
-	expect([x.int2, x.int4, x.bigint, x.numeric, x.bool, x.timestamptz].map(show)).toEqual([
-		"[number:1,null]",
-		"[null,number:2]",
-		"[string:1,null]",
-		"[string:1.5,null]",
-		"[boolean:true,null,boolean:false]",
-		"[date:0,null]",
+	expect([x.int2, x.int4, x.bigint, x.numeric, x.bool, x.timestamptz]).toStrictEqual([
+		[1, null],
+		[null, 2],
+		["1", null],
+		["1.5", null],
+		[true, null, false],
+		[new Date(0), null],
 	]);
 });
 
 test("Null in json array", async () => {
-	expect(show((await sql`select array['{"a":1}'::json, null] as x`)[0].x)).toBe(
-		"[object:[object Object],null]",
-	);
+	const [{ x }] = await sql`select array['{"a":1}'::json, null] as x`;
+	expect(x).toStrictEqual([{ a: 1 }, null]);
 });
 
 test("Null in array_agg", async () => {
-	expect(
-		show((await sql`select array_agg(y) as x from (values ('a'), (null), ('b')) as v(y)`)[0].x),
-	).toBe("[string:a,null,string:b]");
+	const [{ x }] = await sql`select array_agg(y) as x from (values ('a'), (null), ('b')) as v(y)`;
+	expect(x).toStrictEqual(["a", null, "b"]);
 });
 
 test("Null in nested arrays", async () => {
@@ -247,32 +235,35 @@ test("Null in nested arrays", async () => {
   `
 	)[0];
 
-	expect([x.ints, x.strings].map(show)).toEqual([
-		"[[number:1,null],[null,number:4]]",
-		"[[[string:a,null]],[[null,string:d e]]]",
+	expect([x.ints, x.strings]).toStrictEqual([
+		[
+			[1, null],
+			[null, 4],
+		],
+		[[["a", null]], [[null, "d e"]]],
 	]);
 });
 
 test("Null in array of only nulls", async () => {
-	expect(show((await sql`select array[null, null]::text[] as x`)[0].x)).toBe("[null,null]");
+	expect((await sql`select array[null, null]::text[] as x`)[0].x).toStrictEqual([null, null]);
 });
 
 test("String NULL in array is not null", async () => {
-	expect(show((await sql`select array['NULL', null, 'null', 'Null']::text[] as x`)[0].x)).toBe(
-		"[string:NULL,null,string:null,string:Null]",
-	);
+	const [{ x }] = await sql`select array['NULL', null, 'null', 'Null']::text[] as x`;
+	expect(x).toStrictEqual(["NULL", null, "null", "Null"]);
 });
 
 test("String NULL in nested array is not null", async () => {
-	expect(show((await sql`select array[['NULL', null], [null, 'NULL']]::text[] as x`)[0].x)).toBe(
-		"[[string:NULL,null],[null,string:NULL]]",
-	);
+	const [{ x }] = await sql`select array[['NULL', null], [null, 'NULL']]::text[] as x`;
+	expect(x).toStrictEqual([
+		["NULL", null],
+		[null, "NULL"],
+	]);
 });
 
 test("String NULL in array round trips", async () => {
-	expect(show((await sql`select ${["NULL", null, "a"]}::text[] as x`)[0].x)).toBe(
-		"[string:NULL,null,string:a]",
-	);
+	const [{ x }] = await sql`select ${["NULL", null, "a"]}::text[] as x`;
+	expect(x).toStrictEqual(["NULL", null, "a"]);
 });
 
 test("Null in array does not reach custom type parser", async () => {
@@ -291,7 +282,10 @@ test("Null in array does not reach custom type parser", async () => {
 
 	const x = (await sql`select array['a', null, 'NULL']::text[] as x`)[0].x;
 	await sql.end();
-	expect([show(x), parsed]).toEqual(["[string:A,null,string:NULL]", ["a", "NULL"]]);
+	expect([x, parsed]).toStrictEqual([
+		["A", null, "NULL"],
+		["a", "NULL"],
+	]);
 });
 
 test("Infinity timestamp parses to Infinity", async () => {

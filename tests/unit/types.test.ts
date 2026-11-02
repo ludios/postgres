@@ -5,19 +5,6 @@ const types = Types({}),
 	parse = (oid, x) => types.parser(oid)(x),
 	serialize = (oid, x) => types.serializer(oid)(x);
 
-const show = (x) =>
-	Array.isArray(x)
-		? "[" + x.map(show) + "]"
-		: x === null
-			? "null"
-			: x instanceof Date
-				? "date:" + (isNaN(x.getTime()) ? "invalid" : x.toISOString())
-				: Buffer.isBuffer(x)
-					? "buffer:" + x.toString("hex")
-					: typeof x === "object"
-						? "object:" + JSON.stringify(x)
-						: typeof x + ":" + x;
-
 /** Like `new Date(year, month, ...)` (in local time), but without mapping the years 0 to 99 to 1900 to 1999 */
 const local = (year, month, day = 1, h = 0, m = 0, s = 0, ms = 0) => {
 	const x = new Date(2000, month, day, h, m, s, ms);
@@ -26,42 +13,29 @@ const local = (year, month, day = 1, h = 0, m = 0, s = 0, ms = 0) => {
 };
 
 test("Parse scalars as v3 does", async () => {
-	expect(
-		[
-			parse(21, "1"),
-			parse(23, "-2"),
-			parse(26, "3"),
-			parse(700, "1.5"),
-			parse(701, "2.25"),
-			parse(20, "9007199254740993"),
-			parse(1700, "1.10"),
-			parse(16, "t"),
-			parse(16, "f"),
-			parse(25, "x"),
-		].map(show),
-	).toEqual([
-		"number:1",
-		"number:-2",
-		"number:3",
-		"number:1.5",
-		"number:2.25",
-		"string:9007199254740993",
-		"string:1.10",
-		"boolean:true",
-		"boolean:false",
-		"string:x",
-	]);
+	expect([
+		parse(21, "1"),
+		parse(23, "-2"),
+		parse(26, "3"),
+		parse(700, "1.5"),
+		parse(701, "2.25"),
+		parse(20, "9007199254740993"),
+		parse(1700, "1.10"),
+		parse(16, "t"),
+		parse(16, "f"),
+		parse(25, "x"),
+	]).toStrictEqual([1, -2, 3, 1.5, 2.25, "9007199254740993", "1.10", true, false, "x"]);
 });
 
 test("Parse json and jsonb", async () => {
-	expect([show(parse(114, '{"a":[1,null]}')), show(parse(3802, '{"b":true}'))]).toEqual([
-		'object:{"a":[1,null]}',
-		'object:{"b":true}',
+	expect([parse(114, '{"a":[1,null]}'), parse(3802, '{"b":true}')]).toStrictEqual([
+		{ a: [1, null] },
+		{ b: true },
 	]);
 });
 
 test("Parse bytea hex", async () => {
-	expect(show(parse(17, "\\x00ff10"))).toBe("buffer:00ff10");
+	expect(parse(17, "\\x00ff10")).toStrictEqual(Buffer.from("00ff10", "hex"));
 });
 
 test("Parse timestamptz with offsets", async () => {
@@ -71,28 +45,30 @@ test("Parse timestamptz with offsets", async () => {
 			"2024-01-02 03:04:05+02",
 			"2024-01-02 03:04:05-05:30",
 			"2024-01-02 03:04:05.123456+00",
-		].map((x) => show(parse(1184, x))),
-	).toEqual([
-		"date:2024-01-02T03:04:05.678Z",
-		"date:2024-01-02T01:04:05.000Z",
-		"date:2024-01-02T08:34:05.000Z",
-		"date:2024-01-02T03:04:05.123Z",
+		].map((x) => parse(1184, x)),
+	).toStrictEqual([
+		new Date("2024-01-02T03:04:05.678Z"),
+		new Date("2024-01-02T01:04:05.000Z"),
+		new Date("2024-01-02T08:34:05.000Z"),
+		new Date("2024-01-02T03:04:05.123Z"),
 	]);
 });
 
 test("Parse timestamptz with an offset in seconds", async () => {
-	expect(show(parse(1184, "1850-06-15 13:20:20+00:50:20"))).toBe("date:1850-06-15T12:30:00.000Z");
+	expect(parse(1184, "1850-06-15 13:20:20+00:50:20")).toStrictEqual(
+		new Date("1850-06-15T12:30:00.000Z"),
+	);
 });
 
 test("Parse timestamptz before year 100 (#1185)", async () => {
 	expect(
 		["0050-06-15 12:30:00+00", "0050-06-15 13:20:20+00:50:20", "0001-01-01 00:00:00+00"].map((x) =>
-			show(parse(1184, x)),
+			parse(1184, x),
 		),
-	).toEqual([
-		"date:0050-06-15T12:30:00.000Z",
-		"date:0050-06-15T12:30:00.000Z",
-		"date:0001-01-01T00:00:00.000Z",
+	).toStrictEqual([
+		new Date("0050-06-15T12:30:00.000Z"),
+		new Date("0050-06-15T12:30:00.000Z"),
+		new Date("0001-01-01T00:00:00.000Z"),
 	]);
 });
 
@@ -104,16 +80,16 @@ test("Parse timestamp without time zone as local time, like v3", async () => {
 });
 
 test("Parse date as UTC midnight, like v3", async () => {
-	expect([show(parse(1082, "2024-01-02")), show(parse(1082, "0050-06-15"))]).toEqual([
-		"date:2024-01-02T00:00:00.000Z",
-		"date:0050-06-15T00:00:00.000Z",
+	expect([parse(1082, "2024-01-02"), parse(1082, "0050-06-15")]).toStrictEqual([
+		new Date("2024-01-02T00:00:00.000Z"),
+		new Date("0050-06-15T00:00:00.000Z"),
 	]);
 });
 
 test("Parse infinity for every date type (#728)", async () => {
 	expect(
-		[1082, 1114, 1184].map((oid) => [parse(oid, "infinity"), parse(oid, "-infinity")].map(show)),
-	).toEqual(Array.from({ length: 3 }, () => ["number:Infinity", "number:-Infinity"]));
+		[1082, 1114, 1184].map((oid) => [parse(oid, "infinity"), parse(oid, "-infinity")]),
+	).toStrictEqual(Array.from({ length: 3 }, () => [Infinity, -Infinity]));
 });
 
 test("Serialize infinity for every date type (#728)", async () => {
@@ -161,52 +137,55 @@ test("Infer types with the v3 rules, and arrays as their array type", async () =
 });
 
 test("Parse built-in arrays without a fetch", async () => {
-	expect(
-		[
-			parse(1007, "{1,2}"),
-			parse(1009, '{a,"b c"}'),
-			parse(1000, "{t,f}"),
-			parse(1016, "{1,2}"),
-			parse(1185, '{"1970-01-01 00:00:00+00"}'),
-			parse(199, '{"{\\"a\\":1}"}'),
-			parse(1001, '{"\\\\x01"}'),
-		].map(show),
-	).toEqual([
-		"[number:1,number:2]",
-		"[string:a,string:b c]",
-		"[boolean:true,boolean:false]",
-		"[string:1,string:2]",
-		"[date:1970-01-01T00:00:00.000Z]",
-		'[object:{"a":1}]',
-		"[buffer:01]",
+	expect([
+		parse(1007, "{1,2}"),
+		parse(1009, '{a,"b c"}'),
+		parse(1000, "{t,f}"),
+		parse(1016, "{1,2}"),
+		parse(1185, '{"1970-01-01 00:00:00+00"}'),
+		parse(199, '{"{\\"a\\":1}"}'),
+		parse(1001, '{"\\\\x01"}'),
+	]).toStrictEqual([
+		[1, 2],
+		["a", "b c"],
+		[true, false],
+		["1", "2"],
+		[new Date(0)],
+		[{ a: 1 }],
+		[Buffer.from([1])],
 	]);
 });
 
 test("Parse infinity in timestamp arrays", async () => {
-	expect(show(parse(1185, "{infinity,-infinity,NULL}"))).toBe(
-		"[number:Infinity,number:-Infinity,null]",
-	);
+	expect(parse(1185, "{infinity,-infinity,NULL}")).toStrictEqual([Infinity, -Infinity, null]);
 });
 
 test("Array NULL is null", async () => {
-	expect([show(parse(1007, "{1,NULL,3}")), show(parse(1009, "{NULL,a,NULL}"))]).toEqual([
-		"[number:1,null,number:3]",
-		"[null,string:a,null]",
+	expect([parse(1007, "{1,NULL,3}"), parse(1009, "{NULL,a,NULL}")]).toStrictEqual([
+		[1, null, 3],
+		[null, "a", null],
 	]);
 });
 
 test('Array quoted "NULL" stays a string', async () => {
-	expect(show(parse(1009, '{"NULL",NULL,"a b",NULL,"NULL"}'))).toBe(
-		"[string:NULL,null,string:a b,null,string:NULL]",
-	);
+	expect(parse(1009, '{"NULL",NULL,"a b",NULL,"NULL"}')).toStrictEqual([
+		"NULL",
+		null,
+		"a b",
+		null,
+		"NULL",
+	]);
 });
 
 test("Array NULL in nested arrays", async () => {
-	expect(show(parse(1007, "{{1,NULL},{NULL,4}}"))).toBe("[[number:1,null],[null,number:4]]");
+	expect(parse(1007, "{{1,NULL},{NULL,4}}")).toStrictEqual([
+		[1, null],
+		[null, 4],
+	]);
 });
 
 test("Array NULL with the box ; delimiter", async () => {
-	expect(show(parse(1020, "{(1,2),(3,4);NULL}"))).toBe("[string:(1,2),(3,4),null]");
+	expect(parse(1020, "{(1,2),(3,4);NULL}")).toStrictEqual(["(1,2),(3,4)", null]);
 });
 
 test("Array parser is not called for NULL", async () => {
@@ -219,21 +198,24 @@ test("Array parser is not called for NULL", async () => {
 });
 
 test("Array of only NULL, empty arrays and empty strings", async () => {
-	expect([
-		show(parse(1009, "{NULL,NULL}")),
-		show(parse(1009, "{}")),
-		show(parse(1009, '{"",a}')),
-	]).toEqual(["[null,null]", "[]", "[string:,string:a]"]);
+	expect([parse(1009, "{NULL,NULL}"), parse(1009, "{}"), parse(1009, '{"",a}')]).toStrictEqual([
+		[null, null],
+		[],
+		["", "a"],
+	]);
 });
 
 test("Array escapes", async () => {
-	expect(show(parse(1009, '{"Hello \\"you\\"","c:\\\\windows","{x}","a,b"}'))).toBe(
-		'[string:Hello "you",string:c:\\windows,string:{x},string:a,b]',
-	);
+	expect(parse(1009, '{"Hello \\"you\\"","c:\\\\windows","{x}","a,b"}')).toStrictEqual([
+		'Hello "you"',
+		"c:\\windows",
+		"{x}",
+		"a,b",
+	]);
 });
 
 test("Array with explicit bounds", async () => {
-	expect(show(parse(1007, "[0:1]={1,2}"))).toBe("[number:1,number:2]");
+	expect(parse(1007, "[0:1]={1,2}")).toStrictEqual([1, 2]);
 });
 
 test("Serialize arrays", async () => {
@@ -259,13 +241,13 @@ test("Serialize arrays with the element serializer", async () => {
 });
 
 test('Array round trip keeps NULL and "NULL" apart', async () => {
-	expect(show(parse(1009, serialize(1009, ["NULL", null, "a"])))).toBe(
-		"[string:NULL,null,string:a]",
-	);
+	expect(parse(1009, serialize(1009, ["NULL", null, "a"]))).toStrictEqual(["NULL", null, "a"]);
 });
 
 test("Parse timestamptz in a DateStyle other than ISO as Date does", async () => {
-	expect(show(parse(1184, "Mon Oct 19 12:00:00 2026 UTC"))).toBe("date:2026-10-19T12:00:00.000Z");
+	expect(parse(1184, "Mon Oct 19 12:00:00 2026 UTC")).toStrictEqual(
+		new Date("2026-10-19T12:00:00.000Z"),
+	);
 });
 
 test("Type names like constructor and __proto__ are not looked up on Object.prototype", async () => {
