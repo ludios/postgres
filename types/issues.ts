@@ -32,7 +32,9 @@ new PostgresError({ message: "x", code: "23505" }).code satisfies string;
 try {
 	await sql`select 1`;
 } catch (e) {
-	if (e instanceof PostgresError) e.code satisfies string;
+	if (e instanceof PostgresError) {
+		e.code satisfies string;
+	}
 }
 
 await sql`select * from (values ${sql([[1, 2, null, 4]])}) as v(a, b, c, d)`;

@@ -9,8 +9,8 @@ import postgres, {
 	type PoolEvent,
 } from "./index.js";
 
-type Equal<A, B> =
-	(<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+// oxfmt-ignore
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const expect = <T extends true>() => {};
 
 interface User {
@@ -54,7 +54,9 @@ async function queries() {
 	users.count;
 	users.command;
 	users.columns[0].name;
-	for (const user of users) expect<Equal<typeof user, User>>();
+	for (const user of users) {
+		expect<Equal<typeof user, User>>();
+	}
 
 	const [first] = await sql<[User?]>`select * from users limit 1`;
 	expect<Equal<typeof first, User | undefined>>();
@@ -97,8 +99,9 @@ async function queries() {
 		expect<Equal<typeof user, User>>();
 	});
 
-	for await (const batch of sql<User[]>`select * from users`.cursor(10))
+	for await (const batch of sql<User[]>`select * from users`.cursor(10)) {
 		expect<Equal<typeof batch, User[]>>();
+	}
 
 	await sql<User[]>`select * from users`.cursor(10, async (batch) => {
 		expect<Equal<typeof batch, User[]>>();
@@ -158,8 +161,12 @@ async function rest() {
 			expect<Equal<typeof info, ReplicationEvent>>();
 			info.lsn;
 			info.time;
-			if (info.command === "update") info.old;
-			if (info.command === "truncate") info.restartIdentity;
+			if (info.command === "update") {
+				info.old;
+			}
+			if (info.command === "truncate") {
+				info.restartIdentity;
+			}
 		},
 		() => {},
 		(error) => error.message,
@@ -179,7 +186,9 @@ async function rest() {
 	try {
 		await sql`select`;
 	} catch (error) {
-		if (error instanceof postgres.PostgresError) error.code;
+		if (error instanceof postgres.PostgresError) {
+			error.code;
+		}
 	}
 }
 
