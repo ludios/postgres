@@ -1,3 +1,6 @@
+import { spawn } from "child_process";
+import fs from "fs";
+import os from "os";
 import path from "path";
 import { beforeEach, expect, inject } from "vitest";
 import { delay, login, options as common_options, postgres } from "./common.ts";
@@ -119,3 +122,33 @@ const reset = postgres({ ...options, onnotice: () => {} });
 // Before each test of the test file that imports this module (every test file gets its own instance
 // of this module), drop the table that many tests create
 beforeEach(() => reset`drop table if exists test cascade`.catch(() => {}));
+
+/**
+ * Runs `source` as an ES module in a child Node.js process, to see whether that process exits by
+ * itself.
+ * @param source - the module's source
+ * @returns what the child wrote to stdout (trimmed), and whether it exited within 5 seconds (if
+ *   not, it was killed)
+ */
+export async function exits(source: string) {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "exits-")),
+		file = path.join(dir, "x.mjs");
+	fs.writeFileSync(file, source);
+	const child = spawn(process.execPath, [file], { env: process.env });
+	let out = "";
+	child.stdout.on("data", (x) => {
+		out += x;
+	});
+	const exited = await new Promise<boolean>((resolve) => {
+		const timer = setTimeout(() => {
+			child.kill();
+			resolve(false);
+		}, 5000);
+		child.on("exit", () => {
+			clearTimeout(timer);
+			resolve(true);
+		});
+	});
+	fs.rmSync(dir, { recursive: true, force: true });
+	return { out: out.trim(), exited };
+}

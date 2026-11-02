@@ -18,6 +18,7 @@ import {
 	server_major,
 	terminate,
 	until_sleeping,
+	exits,
 } from "./setup.ts";
 
 test("Connects with no options", async () => {
@@ -1535,6 +1536,42 @@ test(
 	},
 );
 
+test(
+	"unref_sockets lets the process exit after a connection waited for the types to load",
+	{ timeout: 20_000 },
+	async () => {
+		// min: 2 opens a second connection while the first one loads the types: both `open`s come
+		// before the `lease`, which the pool grants only once the types are loaded. If the second
+		// connection opened late instead, the script ends that pool and tries again.
+		const script = [
+			'import dc from "node:diagnostics_channel"',
+			"const postgres = (await import(" +
+				JSON.stringify(new URL("../src/index.ts", import.meta.url).href) +
+				")).default",
+			"for (let attempt = 0; attempt < 20; attempt++) {",
+			"\tconst events = [], record = (x) => events.push(x.event)",
+			'\tdc.subscribe("postgres:pool", record)',
+			"\tconst sql = postgres(" +
+				JSON.stringify({ ...options, min: 2, max: 2, unref_sockets: true }) +
+				")",
+			"\tconst reserved = await sql.reserve()",
+			"\treserved.release()",
+			"\twhile (sql.stats.opening) {",
+			"\t\tawait new Promise((r) => setTimeout(r, 10))",
+			"\t}",
+			'\tdc.unsubscribe("postgres:pool", record)',
+			'\tif (events.filter((x) => x === "open" || x === "lease").join(" ") === "open open lease") {',
+			'\t\tconsole.log("done")',
+			"\t\tbreak",
+			"\t}",
+			"\tawait sql.end()",
+			"}",
+		].join("\n");
+		const { out, exited } = await exits(script);
+		expect([out, exited]).toEqual(["done", true]);
+	},
+);
+
 test("sql and reserved connections are async disposable", async () => {
 	const sql = postgres(options);
 	const reserved = await sql.reserve();
@@ -1553,24 +1590,6 @@ test("sql and reserved connections are async disposable", async () => {
 		),
 	]).toEqual(["UNSAFE_TRANSACTION", "CONNECTION_ENDED"]);
 });
-
-async function exits(source) {
-	const { spawn } = await import("child_process"),
-		fs = await import("fs"),
-		os = await import("os"),
-		path = await import("path"),
-		file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "unref-")), "x.mjs");
-	fs.writeFileSync(file, source);
-	const child = spawn(process.execPath, [file], { env: process.env });
-	let out = "";
-	child.stdout.on("data", (x) => (out += x));
-	const exited = await new Promise((r) => {
-		const timer = setTimeout(() => (child.kill(), r(false)), 5000);
-		child.on("exit", () => (clearTimeout(timer), r(true)));
-	});
-	fs.rmSync(path.dirname(file), { recursive: true, force: true });
-	return { out: out.trim(), exited };
-}
 
 function listening(server) {
 	return new Promise<net.Server>((r) => server.listen(0, "127.0.0.1", () => r(server)));
