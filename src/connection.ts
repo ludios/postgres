@@ -100,6 +100,7 @@ export function Connection(ready, options, events) {
 		},
 	};
 
+	(globalThis as any).__raws = [...((globalThis as any).__raws || []), socket.raw];
 	socket.ondata = (x) => frames.push(x);
 	socket.ondrain = ondrain;
 	socket.onclose = onclose;
@@ -1183,6 +1184,37 @@ export function Connection(ready, options, events) {
 		events.onparameter && guard(events.onparameter, k, v);
 	}
 
+	/** Resumes reading the socket, if a COPY stream's back-pressure paused it. */
+	function unpause() {
+		if (!frames.paused) {
+			return;
+		}
+		frames.resume();
+		if (!frames.paused) {
+			socket.resume();
+		}
+	}
+
+	/**
+	 * Detaches a destroyed COPY stream from its exchange. If that COPY is still in
+	 * progress, the connection then reads the socket again and drops any further
+	 * COPY data, instead of waiting for the stream to ask for more.
+	 *
+	 * @param item the exchange whose COPY the stream belonged to
+	 */
+	function discard(item) {
+		if (!item.stream) {
+			return;
+		}
+		item.stream = null;
+		// After the connection closes, `sent` is empty, and the buffered frames must stay unread
+		if (sent[0] !== item) {
+			return;
+		}
+		frames.own(false);
+		unpause();
+	}
+
 	function writeData(chunk, callback) {
 		p.copyData(out, chunk);
 		flush() ? callback() : (drained = callback);
@@ -1220,31 +1252,6 @@ export function Connection(ready, options, events) {
 		const item = sent[0];
 		item.stream = new Stream.Writable(writable(item));
 		item.query.resolve(item.stream);
-	}
-
-	/** Resumes reading the socket, if a COPY stream's back-pressure paused it. */
-	function unpause() {
-		if (!frames.paused) {
-			return;
-		}
-		frames.resume();
-		if (!frames.paused) {
-			socket.resume();
-		}
-	}
-
-	/**
-	 * Detaches a destroyed COPY stream, so that the connection reads and drops the
-	 * rest of the COPY data instead of waiting for the stream to ask for more.
-	 *
-	 * @param item the exchange whose COPY the stream belonged to
-	 */
-	function discard(item) {
-		if (!item.stream) {
-			return;
-		}
-		item.stream = null;
-		unpause();
 	}
 
 	function readable(item) {
