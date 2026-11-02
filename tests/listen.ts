@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { t } from "./test.ts";
+import { expect, test } from "vitest";
 import { postgres, options, delay, pg_socket_dir } from "./setup.ts";
 
 const until = async (fn, ms = 5000) => {
@@ -10,7 +10,7 @@ const until = async (fn, ms = 5000) => {
 	}
 };
 
-t("listen and notify", async () => {
+test("listen and notify", async () => {
 	const sql = postgres(options);
 	const channel = "hello";
 	const result = await new Promise(async (r) => {
@@ -18,10 +18,11 @@ t("listen and notify", async () => {
 		sql.notify(channel, "works");
 	});
 
-	return ["works", result, sql.end()];
+	expect(result).toBe("works");
+	await sql.end();
 });
 
-t("double listen", async () => {
+test("double listen", async () => {
 	const sql = postgres(options),
 		channel = "hello";
 
@@ -43,10 +44,10 @@ t("double listen", async () => {
 
 	sql.listen("weee", () => {}).then(sql.end);
 
-	return [2, count];
+	expect(count).toBe(2);
 });
 
-t("multiple listeners work after a reconnect", async () => {
+test("multiple listeners work after a reconnect", async () => {
 	const sql = postgres(options),
 		xs = [];
 
@@ -64,13 +65,14 @@ t("multiple listeners work after a reconnect", async () => {
 		await until(() => listens === 2);
 		await sql.notify("test", "b");
 		await until(() => xs.length === 8);
-		return ["1a2a1b2b", xs.join("")];
+		expect(xs.join("")).toBe("1a2a1b2b");
+		return;
 	} finally {
 		await sql.end();
 	}
 });
 
-t("listen and notify with weird name", async () => {
+test("listen and notify with weird name", async () => {
 	const sql = postgres(options);
 	const channel = "wat-;.ø.§";
 	let unlisten;
@@ -80,10 +82,11 @@ t("listen and notify with weird name", async () => {
 	});
 	await unlisten();
 
-	return ["works", result, sql.end()];
+	expect(result).toBe("works");
+	await sql.end();
 });
 
-t("listen and notify with upper case", async () => {
+test("listen and notify with upper case", async () => {
 	const sql = postgres(options);
 	const channel = "withUpperChar";
 	const result = await new Promise(async (r) => {
@@ -91,10 +94,11 @@ t("listen and notify with upper case", async () => {
 		sql.notify(channel, "works");
 	});
 
-	return ["works", result, sql.end()];
+	expect(result).toBe("works");
+	await sql.end();
 });
 
-t("listen reconnects", async () => {
+test("listen reconnects", async () => {
 	const sql = postgres(options),
 		resolvers = {},
 		a = new Promise((r) => (resolvers.a = r)),
@@ -116,10 +120,10 @@ t("listen reconnects", async () => {
 	await sql.notify("test", "b");
 	await b;
 	sql.end();
-	return [connects, 2];
+	expect(connects).toBe(2);
 });
 
-t("listen keeps retrying when a reconnect attempt fails", { timeout: 20 }, async () => {
+test("listen keeps retrying when a reconnect attempt fails", { timeout: 20_000 }, async () => {
 	const admin = postgres({ ...options, user: "postgres", pass: "", max: 1 });
 	await admin`drop role if exists postgres_js_test_listen`;
 	await admin`create role postgres_js_test_listen login`;
@@ -146,7 +150,8 @@ t("listen keeps retrying when a reconnect attempt fails", { timeout: 20 }, async
 		await until(() => listens === 2);
 		await admin.notify("test", "a");
 		await until(() => xs.length === 1);
-		return ["2 a", listens + " " + xs[0]];
+		expect(listens + " " + xs[0]).toBe("2 a");
+		return;
 	} finally {
 		await sql.end();
 		await admin`drop role postgres_js_test_listen`;
@@ -154,7 +159,7 @@ t("listen keeps retrying when a reconnect attempt fails", { timeout: 20 }, async
 	}
 });
 
-t("listen result reports correct connection state after reconnection", async () => {
+test("listen result reports correct connection state after reconnection", async () => {
 	const sql = postgres(options),
 		xs = [];
 
@@ -165,10 +170,10 @@ t("listen result reports correct connection state after reconnection", async () 
 	await until(() => result.state.pid && result.state.pid !== initialPid);
 	sql.end();
 
-	return [result.state.pid !== initialPid, true];
+	expect(result.state.pid !== initialPid).toBe(true);
 });
 
-t("unlisten removes subscription", async () => {
+test("unlisten removes subscription", async () => {
 	const sql = postgres(options),
 		xs = [];
 
@@ -180,10 +185,10 @@ t("unlisten removes subscription", async () => {
 	await delay(50);
 	sql.end();
 
-	return ["a", xs.join("")];
+	expect(xs.join("")).toBe("a");
 });
 
-t("listen after unlisten", async () => {
+test("listen after unlisten", async () => {
 	const sql = postgres(options),
 		xs = [];
 
@@ -198,10 +203,10 @@ t("listen after unlisten", async () => {
 	await until(() => xs.length === 2);
 	sql.end();
 
-	return ["ac", xs.join("")];
+	expect(xs.join("")).toBe("ac");
 });
 
-t("multiple listeners and unlisten one", async () => {
+test("multiple listeners and unlisten one", async () => {
 	const sql = postgres(options),
 		xs = [];
 
@@ -215,10 +220,10 @@ t("multiple listeners and unlisten one", async () => {
 	await delay(50);
 	sql.end();
 
-	return ["1a2a1b", xs.join("")];
+	expect(xs.join("")).toBe("1a2a1b");
 });
 
-t("Listen connection closes after the last unlisten", async () => {
+test("Listen connection closes after the last unlisten", async () => {
 	const sql = postgres(options);
 	const {
 		state: { pid },
@@ -228,10 +233,11 @@ t("Listen connection closes after the last unlisten", async () => {
 	const gone = async () =>
 		(await sql`select count(*)::int as n from pg_stat_activity where pid = ${pid}`)[0].n === 0;
 	await until(gone);
-	return [true, await gone(), await sql.end()];
+	expect(await gone()).toBe(true);
+	await sql.end();
 });
 
-t("Original listen handles unsubscribe after a reconnect", async () => {
+test("Original listen handles unsubscribe after a reconnect", async () => {
 	const sql = postgres(options),
 		xs = [],
 		arrivals = {},
@@ -265,13 +271,14 @@ t("Original listen handles unsubscribe after a reconnect", async () => {
       select count(*)::int as retained from pg_stat_activity
       where pid = ${s2.state.pid} and query ilike 'listen %'
     `;
-		return ["1a2a1b2b2c:1:0", xs.join("") + ":" + available + ":" + retained];
+		expect(xs.join("") + ":" + available + ":" + retained).toBe("1a2a1b2b2c:1:0");
+		return;
 	} finally {
 		await sql.end();
 	}
 });
 
-t("Unlisten while reconnecting keeps only the other listener", async () => {
+test("Unlisten while reconnecting keeps only the other listener", async () => {
 	const sql = postgres(options),
 		callbacks = [];
 	let released,
@@ -297,13 +304,14 @@ t("Unlisten while reconnecting keeps only the other listener", async () => {
 		await unlistened;
 		await sql.notify("test", "after");
 		await arrived;
-		return ["first:1", callbacks.join(",") + ":" + second];
+		expect(callbacks.join(",") + ":" + second).toBe("first:1");
+		return;
 	} finally {
 		await sql.end();
 	}
 });
 
-t("A listener that throws keeps its connection and gets the next notification", async () => {
+test("A listener that throws keeps its connection and gets the next notification", async () => {
 	const sql = postgres(options);
 	const got = [];
 	let onlisten = 0;
@@ -319,12 +327,13 @@ t("A listener that throws keeps its connection and gets the next notification", 
 	await until(() => got.length === 1);
 	await sql.notify("throwing", "after");
 	await until(() => got.length === 2);
-	return ["1 throw,after", onlisten + " " + got.join(), await sql.end()];
+	expect(onlisten + " " + got.join()).toBe("1 throw,after");
+	await sql.end();
 });
 
-t("unlisten after end resolves without a query", async () => {
+test("unlisten after end resolves without a query", async () => {
 	const sql = postgres(options);
 	const { unlisten } = await sql.listen("after_end", () => {});
 	await sql.end();
-	return ["done", await unlisten().then(() => "done")];
+	expect(await unlisten().then(() => "done")).toBe("done");
 });

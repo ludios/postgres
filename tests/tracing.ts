@@ -1,7 +1,7 @@
 // @ts-nocheck
 import dc from "diagnostics_channel";
 import { AsyncLocalStorage } from "async_hooks";
-import { t } from "./test.ts";
+import { expect, test } from "vitest";
 import { postgres, options, delay, pg_port } from "./setup.ts";
 
 function record(name) {
@@ -24,7 +24,7 @@ function listen(name) {
 	return { messages, stop: () => dc.unsubscribe(name, fn) };
 }
 
-t("Tracing: a query publishes start, end, asyncStart and asyncEnd with what it ran", async () => {
+test("Tracing: a query publishes start, end, asyncStart and asyncEnd with what it ran", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	await sql`select 1`;
 	const { events, stop } = record("postgres:query");
@@ -32,10 +32,11 @@ t("Tracing: a query publishes start, end, asyncStart and asyncEnd with what it r
 	stop();
 	const order = events.map((x) => x.event).join(),
 		c = events[events.length - 1].context;
-	return [
+	const expected =
 		"start,end,asyncStart,asyncEnd|select $1::int as x|SELECT|1|" +
-			sql.options.database +
-			"|true|true|true|1",
+		sql.options.database +
+		"|true|true|true|1";
+	expect(
 		[
 			order,
 			c.query,
@@ -47,36 +48,33 @@ t("Tracing: a query publishes start, end, asyncStart and asyncEnd with what it r
 			c.parameters === undefined,
 			x,
 		].join("|"),
-		await sql.end(),
-	];
+	).toBe(expected);
+	await sql.end();
 });
 
-t("Tracing: parameters are only in the context with debug", async () => {
+test("Tracing: parameters are only in the context with debug", async () => {
 	const sql = postgres({ ...options, debug: true, max: 1 });
 	const { events, stop } = record("postgres:query");
 	await sql`select ${"secret"}::text as x`;
 	stop();
-	return ["secret", events[0].context.parameters.join(), await sql.end()];
+	expect(events[0].context.parameters.join()).toBe("secret");
+	await sql.end();
 });
 
-t(
-	"Tracing: a failing query publishes error with the error, then asyncStart and asyncEnd",
-	async () => {
-		const sql = postgres({ ...options, max: 1 });
-		const { events, stop } = record("postgres:query");
-		await sql`select wat`.catch(() => {});
-		stop();
-		return [
-			"start,end,error,asyncStart,asyncEnd 42703",
-			events.map((x) => x.event).join() +
-				" " +
-				events.find((x) => x.event === "error").context.error.code,
-			await sql.end(),
-		];
-	},
-);
+test("Tracing: a failing query publishes error with the error, then asyncStart and asyncEnd", async () => {
+	const sql = postgres({ ...options, max: 1 });
+	const { events, stop } = record("postgres:query");
+	await sql`select wat`.catch(() => {});
+	stop();
+	expect(
+		events.map((x) => x.event).join() +
+			" " +
+			events.find((x) => x.event === "error").context.error.code,
+	).toBe("start,end,error,asyncStart,asyncEnd 42703");
+	await sql.end();
+});
 
-t("Tracing: start runs in the context of the code that made the query", async () => {
+test("Tracing: start runs in the context of the code that made the query", async () => {
 	const sql = postgres({ ...options, max: 1 }),
 		store = new AsyncLocalStorage(),
 		seen = [],
@@ -87,10 +85,11 @@ t("Tracing: start runs in the context of the code that made the query", async ()
 		store.run("b", async () => await sql`select 2 as b`),
 	]);
 	dc.unsubscribe("tracing:postgres:query:start", start);
-	return ["a:select 1 as a,b:select 2 as b", seen.sort().join(), await sql.end()];
+	expect(seen.sort().join()).toBe("a:select 1 as a,b:select 2 as b");
+	await sql.end();
 });
 
-t("Tracing: a store bound to start is current while the query is dispatched", async () => {
+test("Tracing: a store bound to start is current while the query is dispatched", async () => {
 	const sql = postgres({ ...options, max: 1 }),
 		store = new AsyncLocalStorage(),
 		channel = dc.tracingChannel("postgres:query"),
@@ -101,10 +100,11 @@ t("Tracing: a store bound to start is current while the query is dispatched", as
 	await sql`select 1`;
 	channel.start.unbindStore(store);
 	dc.unsubscribe("tracing:postgres:query:end", end);
-	return [true, seen.length === 1 && seen[0].startsWith("span for"), await sql.end()];
+	expect(seen.length === 1 && seen[0].startsWith("span for")).toBe(true);
+	await sql.end();
 });
 
-t("Tracing: cursors and copy streams finish their trace", async () => {
+test("Tracing: cursors and copy streams finish their trace", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	const { events, stop } = record("postgres:query");
 	for await (const [row] of sql`select generate_series(1, 3) as x`.cursor()) row;
@@ -115,10 +115,11 @@ t("Tracing: cursors and copy streams finish their trace", async () => {
 	stop();
 	const done = events.filter((x) => x.event === "asyncEnd").length,
 		started = events.filter((x) => x.event === "start").length;
-	return [true, done === started && started === 3, await sql.end()];
+	expect(done === started && started === 3).toBe(true);
+	await sql.end();
 });
 
-t("Tracing: connect publishes per attempt, with the backend pid or the error", async () => {
+test("Tracing: connect publishes per attempt, with the backend pid or the error", async () => {
 	const { events, stop } = record("postgres:connect");
 	const sql = postgres({ ...options, max: 1 });
 	await sql`select 1`;
@@ -127,20 +128,20 @@ t("Tracing: connect publishes per attempt, with the backend pid or the error", a
 	stop();
 	const ok = events.find((x) => x.event === "asyncEnd" && !x.context.error),
 		failed = events.find((x) => x.event === "error");
-	return [
-		"number " + pg_port + " ECONNREFUSED 5434",
+	const expected = "number " + pg_port + " ECONNREFUSED 5434";
+	expect(
 		[
 			typeof ok.context.result.pid,
 			ok.context.port,
 			failed.context.error.code,
 			failed.context.port,
 		].join(" "),
-		await sql.end(),
-		await bad.end(),
-	];
+	).toBe(expected);
+	await sql.end();
+	await bad.end();
 });
 
-t("Tracing: a transaction publishes its outcome", async () => {
+test("Tracing: a transaction publishes its outcome", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	const { events, stop } = record("postgres:transaction");
 	await sql.begin((sql) => sql`select 1`);
@@ -152,19 +153,18 @@ t("Tracing: a transaction publishes its outcome", async () => {
 		.catch(() => {});
 	stop();
 	const done = events.filter((x) => x.event === "asyncEnd").map((x) => x.context);
-	return [
-		"commit,rollback read only no true",
+	expect(
 		[
 			done.map((x) => x.outcome).join(),
 			done[1].mode,
 			done[1].error.message,
 			typeof done[0].connection === "number",
 		].join(" "),
-		await sql.end(),
-	];
+	).toBe("commit,rollback read only no true");
+	await sql.end();
 });
 
-t("Tracing: the pool publishes open, lease, release, idle and close", async () => {
+test("Tracing: the pool publishes open, lease, release, idle and close", async () => {
 	const { messages, stop } = listen("postgres:pool");
 	const sql = postgres({ ...options, max: 1 });
 	await sql`select 1`;
@@ -173,29 +173,28 @@ t("Tracing: the pool publishes open, lease, release, idle and close", async () =
 	await sql.end();
 	stop();
 	const kinds = [...new Set(messages.map((x) => x.event))];
-	return [
-		"open,idle,lease,release,close true",
+	expect(
 		["open", "idle", "lease", "release", "close"].filter((x) => kinds.includes(x)).join() +
 			" " +
 			messages.every((x) => typeof x.stats.connections === "number"),
-	];
+	).toBe("open,idle,lease,release,close true");
 });
 
-t("Tracing: notices are published with their connection", async () => {
+test("Tracing: notices are published with their connection", async () => {
 	const { messages, stop } = listen("postgres:notice");
 	const sql = postgres({ ...options, max: 1, onnotice: false });
 	await sql`do $$ begin raise notice 'hello'; end $$`;
 	stop();
-	return [
+	expect(messages[0].notice.message + " " + (typeof messages[0].connection === "number")).toBe(
 		"hello true",
-		messages[0].notice.message + " " + (typeof messages[0].connection === "number"),
-		await sql.end(),
-	];
+	);
+	await sql.end();
 });
 
-t("Tracing: without subscribers a query carries no trace", async () => {
+test("Tracing: without subscribers a query carries no trace", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	const q = sql`select 1`;
 	await q;
-	return [null, q.trace, await sql.end()];
+	expect(q.trace).toBe(null);
+	await sql.end();
 });

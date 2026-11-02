@@ -1,6 +1,6 @@
 // @ts-nocheck
 import net from "net";
-import { t } from "./test.ts";
+import { expect, test } from "vitest";
 import { postgres, login, login_md5, login_scram, pg_port } from "./setup.ts";
 import { open } from "../src/startup.ts";
 import { Query, Frames } from "../src/protocol.ts";
@@ -25,70 +25,76 @@ const server = (fn) =>
 		const x = net.createServer(fn).listen(0, "localhost", () => r(x));
 	});
 
-t("Startup reaches ReadyForQuery", async () => {
+test("Startup reaches ReadyForQuery", async () => {
 	const { status, backend, parameters, rest } = await session();
-	return [
+	expect([status, backend.pid > 0, parameters.client_encoding, rest.length].join()).toBe(
 		"I,true,UTF8,0",
-		[status, backend.pid > 0, parameters.client_encoding, rest.length].join(),
-	];
+	);
 });
 
-t("Startup with md5", async () => ["I", (await session(login_md5)).status]);
+test("Startup with md5", async () => {
+	expect((await session(login_md5)).status).toBe("I");
+});
 
-t("Startup with SCRAM", async () => ["I", (await session(login_scram)).status]);
+test("Startup with SCRAM", async () => {
+	expect((await session(login_scram)).status).toBe("I");
+});
 
-t("Startup with a wrong SCRAM password", async () => [
-	"28P01",
-	await session({ ...login_scram, pass: "nope" }).catch((e) => e.code),
-]);
+test("Startup with a wrong SCRAM password", async () => {
+	expect(await session({ ...login_scram, pass: "nope" }).catch((e) => e.code)).toBe("28P01");
+});
 
-t("Startup with ssl: require", async () => ["I", (await session({ ssl: "require" })).status]);
+test("Startup with ssl: require", async () => {
+	expect((await session({ ssl: "require" })).status).toBe("I");
+});
 
-t("Startup with ssl: prefer", async () => ["I", (await session({ ssl: "prefer" })).status]);
+test("Startup with ssl: prefer", async () => {
+	expect((await session({ ssl: "prefer" })).status).toBe("I");
+});
 
-t("Startup rejects with the server error", async () => {
+test("Startup rejects with the server error", async () => {
 	const error = await session({ database: "nope" }).catch((e) => e);
-	return ["PostgresError,FATAL", error.name + "," + error.severity];
+	expect(error.name + "," + error.severity).toBe("PostgresError,FATAL");
 });
 
-t("Startup rejects with the socket error", async () => [
-	"ECONNREFUSED",
-	await session({ port: [1] }).catch((e) => e.code),
-]);
+test("Startup rejects with the socket error", async () => {
+	expect(await session({ port: [1] }).catch((e) => e.code)).toBe("ECONNREFUSED");
+});
 
-t("Startup tries the next host", async () => [
-	"I",
-	(await session({ host: ["localhost", "localhost"], port: [1, pg_port] })).status,
-]);
+test("Startup tries the next host", async () => {
+	expect((await session({ host: ["localhost", "localhost"], port: [1, pg_port] })).status).toBe(
+		"I",
+	);
+});
 
-t("Startup rejects after connect_timeout", async () => {
+test("Startup rejects after connect_timeout", async () => {
 	const x = await server(() => {});
 	const start = Date.now();
 	const code = await session({ port: [x.address().port], connect_timeout: 0.2 }).catch(
 		(e) => e.code,
 	);
 	x.close();
-	return ["CONNECT_TIMEOUT,true", code + "," + (Date.now() - start < 1000)];
+	expect(code + "," + (Date.now() - start < 1000)).toBe("CONNECT_TIMEOUT,true");
 });
 
-t("Startup rejects on a clean close", async () => {
+test("Startup rejects on a clean close", async () => {
 	const x = await server((socket) => socket.end());
 	const code = await session({ port: [x.address().port] }).catch((e) => e.code);
 	x.close();
-	return ["CONNECTION_CLOSED", code];
+	expect(code).toBe("CONNECTION_CLOSED");
 });
 
-t("Startup with target_session_attrs read-write", async () => [
-	"I",
-	(await session({ target_session_attrs: "read-write" })).status,
-]);
+test("Startup with target_session_attrs read-write", async () => {
+	expect((await session({ target_session_attrs: "read-write" })).status).toBe("I");
+});
 
-t("Startup with target_session_attrs standby and no standby", async () => [
-	"CONNECTION_DESTROYED",
-	await session({ target_session_attrs: "standby" }).catch((e) => e.code),
-]);
+test("Startup with target_session_attrs standby and no standby", async () => {
+	expect(await session({ target_session_attrs: "standby" }).catch((e) => e.code)).toBe(
+		"CONNECTION_DESTROYED",
+	);
+});
 
-t("Cancel reaches the backend", async () => {
+test("Cancel reaches the backend", async () => {
 	const ready = await open(base),
 		types = [],
 		frames = Frames((type) => types.push(String.fromCharCode(type)));
@@ -99,7 +105,7 @@ t("Cancel reaches the backend", async () => {
 	await ready.cancel();
 	await new Promise((r) => setTimeout(r, 100));
 	ready.socket.end();
-	return ["TEZ", types.join("")];
+	expect(types.join("")).toBe("TEZ");
 });
 
 const message = (type, body) => {
@@ -150,7 +156,7 @@ const ready = Buffer.concat([
 	message("Z", Buffer.from("I")),
 ]);
 
-t("Startup rejects a server that is ready before it accepted the authentication", async () => {
+test("Startup rejects a server that is ready before it accepted the authentication", async () => {
 	const x = await fake((socket, type) => {
 		type === "startup" &&
 			socket.write(message("R", Buffer.concat([int32(10), Buffer.from("SCRAM-SHA-256\0\0")])));
@@ -160,17 +166,17 @@ t("Startup rejects a server that is ready before it accepted the authentication"
 		(e) => e.code,
 	);
 	x.close();
-	return ["AUTHENTICATION_INCOMPLETE", code];
+	expect(code).toBe("AUTHENTICATION_INCOMPLETE");
 });
 
-t("Startup rejects a server that sends ReadyForQuery without any authentication", async () => {
+test("Startup rejects a server that sends ReadyForQuery without any authentication", async () => {
 	const x = await fake((socket, type) => type === "startup" && socket.write(ready));
 	const code = await session({ port: [x.address().port] }).catch((e) => e.code);
 	x.close();
-	return ["AUTHENTICATION_INCOMPLETE", code];
+	expect(code).toBe("AUTHENTICATION_INCOMPLETE");
 });
 
-t("Startup with a throwing onnotice still connects", async () => {
+test("Startup with a throwing onnotice still connects", async () => {
 	const notice = message("N", Buffer.from("SNOTICE\0Mhello\0\0"));
 	const x = await fake(
 		(socket, type) =>
@@ -186,10 +192,10 @@ t("Startup with a throwing onnotice still connects", async () => {
 		(e) => e.message,
 	);
 	x.close();
-	return ["I", status];
+	expect(status).toBe("I");
 });
 
-t("Startup destroys a TCP connection still in progress when connect_timeout passes", async () => {
+test("Startup destroys a TCP connection still in progress when connect_timeout passes", async () => {
 	const connect = net.connect,
 		sockets = [];
 	net.connect = (...xs) => {
@@ -203,10 +209,9 @@ t("Startup destroys a TCP connection still in progress when connect_timeout pass
 		connect_timeout: 0.2,
 	}).catch((e) => e.code);
 	net.connect = connect;
-	return [
+	expect(code + " " + sockets.length + " " + sockets.every((x) => x.destroyed)).toBe(
 		"CONNECT_TIMEOUT 1 true",
-		code + " " + sockets.length + " " + sockets.every((x) => x.destroyed),
-	];
+	);
 });
 
 const refused = async (auth, options) => {
@@ -224,46 +229,43 @@ const refused = async (auth, options) => {
 	return code;
 };
 
-t("Startup rejects an authentication type it does not implement", async () => [
-	"AUTH_TYPE_NOT_IMPLEMENTED",
-	await refused(int32(7)),
-]);
+test("Startup rejects an authentication type it does not implement", async () => {
+	expect(await refused(int32(7))).toBe("AUTH_TYPE_NOT_IMPLEMENTED");
+});
 
-t("Startup rejects SASL without SCRAM-SHA-256", async () => [
-	"SASL_MECHANISM_NOT_SUPPORTED",
-	await refused(Buffer.concat([int32(10), Buffer.from("SCRAM-SHA-256-PLUS\0\0")])),
-]);
+test("Startup rejects SASL without SCRAM-SHA-256", async () => {
+	expect(await refused(Buffer.concat([int32(10), Buffer.from("SCRAM-SHA-256-PLUS\0\0")]))).toBe(
+		"SASL_MECHANISM_NOT_SUPPORTED",
+	);
+});
 
-t("Startup rejects a SCRAM server nonce that does not extend the client nonce", async () => [
-	"SASL_NONCE_MISMATCH",
-	await refused(Buffer.concat([int32(10), Buffer.from("SCRAM-SHA-256\0\0")])),
-]);
+test("Startup rejects a SCRAM server nonce that does not extend the client nonce", async () => {
+	expect(await refused(Buffer.concat([int32(10), Buffer.from("SCRAM-SHA-256\0\0")]))).toBe(
+		"SASL_NONCE_MISMATCH",
+	);
+});
 
-t("Startup with ssl: require rejects a server without SSL", async () => [
-	"SSL_NOT_SUPPORTED",
-	await refused(int32(0), { ssl: "require" }),
-]);
+test("Startup with ssl: require rejects a server without SSL", async () => {
+	expect(await refused(int32(0), { ssl: "require" })).toBe("SSL_NOT_SUPPORTED");
+});
 
-t(
-	"Startup asks the server for its state when it does not report it, for target_session_attrs",
-	async () => {
-		const row = (x) =>
-			message("D", Buffer.concat([Buffer.from([0, 1]), int32(x.length), Buffer.from(x)]));
-		const x = await fake((socket, type) => {
-			type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), ready]));
-			type === "Q" &&
-				socket.write(Buffer.concat([row("on"), row("t"), message("Z", Buffer.from("I"))]));
-		});
-		const { attributes } = await session({
-			port: [x.address().port],
-			target_session_attrs: "standby",
-		});
-		x.close();
-		return ["true true", attributes.readOnly + " " + attributes.standby];
-	},
-);
+test("Startup asks the server for its state when it does not report it, for target_session_attrs", async () => {
+	const row = (x) =>
+		message("D", Buffer.concat([Buffer.from([0, 1]), int32(x.length), Buffer.from(x)]));
+	const x = await fake((socket, type) => {
+		type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), ready]));
+		type === "Q" &&
+			socket.write(Buffer.concat([row("on"), row("t"), message("Z", Buffer.from("I"))]));
+	});
+	const { attributes } = await session({
+		port: [x.address().port],
+		target_session_attrs: "standby",
+	});
+	x.close();
+	expect(attributes.readOnly + " " + attributes.standby).toBe("true true");
+});
 
-t("Startup reads the password file as libpq does, and ignores what it can not use", async () => {
+test("Startup reads the password file as libpq does, and ignores what it can not use", async () => {
 	const fs = await import("fs"),
 		os = await import("os"),
 		path = await import("path"),
@@ -302,56 +304,53 @@ t("Startup reads the password file as libpq does, and ignores what it can not us
 	await login(null);
 	x.close();
 	fs.rmSync(dir, { recursive: true, force: true });
-	return [JSON.stringify(["a:b\\c:d", "", "", ""]), JSON.stringify(sent)];
+	const expected = JSON.stringify(["a:b\\c:d", "", "", ""]);
+	expect(JSON.stringify(sent)).toBe(expected);
 });
 
-t(
-	"A message the client does not support rejects the query with MESSAGE_NOT_SUPPORTED",
-	async () => {
-		const x = await fake((socket, type) => {
-			type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), ready]));
-			type === "Q" &&
-				socket.write(Buffer.concat([message("V", int32(0)), message("Z", Buffer.from("I"))]));
-		});
-		const sql = postgres({
-			host: "localhost",
-			port: x.address().port,
-			user: "u",
-			fetch_types: false,
-			max: 1,
-		});
-		const error = await sql.unsafe("select 1").catch((e) => e.code + " " + e.name);
-		await sql.end({ timeout: 0 });
-		x.close();
-		return ["MESSAGE_NOT_SUPPORTED FunctionCallResponse", error];
-	},
-);
+test("A message the client does not support rejects the query with MESSAGE_NOT_SUPPORTED", async () => {
+	const x = await fake((socket, type) => {
+		type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), ready]));
+		type === "Q" &&
+			socket.write(Buffer.concat([message("V", int32(0)), message("Z", Buffer.from("I"))]));
+	});
+	const sql = postgres({
+		host: "localhost",
+		port: x.address().port,
+		user: "u",
+		fetch_types: false,
+		max: 1,
+	});
+	const error = await sql.unsafe("select 1").catch((e) => e.code + " " + e.name);
+	await sql.end({ timeout: 0 });
+	x.close();
+	expect(error).toBe("MESSAGE_NOT_SUPPORTED FunctionCallResponse");
+});
 
-t("Startup with SCRAM-SHA-256-PLUS over TLS when channel_binding is require", async () => [
-	"I",
-	(await session({ ...login_scram, ssl: "require", channel_binding: "require" })).status,
-]);
+test("Startup with SCRAM-SHA-256-PLUS over TLS when channel_binding is require", async () => {
+	expect(
+		(await session({ ...login_scram, ssl: "require", channel_binding: "require" })).status,
+	).toBe("I");
+});
 
-t(
-	"channel_binding: require rejects a connection without TLS, or authenticated without SCRAM",
-	async () => [
-		"CHANNEL_BINDING_REQUIRED CHANNEL_BINDING_REQUIRED",
+test("channel_binding: require rejects a connection without TLS, or authenticated without SCRAM", async () => {
+	expect(
 		[
 			await session({ ...login_scram, channel_binding: "require" }).catch((e) => e.code),
 			await session({ ...login_md5, ssl: "require", channel_binding: "require" }).catch(
 				(e) => e.code,
 			),
 		].join(" "),
-	],
-);
+	).toBe("CHANNEL_BINDING_REQUIRED CHANNEL_BINDING_REQUIRED");
+});
 
-t("channel_binding: disable and prefer connect over TLS and without it", async () => {
+test("channel_binding: disable and prefer connect over TLS and without it", async () => {
 	const statuses = [];
 	for (const channel_binding of ["disable", "prefer"]) {
 		for (const ssl of [false, "require"])
 			statuses.push((await session({ ...login_scram, ssl, channel_binding })).status);
 	}
-	return ["I,I,I,I", statuses.join()];
+	expect(statuses.join()).toBe("I,I,I,I");
 });
 
 const header = (type, length) => {
@@ -361,7 +360,7 @@ const header = (type, length) => {
 	return x;
 };
 
-t("A message with an invalid length during startup rejects with PROTOCOL_ERROR", async () => {
+test("A message with an invalid length during startup rejects with PROTOCOL_ERROR", async () => {
 	const codes = [];
 	for (const length of [-1, 0, 3, 0x40000001]) {
 		const x = await fake(
@@ -371,58 +370,47 @@ t("A message with an invalid length during startup rejects with PROTOCOL_ERROR",
 		codes.push(await session({ port: [x.address().port] }).catch((e) => e.code));
 		x.close();
 	}
-	return ["PROTOCOL_ERROR,PROTOCOL_ERROR,PROTOCOL_ERROR,PROTOCOL_ERROR", codes.join()];
+	expect(codes.join()).toBe("PROTOCOL_ERROR,PROTOCOL_ERROR,PROTOCOL_ERROR,PROTOCOL_ERROR");
 });
 
-t(
-	"A message with an invalid length after startup rejects the query and closes the connection",
-	async () => {
-		const x = await fake((socket, type) => {
-			type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), ready]));
-			type === "Q" && socket.write(Buffer.concat([header("Z", -1), Buffer.alloc(8)]));
-		});
-		const sql = postgres({
-			host: "localhost",
-			port: x.address().port,
-			user: "u",
-			fetch_types: false,
-			max: 1,
-		});
-		const error = await sql
-			.unsafe("select 1")
-			.catch((e) => e.code + " " + (e.cause && e.cause.code));
-		await sql.end({ timeout: 0 });
-		x.close();
-		return [true, /PROTOCOL_ERROR/.test(error)];
-	},
-);
+test("A message with an invalid length after startup rejects the query and closes the connection", async () => {
+	const x = await fake((socket, type) => {
+		type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), ready]));
+		type === "Q" && socket.write(Buffer.concat([header("Z", -1), Buffer.alloc(8)]));
+	});
+	const sql = postgres({
+		host: "localhost",
+		port: x.address().port,
+		user: "u",
+		fetch_types: false,
+		max: 1,
+	});
+	const error = await sql.unsafe("select 1").catch((e) => e.code + " " + (e.cause && e.cause.code));
+	await sql.end({ timeout: 0 });
+	x.close();
+	expect(/PROTOCOL_ERROR/.test(error)).toBe(true);
+});
 
-t(
-	"channel_binding: require sends no password when the server asks for cleartext or MD5",
-	async () => {
-		const received = [],
-			codes = [];
-		for (const kind of [3, 5]) {
-			const x = await fake((socket, type) => {
-				type === "startup" &&
-					socket.write(
-						message("R", Buffer.concat([int32(kind), Buffer.alloc(kind === 5 ? 4 : 0)])),
-					);
-				type === "p" && received.push(kind);
-			});
-			codes.push(
-				await session({
-					port: [x.address().port],
-					user: "u",
-					pass: "secret",
-					channel_binding: "require",
-				}).catch((e) => e.code),
-			);
-			x.close();
-		}
-		return [
-			"CHANNEL_BINDING_REQUIRED,CHANNEL_BINDING_REQUIRED 0",
-			codes.join() + " " + received.length,
-		];
-	},
-);
+test("channel_binding: require sends no password when the server asks for cleartext or MD5", async () => {
+	const received = [],
+		codes = [];
+	for (const kind of [3, 5]) {
+		const x = await fake((socket, type) => {
+			type === "startup" &&
+				socket.write(message("R", Buffer.concat([int32(kind), Buffer.alloc(kind === 5 ? 4 : 0)])));
+			type === "p" && received.push(kind);
+		});
+		codes.push(
+			await session({
+				port: [x.address().port],
+				user: "u",
+				pass: "secret",
+				channel_binding: "require",
+			}).catch((e) => e.code),
+		);
+		x.close();
+	}
+	expect(codes.join() + " " + received.length).toBe(
+		"CHANNEL_BINDING_REQUIRED,CHANNEL_BINDING_REQUIRED 0",
+	);
+});

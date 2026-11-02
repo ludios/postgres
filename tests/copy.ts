@@ -1,12 +1,14 @@
+// Model-output: Claude Opus 5.5
 // @ts-nocheck
 import fs from "fs";
 import crypto from "crypto";
 import { pipeline } from "stream/promises";
 import stream from "stream";
+import { expect, test } from "vitest";
 import { t } from "./test.ts";
 import { postgres, sql, options, delay, rel } from "./setup.ts";
 
-t("Copy read", async () => {
+test("Copy read", async () => {
 	const result = [];
 
 	await sql`create table test (x int)`;
@@ -15,10 +17,11 @@ t("Copy read", async () => {
 	readable.on("data", (x) => result.push(x));
 	await new Promise((r) => readable.on("end", r));
 
-	return [result.length, 10, await sql`drop table test`];
+	expect(result.length).toBe(10);
+	await sql`drop table test`;
 });
 
-t("Copy write", async () => {
+test("Copy write", async () => {
 	await sql`create table test (x int)`;
 	const writable = await sql`copy test from stdin`.writable();
 
@@ -28,10 +31,11 @@ t("Copy write", async () => {
 
 	await new Promise((r) => writable.on("finish", r));
 
-	return [(await sql`select 1 from test`).length, 2, await sql`drop table test`];
+	expect((await sql`select 1 from test`).length).toBe(2);
+	await sql`drop table test`;
 });
 
-t("Copy write as first", async () => {
+test("Copy write as first", async () => {
 	await sql`create table test (x int)`;
 	const first = postgres(options);
 	const writable =
@@ -42,10 +46,11 @@ t("Copy write as first", async () => {
 
 	await new Promise((r) => writable.on("finish", r));
 
-	return [(await sql`select 1 from test`).length, 2, await sql`drop table test`];
+	expect((await sql`select 1 from test`).length).toBe(2);
+	await sql`drop table test`;
 });
 
-t("Copy from file", async () => {
+test("Copy from file", async () => {
 	await sql`create table test (x int, y int, z int)`;
 	await new Promise(async (r) =>
 		fs
@@ -54,14 +59,13 @@ t("Copy from file", async () => {
 			.on("finish", r),
 	);
 
-	return [
-		JSON.stringify(await sql`select * from test`),
+	expect(JSON.stringify(await sql`select * from test`)).toBe(
 		'[{"x":1,"y":2,"z":3},{"x":4,"y":5,"z":6}]',
-		await sql`drop table test`,
-	];
+	);
+	await sql`drop table test`;
 });
 
-t("Copy from works in transaction", async () => {
+test("Copy from works in transaction", async () => {
 	await sql`create table test(x int)`;
 	const xs = await sql.begin(async (sql) => {
 		(await sql`copy test from stdin`.writable()).end("1\n2");
@@ -69,10 +73,11 @@ t("Copy from works in transaction", async () => {
 		return sql`select 1 from test`;
 	});
 
-	return [xs.length, 2, await sql`drop table test`];
+	expect(xs.length).toBe(2);
+	await sql`drop table test`;
 });
 
-t("Copy from abort", async () => {
+test("Copy from abort", async () => {
 	const sql = postgres(options);
 	const readable = fs.createReadStream(rel("copy.csv"));
 
@@ -88,20 +93,22 @@ t("Copy from abort", async () => {
 	writable.destroy(new Error("abort"));
 	await sql.end();
 
-	return ["abort", aborted.message, await postgres(options)`drop table test`];
+	expect(aborted.message).toBe("abort");
+	await postgres(options)`drop table test`;
 });
 
-t("query during copy error", async () => {
+test("query during copy error", async () => {
 	const sql = postgres(options);
 	await sql`create table test (id serial primary key, name text)`;
 	const copy = await sql`copy test from stdin`.writable();
 	const error = await sql`select 1`.catch((e) => e);
 	await copy.end();
 
-	return ["COPY_IN_PROGRESS", error.code, await sql`drop table test`];
+	expect(error.code).toBe("COPY_IN_PROGRESS");
+	await sql`drop table test`;
 });
 
-t("Copy from settles instead of hanging when the server rejects the data", async () => {
+test("Copy from settles instead of hanging when the server rejects the data", async () => {
 	await sql`create table test (x int, y int)`;
 
 	const error = await sql
@@ -120,10 +127,11 @@ t("Copy from settles instead of hanging when the server rejects the data", async
     where state = 'idle in transaction (aborted)'
   `;
 
-	return ["22P04,0", error.code + "," + count, await sql`drop table test`];
+	expect(error.code + "," + count).toBe("22P04,0");
+	await sql`drop table test`;
 });
 
-t("Copy read with back-pressure", async () => {
+test("Copy read with back-pressure", async () => {
 	await sql`create table test (x int)`;
 
 	const bufferSize = Math.ceil(stream.getDefaultHighWaterMark(false) / 6);
@@ -148,26 +156,27 @@ t("Copy read with back-pressure", async () => {
 
 	await sql`select 1`;
 
-	return [bufferSize, result, await sql`drop table test`];
+	expect(result).toBe(bufferSize);
+	await sql`drop table test`;
 });
 
 t("Copy read through a slow pipeline keeps every byte and never stalls", { timeout: 30 }, () =>
 	slowCopy(sql),
 );
 
-t(
+test(
 	"Copy read through a slow pipeline over direct TLS keeps every byte",
-	{ timeout: 30 },
-	async () => {
+	{ timeout: 30_000 },
+	async ({ skip }) => {
 		const [{ supported }] =
 			await sql`select current_setting('server_version_num')::int >= 170000 as supported`;
-		if (!supported) return [true, true];
+		skip(!supported, "direct TLS needs PostgreSQL 17 or later");
 
 		const tls = postgres({ ...options, ssl: "require", sslnegotiation: "direct", max: 1 });
 		const [{ ssl }] = await tls`select ssl from pg_stat_ssl where pid = pg_backend_pid()`;
 		const [expected, got] = await slowCopy(tls);
 		await tls.end();
-		return [expected + " true", got + " " + ssl];
+		expect(got + " " + ssl).toBe(expected + " true");
 	},
 );
 
@@ -192,31 +201,29 @@ async function slowCopy(sql) {
 	return [expected, hash.digest("hex")];
 }
 
-t(
-	"A query on a reserved connection during its COPY is rejected and the COPY completes",
-	async () => {
-		await sql`create table test (a int)`;
-		const reserved = await sql.reserve();
-		const writable = await reserved`copy test from stdin`.writable();
-		writable.write("1\n");
-		const code = await reserved`select 1`.then(
-			() => "ran",
-			(e) => e.code,
-		);
-		await new Promise(
-			(resolve, reject) => (
-				writable.on("finish", resolve),
-				writable.on("error", reject),
-				writable.end("2\n")
-			),
-		);
-		const [{ n }] = await reserved`select count(*)::int as n from test`;
-		reserved.release();
-		return ["COPY_IN_PROGRESS 2", code + " " + n, await sql`drop table test`];
-	},
-);
+test("A query on a reserved connection during its COPY is rejected and the COPY completes", async () => {
+	await sql`create table test (a int)`;
+	const reserved = await sql.reserve();
+	const writable = await reserved`copy test from stdin`.writable();
+	writable.write("1\n");
+	const code = await reserved`select 1`.then(
+		() => "ran",
+		(e) => e.code,
+	);
+	await new Promise(
+		(resolve, reject) => (
+			writable.on("finish", resolve),
+			writable.on("error", reject),
+			writable.end("2\n")
+		),
+	);
+	const [{ n }] = await reserved`select count(*)::int as n from test`;
+	reserved.release();
+	expect(code + " " + n).toBe("COPY_IN_PROGRESS 2");
+	await sql`drop table test`;
+});
 
-t("A copy from stdin writable has the count of rows copied once it finishes (#465)", async () => {
+test("A copy from stdin writable has the count of rows copied once it finishes (#465)", async () => {
 	await sql`create table test (x int)`;
 	const writable = await sql`copy test from stdin`.writable();
 	await new Promise((resolve, reject) => {
@@ -225,14 +232,20 @@ t("A copy from stdin writable has the count of rows copied once it finishes (#46
 		writable.write("1\n2\n");
 		writable.end("3\n");
 	});
-	return ["3 COPY", writable.count + " " + writable.command, await sql`drop table test`];
+	expect(writable.count + " " + writable.command).toBe("3 COPY");
+	await sql`drop table test`;
 });
 
-t("Copy write waits for the socket to drain between large chunks", { timeout: 10 }, async () => {
-	await sql`create table test (x text)`;
-	const line = "x".repeat(1024 * 1024 - 1) + "\n",
-		writable = await sql`copy test from stdin`.writable();
-	await pipeline(stream.Readable.from(Array.from({ length: 8 }, () => line)), writable);
-	const [{ n }] = await sql`select count(*)::int as n from test`;
-	return ["8 8", writable.count + " " + n, await sql`drop table test`];
-});
+test(
+	"Copy write waits for the socket to drain between large chunks",
+	{ timeout: 10_000 },
+	async () => {
+		await sql`create table test (x text)`;
+		const line = "x".repeat(1024 * 1024 - 1) + "\n",
+			writable = await sql`copy test from stdin`.writable();
+		await pipeline(stream.Readable.from(Array.from({ length: 8 }, () => line)), writable);
+		const [{ n }] = await sql`select count(*)::int as n from test`;
+		expect(writable.count + " " + n).toBe("8 8");
+		await sql`drop table test`;
+	},
+);
