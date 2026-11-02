@@ -15,7 +15,10 @@ replace_pg_vars(pg_vars);
 
 /** The port (on localhost) of the server that the tests use, which the PG* variables point at */
 export const pg_port = +pg_vars.PGPORT;
-/** The port (on localhost) of a second server, for tests that connect to several hosts */
+/**
+ * The port (on localhost) of a second server, which has `ssl` off, for tests that connect to
+ * several hosts or need a server without SSL
+ */
 export const second_pg_port = inject("second_pg_port");
 /** The directory of the Unix socket of the server at `pg_port` */
 export const pg_socket_dir = inject("pg_socket_dir");

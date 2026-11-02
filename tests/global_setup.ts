@@ -8,7 +8,10 @@ declare module "vitest" {
 	export interface ProvidedContext {
 		/** The PG* variables that point at the `postgres` superuser of the server that the tests use */
 		pg_vars: PgVars;
-		/** The port (on localhost) of a second server, for tests that connect to several hosts */
+		/**
+		 * The port (on localhost) of a second server, which has `ssl` off, for tests that connect to
+		 * several hosts or need a server without SSL
+		 */
 		second_pg_port: number;
 		/** The directory of the Unix socket of the server that `pg_vars` point at */
 		pg_socket_dir: string;
