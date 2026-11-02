@@ -98,8 +98,13 @@ test("Include table oid and column number in column details", async () => {
 	const [{ oid }] = await sql`select oid from pg_class where relname = 'tester'`;
 
 	const expected = `table:${oid},number:1|table:${oid},number:2`;
-	expect(`${r.columns.map((c) => `table:${c.table},number:${c.number}`).join("|")}`).toBe(expected);
-	await sql`drop table tester`;
+	try {
+		expect(`${r.columns.map((c) => `table:${c.table},number:${c.number}`).join("|")}`).toBe(
+			expected,
+		);
+	} finally {
+		await sql`drop table tester`;
+	}
 });
 
 test("Large object", async () => {

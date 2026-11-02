@@ -122,9 +122,12 @@ test("Connect using SSL prefer", async () => {
 		idle_timeout,
 	});
 
-	expect((await sql`select 1 as x`)[0].x).toBe(1);
-	await exec("psql", ["-c", "alter system set ssl=on"]);
-	await exec("psql", ["-c", "select pg_reload_conf()"]);
+	try {
+		expect((await sql`select 1 as x`)[0].x).toBe(1);
+	} finally {
+		await exec("psql", ["-c", "alter system set ssl=on"]);
+		await exec("psql", ["-c", "select pg_reload_conf()"]);
+	}
 });
 
 test("Reconnect using SSL", async () => {

@@ -92,8 +92,11 @@ test("Copy from abort", async () => {
 	writable.destroy(new Error("abort"));
 	await sql.end();
 
-	expect(aborted.message).toBe("abort");
-	await postgres(options)`drop table test`;
+	try {
+		expect(aborted.message).toBe("abort");
+	} finally {
+		await postgres(options)`drop table test`;
+	}
 });
 
 test("query during copy error", async () => {

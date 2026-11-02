@@ -251,27 +251,36 @@ test("Multiple statements", async () => {
 
 test("Insert empty array", async () => {
 	await sql`create table tester (ints int[])`;
-	expect(
-		Array.isArray((await sql`insert into tester (ints) values (${[]}) returning *`)[0].ints),
-	).toBe(true);
-	await sql`drop table tester`;
+	try {
+		expect(
+			Array.isArray((await sql`insert into tester (ints) values (${[]}) returning *`)[0].ints),
+		).toBe(true);
+	} finally {
+		await sql`drop table tester`;
+	}
 });
 
 test("Insert array in sql()", async () => {
 	await sql`create table tester (ints int[])`;
-	expect(
-		Array.isArray((await sql`insert into tester ${sql({ ints: [] })} returning *`)[0].ints),
-	).toBe(true);
-	await sql`drop table tester`;
+	try {
+		expect(
+			Array.isArray((await sql`insert into tester ${sql({ ints: [] })} returning *`)[0].ints),
+		).toBe(true);
+	} finally {
+		await sql`drop table tester`;
+	}
 });
 
 test("Escaping supports schemas and tables", async () => {
 	await sql`create schema a`;
 	await sql`create table a.b (c int)`;
 	await sql`insert into a.b (c) values (1)`;
-	expect((await sql`select ${sql("a.b.c")} from a.b`)[0].c).toBe(1);
-	await sql`drop table a.b`;
-	await sql`drop schema a`;
+	try {
+		expect((await sql`select ${sql("a.b.c")} from a.b`)[0].c).toBe(1);
+	} finally {
+		await sql`drop table a.b`;
+		await sql`drop schema a`;
+	}
 });
 
 test("Raw method returns values unparsed as Buffer", async () => {

@@ -43,8 +43,11 @@ test("Ensure reserve on query throws proper error", async () => {
 	const reserved = await sql.reserve();
 	const [{ x }] = await reserved`select 'wat' as x`;
 
-	expect(x).toBe("wat");
-	reserved.release();
+	try {
+		expect(x).toBe("wat");
+	} finally {
+		reserved.release();
+	}
 });
 
 test("reserve with fetch_types: false on a cold pool", async () => {

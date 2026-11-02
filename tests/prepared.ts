@@ -145,8 +145,11 @@ test("Properly throws routine error on not prepared statements", async () => {
   `)
 		.catch((e) => e);
 
-	expect(routine).toBe("transformAssignedExpr");
-	await sql`drop table x`;
+	try {
+		expect(routine).toBe("transformAssignedExpr");
+	} finally {
+		await sql`drop table x`;
+	}
 });
 
 test("Properly throws routine error on not prepared statements using file", async () => {
@@ -171,24 +174,33 @@ test("Describe", async () => {
 test("Describe a statement", async () => {
 	await sql`create table tester (name text, age int)`;
 	const r = await sql`select name, age from tester where name like $1 and age > $2`.describe();
-	expect(`${r.types.join(",")}/${r.columns.map((c) => `${c.name}:${c.type}`).join(",")}`).toBe(
-		"25,23/name:25,age:23",
-	);
-	await sql`drop table tester`;
+	try {
+		expect(`${r.types.join(",")}/${r.columns.map((c) => `${c.name}:${c.type}`).join(",")}`).toBe(
+			"25,23/name:25,age:23",
+		);
+	} finally {
+		await sql`drop table tester`;
+	}
 });
 
 test("Describe a statement without parameters", async () => {
 	await sql`create table tester (name text, age int)`;
 	const r = await sql`select name, age from tester`.describe();
-	expect(`${r.types.length},${r.columns.length}`).toBe("0,2");
-	await sql`drop table tester`;
+	try {
+		expect(`${r.types.length},${r.columns.length}`).toBe("0,2");
+	} finally {
+		await sql`drop table tester`;
+	}
 });
 
 test("Describe a statement without columns", async () => {
 	await sql`create table tester (name text, age int)`;
 	const r = await sql`insert into tester (name, age) values ($1, $2)`.describe();
-	expect(`${r.types.length},${r.columns.length}`).toBe("2,0");
-	await sql`drop table tester`;
+	try {
+		expect(`${r.types.length},${r.columns.length}`).toBe("2,0");
+	} finally {
+		await sql`drop table tester`;
+	}
 });
 
 test("Fails a stale prepared statement once when a query is piped behind it", async () => {
@@ -503,11 +515,14 @@ test("The same query in schemas of different shape gets the rows of its own sche
 	for (let i = 0; i < 5; i++)
 		results.push(...(await Promise.all([tenant("tenant_a", 20), tenant("tenant_b", 10)])));
 	const counts = results.reduce((acc, x) => ((acc[x] = (acc[x] || 0) + 1), acc), {});
-	expect(JSON.stringify(counts)).toBe(
-		'{"{\\"id\\":1,\\"val\\":42}":5,"{\\"id\\":1,\\"label\\":\\"hello\\"}":5}',
-	);
-	await sql.unsafe("drop schema tenant_a cascade; drop schema tenant_b cascade");
-	await sql.end();
+	try {
+		expect(JSON.stringify(counts)).toBe(
+			'{"{\\"id\\":1,\\"val\\":42}":5,"{\\"id\\":1,\\"label\\":\\"hello\\"}":5}',
+		);
+	} finally {
+		await sql.unsafe("drop schema tenant_a cascade; drop schema tenant_b cascade");
+		await sql.end();
+	}
 });
 
 test("A late 26000 does not make the connection forget a statement prepared again behind it", async () => {

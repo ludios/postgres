@@ -97,8 +97,11 @@ test("little bobby tables", async () => {
 	await sql`create table students (name text, age int)`;
 	await sql`insert into students (name) values (${name})`;
 
-	expect((await sql`select name from students`)[0].name).toBe(name);
-	await sql`drop table students`;
+	try {
+		expect((await sql`select name from students`)[0].name).toBe(name);
+	} finally {
+		await sql`drop table students`;
+	}
 });
 
 test("throws correct error when authentication fails", async () => {

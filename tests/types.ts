@@ -329,12 +329,15 @@ test("Domain type wrapping an array resolves to the base type serializer, for a 
 	await sql`create domain pg_test_domain_array as text[]`;
 	await sql`create table test (x pg_test_domain_array)`;
 	const fresh = postgres(options);
-	expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x.join(",")).toBe(
-		"a,b",
-	);
-	await fresh.end();
-	await sql`drop table test`;
-	await sql`drop domain pg_test_domain_array`;
+	try {
+		expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x.join(",")).toBe(
+			"a,b",
+		);
+	} finally {
+		await fresh.end();
+		await sql`drop table test`;
+		await sql`drop domain pg_test_domain_array`;
+	}
 });
 
 test("Nested domain types resolve through to their base type serializer, for a domain made before the pool starts", async () => {
@@ -344,13 +347,16 @@ test("Nested domain types resolve through to their base type serializer, for a d
 	await sql`create domain pg_test_domain_nested_child as pg_test_domain_nested_parent`;
 	await sql`create table test (x pg_test_domain_nested_child)`;
 	const fresh = postgres(options);
-	expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x.join(",")).toBe(
-		"a,b",
-	);
-	await fresh.end();
-	await sql`drop table test`;
-	await sql`drop domain pg_test_domain_nested_child`;
-	await sql`drop domain pg_test_domain_nested_parent`;
+	try {
+		expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x.join(",")).toBe(
+			"a,b",
+		);
+	} finally {
+		await fresh.end();
+		await sql`drop table test`;
+		await sql`drop domain pg_test_domain_nested_child`;
+		await sql`drop domain pg_test_domain_nested_parent`;
+	}
 });
 
 test("Built-in array types without fetch_types", async () => {

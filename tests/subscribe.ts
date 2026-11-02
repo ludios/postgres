@@ -38,12 +38,15 @@ test("subscribe", { timeout: 10_000 }, async () => {
 	await unsubscribe();
 	await sql`insert into test (name) values ('Oh noes')`;
 	await delay(50);
-	expect(result.join(",")).toBe(
-		"insert,Murray,1,,,update,Rothbard,1,,,update,Rothbard,2,,1,delete,,2,,,insert,Murray,2,,,update,Rothbard,2,Murray,2,delete,Rothbard,2,,",
-	);
-	await sql`drop table test`;
-	await sql`drop publication alltables`;
-	await sql.end();
+	try {
+		expect(result.join(",")).toBe(
+			"insert,Murray,1,,,update,Rothbard,1,,,update,Rothbard,2,,1,delete,,2,,,insert,Murray,2,,,update,Rothbard,2,Murray,2,delete,Rothbard,2,,",
+		);
+	} finally {
+		await sql`drop table test`;
+		await sql`drop publication alltables`;
+		await sql.end();
+	}
 });
 
 test("subscribe with transform", { timeout: 10_000 }, async () => {
@@ -86,12 +89,15 @@ test("subscribe with transform", { timeout: 10_000 }, async () => {
 	await unsubscribe();
 	await sql`insert into test (name_in_camel) values ('Oh noes')`;
 	await delay(50);
-	expect(result.join(",")).toBe(
-		"insert,Murray,,update,Rothbard,,delete,1,,insert,Murray,,update,Rothbard,Murray,delete,Rothbard,",
-	);
-	await sql`drop table test`;
-	await sql`drop publication alltables`;
-	await sql.end();
+	try {
+		expect(result.join(",")).toBe(
+			"insert,Murray,,update,Rothbard,,delete,1,,insert,Murray,,update,Rothbard,Murray,delete,Rothbard,",
+		);
+	} finally {
+		await sql`drop table test`;
+		await sql`drop publication alltables`;
+		await sql.end();
+	}
 });
 
 test("subscribe reconnects and calls onsubscribe", { timeout: 10_000 }, async () => {
@@ -131,10 +137,13 @@ test("subscribe reconnects and calls onsubscribe", { timeout: 10_000 }, async ()
 	await sql`delete from test`;
 	await until(() => result.length === 6, 5000, state);
 	await unsubscribe();
-	expect(onsubscribes + result.join(",")).toBe("2insert,Murray,,delete,1,");
-	await sql`drop table test`;
-	await sql`drop publication alltables`;
-	await sql.end();
+	try {
+		expect(onsubscribes + result.join(",")).toBe("2insert,Murray,,delete,1,");
+	} finally {
+		await sql`drop table test`;
+		await sql`drop publication alltables`;
+		await sql.end();
+	}
 });
 
 const until = async (fn, ms = 5000, state) => {
@@ -191,8 +200,11 @@ test(
 
 		const [slot] =
 			await sql`select temporary, active from pg_replication_slots where slot_name = 'postgresjs_resume'`;
-		expect(seen.join() + " " + slot.temporary + " " + slot.active).toBe("a,b,c false false");
-		await done("postgresjs_resume");
+		try {
+			expect(seen.join() + " " + slot.temporary + " " + slot.active).toBe("a,b,c false false");
+		} finally {
+			await done("postgresjs_resume");
+		}
 	},
 );
 
@@ -211,8 +223,11 @@ test(
 		for (let i = 0; i < 10; i++) await sql`insert into test (name) values (${"x" + i})`;
 		await until(() => seen.length === 10);
 		await sub.end();
-		expect(seen.join()).toBe("1,2,3,4,5,6,7,8,9,10");
-		await done("postgresjs_order");
+		try {
+			expect(seen.join()).toBe("1,2,3,4,5,6,7,8,9,10");
+		} finally {
+			await done("postgresjs_order");
+		}
 	},
 );
 
@@ -240,8 +255,11 @@ test(
 		await until(() => seen.join() === "a,a,b", 6000);
 		await delay(50);
 		await sub.end();
-		expect(seen.join() + " " + errors.join()).toBe("a,a,b not yet");
-		await done("postgresjs_retry");
+		try {
+			expect(seen.join() + " " + errors.join()).toBe("a,a,b not yet");
+		} finally {
+			await done("postgresjs_retry");
+		}
 	},
 );
 
@@ -269,8 +287,11 @@ test(
 		const [{ moved }] = await sql`
     select confirmed_flush_lsn > ${before}::pg_lsn as moved from pg_replication_slots where slot_name = 'postgresjs_confirm'
   `;
-		expect(held + " " + moved).toBe("true true");
-		await done("postgresjs_confirm");
+		try {
+			expect(held + " " + moved).toBe("true true");
+		} finally {
+			await done("postgresjs_confirm");
+		}
 	},
 );
 
@@ -288,17 +309,20 @@ test(
 		await until(() => seen.length === 2);
 		await sub.end();
 		const [insert, truncate] = seen;
-		expect(
-			[
-				insert.command,
-				truncate.command,
-				truncate.relation.table,
-				truncate.restartIdentity,
-				/^[0-9A-F]+\/[0-9A-F]+$/.test(insert.lsn),
-				insert.time instanceof Date && typeof insert.xid === "number",
-			].join(" "),
-		).toBe("insert truncate test true true true");
-		await done();
+		try {
+			expect(
+				[
+					insert.command,
+					truncate.command,
+					truncate.relation.table,
+					truncate.restartIdentity,
+					/^[0-9A-F]+\/[0-9A-F]+$/.test(insert.lsn),
+					insert.time instanceof Date && typeof insert.xid === "number",
+				].join(" "),
+			).toBe("insert truncate test true true true");
+		} finally {
+			await done();
+		}
 	},
 );
 
@@ -325,8 +349,11 @@ test(
 		await until(() => seen.length >= 2, 6000);
 		await delay(100);
 		await sub.end();
-		expect(seen.join() + " " + subscribed).toBe("a,b 2");
-		await done("postgresjs_reconnect");
+		try {
+			expect(seen.join() + " " + subscribed).toBe("a,b 2");
+		} finally {
+			await done("postgresjs_reconnect");
+		}
 	},
 );
 
@@ -371,10 +398,13 @@ test(
 		await unsubscribe();
 		process.off("warning", onwarning);
 
-		expect(seen.subscribes + " " + result.join() + warnings.join()).toBe("13 after");
-		await sql`drop table test`;
-		await sql`drop publication alltables`;
-		await sql.end();
+		try {
+			expect(seen.subscribes + " " + result.join() + warnings.join()).toBe("13 after");
+		} finally {
+			await sql`drop table test`;
+			await sql`drop publication alltables`;
+			await sql.end();
+		}
 	},
 );
 
@@ -402,11 +432,16 @@ test(
 		await unsubscribe();
 
 		const expected = JSON.stringify({ moods: queried.moods, p: queried.p });
-		expect(JSON.stringify(result[0] && { moods: result[0].moods, p: result[0].p })).toBe(expected);
-		await sql.unsafe(
-			"drop publication custom_types_pub; drop table test; drop type subscribe_mood; drop domain subscribe_positive",
-		);
-		await sql.end();
+		try {
+			expect(JSON.stringify(result[0] && { moods: result[0].moods, p: result[0].p })).toBe(
+				expected,
+			);
+		} finally {
+			await sql.unsafe(
+				"drop publication custom_types_pub; drop table test; drop type subscribe_mood; drop domain subscribe_positive",
+			);
+			await sql.end();
+		}
 	},
 );
 
@@ -436,8 +471,11 @@ test(
 		await until(() => seen.length === 3);
 		await delay(50);
 		await sub.end();
-		expect(seen.join()).toBe("a1,b1,b2");
-		await done();
+		try {
+			expect(seen.join()).toBe("a1,b1,b2");
+		} finally {
+			await done();
+		}
 	},
 );
 
@@ -524,8 +562,11 @@ test(
     select bool_or(confirmed_flush_lsn >= ${lsn}::pg_lsn) as confirmed from pg_replication_slots where slot_name like 'postgresjs_%'
   `;
 		await sub.end();
-		expect(seen.join() + " " + confirmed).toBe("a true");
-		await done();
+		try {
+			expect(seen.join() + " " + confirmed).toBe("a true");
+		} finally {
+			await done();
+		}
 	},
 );
 
@@ -558,8 +599,11 @@ test(
 		await sql`update test set name = 'b'`;
 		await until(() => seen.length && errors.length);
 		await sub.end();
-		expect(seen.join() + " " + errors.join()).toBe("B undefined sync");
-		await done();
+		try {
+			expect(seen.join() + " " + errors.join()).toBe("B undefined sync");
+		} finally {
+			await done();
+		}
 	},
 );
 
@@ -578,11 +622,16 @@ test(
 		await sub.end();
 		const [row] = seen,
 			own = Object.getOwnPropertyDescriptor(row, "__proto__");
-		expect(
-			[typeof row.isAdmin, Object.getPrototypeOf(row) === Object.prototype, own.value.isAdmin].join(
-				" ",
-			),
-		).toBe("undefined true true");
-		await done();
+		try {
+			expect(
+				[
+					typeof row.isAdmin,
+					Object.getPrototypeOf(row) === Object.prototype,
+					own.value.isAdmin,
+				].join(" "),
+			).toBe("undefined true true");
+		} finally {
+			await done();
+		}
 	},
 );

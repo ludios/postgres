@@ -794,9 +794,12 @@ test("A query that leaves a transaction open on the pool is rejected and rolled 
 	await sql.end();
 	const check = postgres(options);
 	const [{ n }] = await check`select count(*)::int as n from test`;
-	expect(opened + " " + n).toBe("UNSAFE_TRANSACTION 4");
-	await check`drop table test`;
-	await check.end();
+	try {
+		expect(opened + " " + n).toBe("UNSAFE_TRANSACTION 4");
+	} finally {
+		await check`drop table test`;
+		await check.end();
+	}
 });
 
 test("A query issued before sql.begin runs before the transaction with max: 1", async () => {
