@@ -948,8 +948,8 @@ test("sql.rollback() comes after the queries already made, and the connection is
 	await using sql = postgres({ ...options, max: 1 });
 	await sql`create table test (x int)`;
 	let same;
-	await sql.begin((sql) => {
-		sql`insert into test values (1)`;
+	await sql.begin(async (sql) => {
+		await sql`insert into test values (1)`;
 		const a = sql.rollback();
 		same = a === sql.rollback();
 		return a;

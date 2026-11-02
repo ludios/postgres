@@ -41,7 +41,9 @@ export async function open(
 			if (!failed && fits(want, ready.attributes)) {
 				return ((ready.index = i), ready);
 			}
-			failed || ready.socket.end(p.Terminate());
+			if (!failed) {
+				ready.socket.end(p.Terminate());
+			}
 			last = failed ? error : Errors.connection("CONNECTION_DESTROYED", options, host, port);
 			if (signal.aborted) {
 				throw last;
@@ -120,12 +122,23 @@ function attempt(options, host, port, signal) {
 			}
 
 			settled = true;
-			timer && clearTimeout(timer);
-			socket && signal.sockets.delete(socket);
-			signal.aborted && !failed && ((failed = true), (error = fail("CONNECTION_DESTROYED")));
+			if (timer) {
+				clearTimeout(timer);
+			}
+			if (socket) {
+				signal.sockets.delete(socket);
+			}
+			if (signal.aborted && !failed) {
+				failed = true;
+				error = fail("CONNECTION_DESTROYED");
+			}
 
 			if (failed) {
-				socket ? socket.destroy() : raw && raw.destroy();
+				if (socket) {
+					socket.destroy();
+				} else if (raw) {
+					raw.destroy();
+				}
 				return reject(error);
 			}
 
@@ -179,22 +192,22 @@ function attempt(options, host, port, signal) {
 
 				function frame(type, x, start, end) {
 					try {
-						type === R
-							? authenticate(Buffer.from(x.subarray(start, end)))
-							: type === S
-								? (([k, v]) => (parameters[k] = v))(p.parameterStatus(x, start))
-								: type === K
-									? Object.assign(backend, p.backendKeyData(x, start))
-									: type === E
-										? reject(Errors.postgres(p.error(x, start, end)))
-										: type === N
-											? notice(p.error(x, start, end))
-											: type === D
-												? rows.push(
-														x.toString("utf8", start + 11, start + 11 + x.readInt32BE(start + 7)),
-													)
-												: type === Z &&
-													settled(p.readyForQuery(x, start), Buffer.from(x.subarray(end)));
+						if (type === R) {
+							authenticate(Buffer.from(x.subarray(start, end)));
+						} else if (type === S) {
+							const [k, v] = p.parameterStatus(x, start);
+							parameters[k] = v;
+						} else if (type === K) {
+							Object.assign(backend, p.backendKeyData(x, start));
+						} else if (type === E) {
+							reject(Errors.postgres(p.error(x, start, end)));
+						} else if (type === N) {
+							notice(p.error(x, start, end));
+						} else if (type === D) {
+							rows.push(x.toString("utf8", start + 11, start + 11 + x.readInt32BE(start + 7)));
+						} else if (type === Z) {
+							settled(p.readyForQuery(x, start), Buffer.from(x.subarray(end)));
+						}
 					} catch (error) {
 						reject(error);
 					}
@@ -202,7 +215,11 @@ function attempt(options, host, port, signal) {
 
 				function notice(x) {
 					try {
-						options.onnotice ? options.onnotice(x) : options.onnotice === false || console.log(x);
+						if (options.onnotice) {
+							options.onnotice(x);
+						} else if (options.onnotice !== false) {
+							console.log(x);
+						}
 					} catch (error) {
 						noop(error);
 					}
@@ -436,7 +453,9 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 		}
 
 		if (!salted.has(key)) {
-			salted.size >= 64 && salted.delete(salted.keys().next().value);
+			if (salted.size >= 64) {
+				salted.delete(salted.keys().next().value);
+			}
 			salted.set(key, crypto.pbkdf2Sync(pass, Buffer.from(res.s, "base64"), +res.i, 32, "sha256"));
 		}
 
@@ -647,7 +666,8 @@ function split(line) {
 		if (c === "\\" && i + 1 < line.length) {
 			field += line[++i];
 		} else if (c === ":" && fields.length < 4) {
-			(fields.push(field), (field = ""));
+			fields.push(field);
+			field = "";
 		} else {
 			field += c;
 		}

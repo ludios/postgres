@@ -320,7 +320,9 @@ export function Types(options: Record<string, any> = {}) {
 	);
 	register(options.infer === false ? shapedTypes : types);
 	Object.assign(parsers, dates);
-	options.infer === false && (parsers[1114] = parseDate);
+	if (options.infer === false) {
+		parsers[1114] = parseDate;
+	}
 	const custom = Object.values<PostgresType>(options.types || {}),
 		named = custom.filter((x) => [x.to].concat(x.from || []).some((y) => typeof y === "string")),
 		oids = new Map<string, number>();
@@ -394,7 +396,9 @@ export function Types(options: Record<string, any> = {}) {
 	function register(xs: Record<string, PostgresType> | PostgresType[]) {
 		Object.values(xs).forEach((x) => {
 			const from = [].concat(x.from || []);
-			x.parse && from.forEach((oid) => (parsers[oid] = x.parse));
+			if (x.parse) {
+				from.forEach((oid) => (parsers[oid] = x.parse));
+			}
 			if (x.serialize) {
 				serializers[x.to] = x.serialize;
 				from.forEach((oid) => (serializers[oid] = x.serialize));
@@ -498,9 +502,11 @@ export function Types(options: Record<string, any> = {}) {
 				if (oid in parsers || oid in serializers) {
 					return;
 				}
-				kind === "d"
-					? (bases[oid] = base)
-					: element && !(oid in elements) && (elements[oid] = [element, delimiter]);
+				if (kind === "d") {
+					bases[oid] = base;
+				} else if (element && !(oid in elements)) {
+					elements[oid] = [element, delimiter];
+				}
 			}),
 		);
 	}
@@ -561,7 +567,9 @@ export function parseArray(x, parse, delimiter = ",") {
 				const s = x.slice(start, i);
 				xs.push(s === "NULL" ? null : parse ? parse(s) : s);
 			}
-			x[i] === delimiter && i++;
+			if (x[i] === delimiter) {
+				i++;
+			}
 		}
 		i++;
 		return xs;
@@ -574,8 +582,12 @@ export function serializeArray(xs, serialize = string, delimiter = ",", undefine
 		xs
 			.map((x) => {
 				const typed = x instanceof Parameter;
-				typed && (x = x.value);
-				x === undefined && (x = undefinedValue);
+				if (typed) {
+					x = x.value;
+				}
+				if (x === undefined) {
+					x = undefinedValue;
+				}
 				if (x === undefined) {
 					throw Errors.generic("UNDEFINED_VALUE", "Undefined values are not allowed");
 				}

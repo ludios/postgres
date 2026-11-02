@@ -5,7 +5,9 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
 		await sql
 			.begin(async (sql) => {
 				let finish;
-				!oid && ([{ oid }] = await sql`select lo_creat(-1) as oid`);
+				if (!oid) {
+					[{ oid }] = await sql`select lo_creat(-1) as oid`;
+				}
 				const [{ fd }] = await sql`select lo_open(${oid}, ${mode}) as fd`;
 
 				const lo = {
@@ -36,7 +38,9 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
 
 				async function readable({ highWaterMark = 2048 * 8, start = 0, end = Infinity } = {}) {
 					let max = end - start;
-					start && (await lo.seek(start));
+					if (start) {
+						await lo.seek(start);
+					}
 
 					return new Stream.Readable({
 						highWaterMark,
@@ -44,7 +48,9 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
 							const l = Math.min(size, max);
 							max -= l;
 							const [{ data }] = await lo.read(l);
-							data.length && this.push(data);
+							if (data.length) {
+								this.push(data);
+							}
 							if (data.length < l || max === 0) {
 								this.push(null);
 							}
@@ -53,7 +59,9 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
 				}
 
 				async function writable({ highWaterMark = 2048 * 8, start = 0 } = {}) {
-					start && (await lo.seek(start));
+					if (start) {
+						await lo.seek(start);
+					}
 
 					return new Stream.Writable({
 						highWaterMark,

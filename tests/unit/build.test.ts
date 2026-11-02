@@ -74,7 +74,7 @@ test("Inspect shows text and parameters with debug", async () => {
 test("Building does not run the query", async () => {
 	let ran = false;
 	const sql = postgres({ host: "localhost", port: 1, debug: () => (ran = true) });
-	sql`select 1`.text;
+	expect(sql`select 1`.text).toBe("select 1");
 	await new Promise((r) => setTimeout(r, 10));
 	expect(ran).toBe(false);
 });

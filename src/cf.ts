@@ -88,7 +88,9 @@ function Stream(raw, secure, host, port) {
 			return pending < 16;
 		},
 		end(data) {
-			data && x.write(data);
+			if (data) {
+				x.write(data);
+			}
 			writer.close().catch(() => {});
 		},
 		destroy() {
@@ -101,7 +103,10 @@ function Stream(raw, secure, host, port) {
 		},
 		resume() {
 			paused = false;
-			wake && (wake(), (wake = null));
+			if (wake) {
+				wake();
+				wake = null;
+			}
 		},
 		setKeepAlive() {},
 		setNoDelay() {},
@@ -117,7 +122,9 @@ function Stream(raw, secure, host, port) {
 	async function read() {
 		try {
 			while (true) {
-				paused && (await resumed());
+				if (paused) {
+					await resumed();
+				}
 				const { value, done } = await reader.read();
 
 				if (done) {
@@ -128,13 +135,17 @@ function Stream(raw, secure, host, port) {
 				x.emit("data", Buffer.from(value.buffer, value.byteOffset, value.byteLength));
 			}
 		} catch (error) {
-			closed || x.emit("error", handshake(error));
+			if (!closed) {
+				x.emit("error", handshake(error));
+			}
 		}
 		finish();
 	}
 
 	function fail(error) {
-		closed || x.emit("error", handshake(error));
+		if (!closed) {
+			x.emit("error", handshake(error));
+		}
 		x.destroy();
 	}
 
@@ -143,7 +154,9 @@ function Stream(raw, secure, host, port) {
 			return;
 		}
 
-		answered || x.destroyed || x.emit("error", handshake());
+		if (!answered && !x.destroyed) {
+			x.emit("error", handshake());
+		}
 		closed = true;
 		x.emit("close");
 	}

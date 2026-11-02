@@ -32,10 +32,14 @@ export default function Subscribe(postgres, options) {
 			replication: "database",
 		},
 		onclose: () => {
-			current && current.stop();
+			if (current) {
+				current.stop();
+			}
 			current = null;
 			state.pid = state.secret = undefined;
-			ended || restart();
+			if (!ended) {
+				restart();
+			}
 		},
 		no_subscribe: true,
 	}));
@@ -45,12 +49,16 @@ export default function Subscribe(postgres, options) {
 
 	sql.end = async () => {
 		ended = true;
-		current && (await current.finish());
+		if (current) {
+			await current.finish();
+		}
 		return end();
 	};
 
 	sql.close = async () => {
-		current && (await current.finish());
+		if (current) {
+			await current.finish();
+		}
 		return close();
 	};
 
@@ -59,7 +67,9 @@ export default function Subscribe(postgres, options) {
 	async function subscribe(event, fn, onsubscribe = noop, onerror) {
 		event = parseEvent(event);
 
-		connection || (connection = init());
+		if (!connection) {
+			connection = init();
+		}
 
 		const subscriber = { fn, onsubscribe, onerror };
 		const fns = subscribers.has(event)
@@ -68,7 +78,9 @@ export default function Subscribe(postgres, options) {
 
 		const unsubscribe = () => {
 			fns.delete(subscriber);
-			fns.size === 0 && subscribers.delete(event);
+			if (fns.size === 0) {
+				subscribers.delete(event);
+			}
 		};
 
 		return connection.then(
@@ -91,13 +103,16 @@ export default function Subscribe(postgres, options) {
 			.then(
 				(x) => {
 					retries = 0;
-					ended ||
+					if (!ended) {
 						subscribers.forEach((event) => event.forEach(({ onsubscribe }) => onsubscribe()));
+					}
 					return x;
 				},
 				(error) => {
 					report(error);
-					ended || restart();
+					if (!ended) {
+						restart();
+					}
 				},
 			);
 		connection.catch(noop);
@@ -145,7 +160,9 @@ export default function Subscribe(postgres, options) {
 		stream.on("close", () => {
 			const unexpected = !stopped;
 			stop();
-			unexpected && close();
+			if (unexpected) {
+				close();
+			}
 		});
 
 		return { stop, finish };
@@ -156,8 +173,12 @@ export default function Subscribe(postgres, options) {
 				parse(x.subarray(25), relations, sql.options.parsers, message, options.transform);
 			} else if (x[0] === 0x6b) {
 				received = max(received, x.readBigUInt64BE(1));
-				idle() && (acked = max(acked, received));
-				x[17] && status();
+				if (idle()) {
+					acked = max(acked, received);
+				}
+				if (x[17]) {
+					status();
+				}
 			}
 		}
 
@@ -206,13 +227,17 @@ export default function Subscribe(postgres, options) {
 				}
 
 				queue = null;
-				stopped || failed || stream.resume();
+				if (!stopped && !failed) {
+					stream.resume();
+				}
 			}, noop);
 		}
 
 		function commit(done) {
 			acked = max(acked, done.end);
-			persistent && !soon && (soon = timers.setImmediate(() => ((soon = null), status())));
+			if (persistent && !soon) {
+				soon = timers.setImmediate(() => ((soon = null), status()));
+			}
 		}
 
 		function handle(row, info) {
@@ -223,15 +248,19 @@ export default function Subscribe(postgres, options) {
 
 			call(pending, "*", row, info);
 			call(pending, "*:" + path, row, info);
-			key && call(pending, "*:" + path + key, row, info);
+			if (key) {
+				call(pending, "*:" + path + key, row, info);
+			}
 			call(pending, info.command, row, info);
 			call(pending, info.command + ":" + path, row, info);
-			key && call(pending, info.command + ":" + path + key, row, info);
+			if (key) {
+				call(pending, info.command + ":" + path + key, row, info);
+			}
 			return pending.length ? Promise.all(pending) : null;
 		}
 
 		function call(pending, event, row, info) {
-			subscribers.has(event) &&
+			if (subscribers.has(event)) {
 				subscribers.get(event).forEach((subscriber) => {
 					let result;
 					try {
@@ -239,10 +268,11 @@ export default function Subscribe(postgres, options) {
 					} catch (error) {
 						return fail(error, subscriber);
 					}
-					result &&
-						typeof result.then === "function" &&
+					if (result && typeof result.then === "function") {
 						pending.push(result.catch((error) => fail(error, subscriber)));
+					}
 				});
+			}
 		}
 
 		function fail(error, subscriber) {
@@ -287,13 +317,19 @@ export default function Subscribe(postgres, options) {
 		}
 
 		async function finish() {
-			queue && (await queue.catch(noop));
+			if (queue) {
+				await queue.catch(noop);
+			}
 			if (!failed) {
-				idle() && (acked = max(acked, received));
+				if (idle()) {
+					acked = max(acked, received);
+				}
 				status();
 			}
 			stop();
-			stream.destroyed || (await new Promise((r) => (stream.once("close", r), stream.end())));
+			if (!stream.destroyed) {
+				await new Promise((r) => (stream.once("close", r), stream.end()));
+			}
 		}
 
 		function stop() {
@@ -302,8 +338,12 @@ export default function Subscribe(postgres, options) {
 			}
 
 			stopped = true;
-			timer && timers.clearTimeout(timer);
-			soon && timers.clearImmediate(soon);
+			if (timer) {
+				timers.clearTimeout(timer);
+			}
+			if (soon) {
+				timers.clearImmediate(soon);
+			}
 			timer = soon = null;
 		}
 	}
@@ -314,9 +354,11 @@ export default function Subscribe(postgres, options) {
 			: [...subscribers.values()].flatMap((x) => [...x].map((x) => x.onerror));
 
 		const listeners = handlers.filter(Boolean);
-		listeners.length
-			? listeners.forEach((fn) => fn(error))
-			: console.error("postgres.js: logical replication error", error);
+		if (listeners.length) {
+			listeners.forEach((fn) => fn(error));
+		} else {
+			console.error("postgres.js: logical replication error", error);
+		}
 	}
 }
 
@@ -354,7 +396,9 @@ function parse(x, relations, parsers, message, transform) {
 				atttypmod: x.readUInt32BE((i += 4)),
 			};
 
-			column.key && r.keys.push(column);
+			if (column.key) {
+				r.keys.push(column);
+			}
 			i += 4;
 		}
 	} else if (type === 66) {
@@ -388,7 +432,9 @@ function parse(x, relations, parsers, message, transform) {
 		const key = x[i] === 75;
 		const xs = key || x[i] === 79 ? tuples(x, relation.columns, (i += 3), transform) : null;
 
-		xs && (i = xs.i);
+		if (xs) {
+			i = xs.i;
+		}
 
 		const { row } = tuples(x, relation.columns, i + 3, transform);
 		message("change", row, { command: "update", relation, key, old: xs && xs.row });
@@ -421,7 +467,11 @@ function tuples(x, columns, xi, transform) {
 					: column.parser(x.toString("utf8", xi + 4, (xi += 4 + x.readUInt32BE(xi))));
 
 		value = transform.value.from ? transform.value.from(value, column) : value;
-		column.name === "__proto__" ? own(row, column.name, value) : (row[column.name] = value);
+		if (column.name === "__proto__") {
+			own(row, column.name, value);
+		} else {
+			row[column.name] = value;
+		}
 	}
 
 	return { i: xi, row: transform.row.from ? transform.row.from(row) : row };

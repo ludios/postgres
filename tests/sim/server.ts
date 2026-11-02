@@ -85,14 +85,23 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 
 				const message = incoming.subarray(0, length);
 				incoming = incoming.subarray(length);
-				started ? (queue.push(message), pump()) : first(message);
+				if (started) {
+					queue.push(message);
+					pump();
+				} else {
+					first(message);
+				}
 			}
 		});
 		end.on("close", () => {
 			gone = true;
-			status !== "I" && txScopes.forEach((s) => outcomes.set(s, "rollback"));
+			if (status !== "I") {
+				txScopes.forEach((s) => outcomes.set(s, "rollback"));
+			}
 			sessions.delete(x);
-			sleeping && sleeping.cancel();
+			if (sleeping) {
+				sleeping.cancel();
+			}
 		});
 		end.on("error", () => {});
 
@@ -108,13 +117,17 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				const pid = message.readInt32BE(8),
 					secret = message.readInt32BE(12);
 				for (const s of sessions) {
-					s.id === pid && s.secret === secret && s.cancel && s.cancel();
+					if (s.id === pid && s.secret === secret && s.cancel) {
+						s.cancel();
+					}
 				}
 				return end.end();
 			}
 			started = true;
 			const mode = startup[host];
-			mode !== "ready" && attempts.push(clock.now);
+			if (mode !== "ready") {
+				attempts.push(clock.now);
+			}
 			if (mode === "close") {
 				return end.end();
 			}
@@ -147,7 +160,9 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 		}
 
 		function fatal(code, message) {
-			gone || end.end(error("FATAL", code, message));
+			if (!gone) {
+				end.end(error("FATAL", code, message));
+			}
 		}
 
 		function pump() {
@@ -163,7 +178,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			const type = String.fromCharCode(m[0]),
 				r = reader(m, 5);
 
-			log &&
+			if (log) {
 				log(
 					x.id +
 						" " +
@@ -177,6 +192,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 							.replace(/[^ -~]+/g, ".")
 							.slice(0, 90),
 				);
+			}
 			if (discard && type !== "S") {
 				return;
 			}
@@ -205,16 +221,16 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				reply(msg("1"));
 			} else if (type === "B") {
 				const portal = r.str(),
-					name = r.str(),
-					formats = r.i16s(),
-					n = r.i16(),
+					name = r.str();
+				// The parameter formats, which this server ignores
+				r.i16s();
+				const n = r.i16(),
 					values = [...Array(n)].map(() => r.bytes());
-				formats;
 				const p = prepared.get(name);
 				if (!p) {
-					name &&
-						!x.wiped.has(name) &&
+					if (name && !x.wiped.has(name)) {
 						violation('bind of statement "' + name + '" that session ' + x.id + " never had");
+					}
 					return fail("26000", 'prepared statement "' + name + '" does not exist');
 				}
 				portals.set(portal, {
@@ -228,18 +244,18 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 					name = r.str();
 				const p = kind === "S" ? prepared.get(name) : portals.get(name) && portals.get(name).p;
 				if (!p) {
-					kind === "S" &&
-						name &&
-						!x.wiped.has(name) &&
+					if (kind === "S" && name && !x.wiped.has(name)) {
 						violation('describe of statement "' + name + '" that session ' + x.id + " never had");
+					}
 					return fail(kind === "S" ? "26000" : "34000", "does not exist");
 				}
 				if (p.ast.select && p.shape !== x.shape) {
 					return fail("0A000", "cached plan must not change result type");
 				}
 
-				kind === "S" &&
+				if (kind === "S") {
 					reply(msg("t", i16(p.ast.params), ...[...Array(p.ast.params)].map(() => i32(23))));
+				}
 				reply(p.ast.select ? columns(x.shape) : msg("n"));
 			} else if (type === "E") {
 				const name = r.str(),
@@ -261,10 +277,16 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				execute({ p: { text, ast, shape: x.shape }, values: [], row: 0 }, 0, true);
 			} else if (type === "S") {
 				discard = false;
-				status === "I" && portals.clear();
+				if (status === "I") {
+					portals.clear();
+				}
 				reply(ready());
 			} else if (type === "C") {
-				r.byte() === "S" ? prepared.delete(r.str()) : portals.delete(r.str());
+				if (r.byte() === "S") {
+					prepared.delete(r.str());
+				} else {
+					portals.delete(r.str());
+				}
 				reply(msg("3"));
 			} else if (type === "X") {
 				end.end();
@@ -291,11 +313,15 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 
 			bind(scope);
 			check(id, scope);
-			portal.ordered || order(id, scope);
+			if (!portal.ordered) {
+				order(id, scope);
+			}
 			portal.ordered = true;
 
 			if (portal.p.stale || (ast.select && portal.p.shape !== x.shape)) {
-				stale.has(id) || stale.set(id, { status, retries: 0 });
+				if (!stale.has(id)) {
+					stale.set(id, { status, retries: 0 });
+				}
 				fail("0A000", "cached plan must not change result type");
 				return done();
 			}
@@ -333,7 +359,9 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				return;
 			}
 
-			simple && reply(columns(x.shape));
+			if (simple) {
+				reply(columns(x.shape));
+			}
 			const out = [];
 			while (portal.row < rows) {
 				if (portal.row === at) {
@@ -355,12 +383,14 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 		function check(id, scope) {
 			const retry = stale.get(id);
 			if (retry && ++retry.retries) {
-				retry.status !== "I" &&
+				if (retry.status !== "I") {
 					violation(
 						"stale plan for query " + id + " retried while the session was " + retry.status,
 					);
-				retry.retries > 1 &&
+				}
+				if (retry.retries > 1) {
 					violation("stale plan for query " + id + " retried " + retry.retries + " times");
+				}
 			}
 
 			if (scope && scopes.has(scope) && scopes.get(scope) !== x.id) {
@@ -368,7 +398,9 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 					"scope " + scope + " reached session " + x.id + " after session " + scopes.get(scope),
 				);
 			}
-			scope && scopes.set(scope, x.id);
+			if (scope) {
+				scopes.set(scope, x.id);
+			}
 
 			if (status !== "I" && scope !== txScope) {
 				violation(
@@ -389,7 +421,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				return;
 			}
 
-			latest.get(scope) > id &&
+			if (latest.get(scope) > id) {
 				violation(
 					"query " +
 						id +
@@ -398,13 +430,17 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 						" reached the server after query " +
 						latest.get(scope),
 				);
+			}
 			latest.set(scope, Math.max(id, latest.get(scope) || 0));
 		}
 
 		function transaction(command) {
 			const c = command.toLowerCase();
 			if (c === "begin") {
-				status === "I" && ((txScope = -1), (txScopes = new Set()));
+				if (status === "I") {
+					txScope = -1;
+					txScopes = new Set();
+				}
 				status = status === "I" ? "T" : status;
 				reply(msg("C", str("BEGIN")));
 			} else if (c === "commit" || c === "end") {
@@ -422,30 +458,42 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				portals.clear();
 				reply(msg("C", str("ROLLBACK")));
 			} else if (c.startsWith("rollback to")) {
-				status === "I"
-					? fail("25P01", "no transaction")
-					: ((status = "T"), reply(msg("C", str("ROLLBACK"))));
+				if (status === "I") {
+					fail("25P01", "no transaction");
+				} else {
+					status = "T";
+					reply(msg("C", str("ROLLBACK")));
+				}
 			} else {
-				status === "I"
-					? fail("25P01", "SAVEPOINT can only be used in transaction blocks")
-					: status === "E"
-						? fail("25P02", "current transaction is aborted")
-						: reply(msg("C", str(c.startsWith("release") ? "RELEASE" : "SAVEPOINT")));
+				if (status === "I") {
+					fail("25P01", "SAVEPOINT can only be used in transaction blocks");
+				} else if (status === "E") {
+					fail("25P02", "current transaction is aborted");
+				} else {
+					reply(msg("C", str(c.startsWith("release") ? "RELEASE" : "SAVEPOINT")));
+				}
 			}
 		}
 
 		function bind(scope) {
-			txScope === -1 && scope && ((txScope = scope), txScopes.add(scope));
+			if (txScope === -1 && scope) {
+				txScope = scope;
+				txScopes.add(scope);
+			}
 		}
 
 		function fail(code, message) {
-			status === "T" && (status = "E");
+			if (status === "T") {
+				status = "E";
+			}
 			discard = true;
 			reply(error("ERROR", code, message));
 		}
 
 		function reply(x) {
-			gone || end.write(x);
+			if (!gone) {
+				end.write(x);
+			}
 		}
 
 		function ready() {

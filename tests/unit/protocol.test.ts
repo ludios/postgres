@@ -192,7 +192,9 @@ test("Frames on a shared read buffer keeps what it has not framed when paused, a
 		out = [],
 		frames = p.Frames((type, buffer, start, end) => {
 			out.push(String.fromCharCode(type) + (end - start));
-			type === 84 && frames.pause();
+			if (type === 84) {
+				frames.pause();
+			}
 		}, true),
 		read = (from, to) => (
 			stream.copy(shared, 0, from, to),
@@ -210,8 +212,12 @@ test("Frames owning a shared read buffer hands over messages that stay intact af
 	const shared = Buffer.alloc(stream.length),
 		kept = [],
 		frames = p.Frames((type, buffer, start, end) => {
-			frames.owns(buffer) && kept.push(buffer.subarray(start, end));
-			type === 49 && frames.own(true);
+			if (frames.owns(buffer)) {
+				kept.push(buffer.subarray(start, end));
+			}
+			if (type === 49) {
+				frames.own(true);
+			}
 		}, true),
 		read = (from, to) => (
 			stream.copy(shared, 0, from, to),
@@ -238,7 +244,9 @@ test("Frames pauses mid-chunk and resumes without a new push", async () => {
 	const out = [];
 	const frames = p.Frames((type) => {
 		out.push(String.fromCharCode(type));
-		type === 84 && frames.pause();
+		if (type === 84) {
+			frames.pause();
+		}
 	});
 	frames.push(stream);
 	const paused = [...out];

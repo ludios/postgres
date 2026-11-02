@@ -130,7 +130,9 @@ export function Pool(options, types) {
 		if (q.options.simple && !built.values.length) {
 			const known = (free || options.scheduler) && statements.known(built.text);
 			q.alone = free && alone(known);
-			options.scheduler && (q.cost = known);
+			if (options.scheduler) {
+				q.cost = known;
+			}
 			return place({ q, simple: built.text, exclusive: !!q.streaming || q.alone }, lease);
 		}
 
@@ -141,7 +143,9 @@ export function Pool(options, types) {
 		const statement = statements.get(built, options.prepare && q.options.prepare !== false);
 		q.alone = free && alone(statement.live ? statement : statements.known(built.text));
 		q.wire = { statement, built };
-		options.scheduler && (q.cost = statement.cost);
+		if (options.scheduler) {
+			q.cost = statement.cost;
+		}
 		place({ q, statement, exclusive: !!q.cursorFn || !!q.streaming || q.alone }, lease);
 	}
 
@@ -167,7 +171,9 @@ export function Pool(options, types) {
 
 		q.connection = lease.connection;
 		lease.connection.local(q, error);
-		q.onwrite && q.onwrite();
+		if (q.onwrite) {
+			q.onwrite();
+		}
 	}
 
 	function place(job, lease?) {
@@ -217,7 +223,7 @@ export function Pool(options, types) {
 
 		job.timer = setTimeout(() => {
 			job.timer = null;
-			waiting.remove((x) => x === job) &&
+			if (waiting.remove((x) => x === job)) {
 				reject(
 					job,
 					Errors.generic(
@@ -225,13 +231,19 @@ export function Pool(options, types) {
 						"Waited more than " + options.queue_timeout + " seconds for a connection",
 					),
 				);
+			}
 		}, options.queue_timeout * 1000);
-		typeof job.timer.unref === "function" && job.timer.unref();
+		if (typeof job.timer.unref === "function") {
+			job.timer.unref();
+		}
 		return job;
 	}
 
 	function started(job) {
-		job.timer && (clearTimeout(job.timer), (job.timer = null));
+		if (job.timer) {
+			clearTimeout(job.timer);
+			job.timer = null;
+		}
 	}
 
 	function run(c, job) {
@@ -243,8 +255,14 @@ export function Pool(options, types) {
 		}
 
 		job.q.connection = c;
-		job.simple !== undefined ? c.simple(job.q, job.simple) : c.send(job.q);
-		job.q.onwrite && job.q.onwrite();
+		if (job.simple !== undefined) {
+			c.simple(job.q, job.simple);
+		} else {
+			c.send(job.q);
+		}
+		if (job.q.onwrite) {
+			job.q.onwrite();
+		}
 	}
 
 	function drain() {
@@ -257,11 +275,13 @@ export function Pool(options, types) {
 			}
 
 			waiting.shift();
-			!c
-				? reject(job, Errors.generic("COPY_IN_PROGRESS", "You cannot execute queries during copy"))
-				: job.lease
-					? grant(c, job)
-					: run(c, job);
+			if (!c) {
+				reject(job, Errors.generic("COPY_IN_PROGRESS", "You cannot execute queries during copy"));
+			} else if (job.lease) {
+				grant(c, job);
+			} else {
+				run(c, job);
+			}
 		}
 		if (waiting.length) {
 			event("wait", null, { waiting: waiting.length });
@@ -419,7 +439,11 @@ export function Pool(options, types) {
 
 	function ontimed(sample, t) {
 		decay(t);
-		sample < slow ? (work.fast += sample) : (work.slow += sample);
+		if (sample < slow) {
+			work.fast += sample;
+		} else {
+			work.slow += sample;
+		}
 	}
 
 	function decay(t) {
@@ -446,7 +470,9 @@ export function Pool(options, types) {
 
 		let loading = 0;
 		for (const c of connections) {
-			c.loading && loading++;
+			if (c.loading) {
+				loading++;
+			}
 		}
 
 		const wanted = Math.max(
@@ -461,7 +487,10 @@ export function Pool(options, types) {
 
 	function connect() {
 		opening++;
-		retryTimer && (clearTimeout(retryTimer), (retryTimer = null));
+		if (retryTimer) {
+			clearTimeout(retryTimer);
+			retryTimer = null;
+		}
 		(options.open || startup)(options, signal, replacing.length ? replacing.shift() : 0).then(
 			opened,
 			failed,
@@ -603,11 +632,17 @@ export function Pool(options, types) {
 		}
 
 		attempted(error);
-		ending ? finishing() : grow();
+		if (ending) {
+			finishing();
+		} else {
+			grow();
+		}
 	}
 
 	function attempted(error) {
-		failingSince === null && (failingSince = now());
+		if (failingSince === null) {
+			failingSince = now();
+		}
 		retries++;
 		nextAttempt =
 			now() +
@@ -626,11 +661,13 @@ export function Pool(options, types) {
 
 	function reject(job, error) {
 		started(job);
-		job.lease
-			? job.reject(error)
-			: job.q
-				? job.q.reject(queryError(error, job.q, options.debug))
-				: job.reject(error);
+		if (job.lease) {
+			job.reject(error);
+		} else if (job.q) {
+			job.q.reject(queryError(error, job.q, options.debug));
+		} else {
+			job.reject(error);
+		}
 	}
 
 	/**
@@ -710,11 +747,15 @@ export function Pool(options, types) {
 	}
 
 	function hold(c) {
-		options.unref_sockets && c.ref();
+		if (options.unref_sockets) {
+			c.ref();
+		}
 	}
 
 	function unref(timer) {
-		options.unref_sockets && timer && typeof timer.unref === "function" && timer.unref();
+		if (options.unref_sockets && timer && typeof timer.unref === "function") {
+			timer.unref();
+		}
 		return timer;
 	}
 
@@ -785,11 +826,21 @@ export function Pool(options, types) {
 		if (c.loading && !orderly && !signal.aborted) {
 			attempted(copy_error(error));
 		}
-		ending || replacing.push((c.index + 1) % (options.path ? 1 : options.host.length));
-		replacing.length > options.max && replacing.shift();
-		c.retired && c.retired.forEach((r) => r());
-		c.idleTimer && clearTimeout(c.idleTimer);
-		c.lifeTimer && clearTimeout(c.lifeTimer);
+		if (!ending) {
+			replacing.push((c.index + 1) % (options.path ? 1 : options.host.length));
+		}
+		if (replacing.length > options.max) {
+			replacing.shift();
+		}
+		if (c.retired) {
+			c.retired.forEach((r) => r());
+		}
+		if (c.idleTimer) {
+			clearTimeout(c.idleTimer);
+		}
+		if (c.lifeTimer) {
+			clearTimeout(c.lifeTimer);
+		}
 		if (c.lease && c.lease.onclose) {
 			const lost = lease_error || error;
 			c.lease.onclose(
@@ -798,16 +849,26 @@ export function Pool(options, types) {
 					: lost,
 			);
 		}
-		options.onclose && options.onclose(c.id);
+		if (options.onclose) {
+			options.onclose(c.id);
+		}
 		event("close", c, orderly ? {} : { error });
-		connections.size === 0 && opening === 0 && statements.clear();
+		if (connections.size === 0 && opening === 0) {
+			statements.clear();
+		}
 		drain();
-		ending && finishing();
+		if (ending) {
+			finishing();
+		}
 	}
 
 	function onparameter(k, v) {
-		options.parameters[k] !== v &&
-			((options.parameters[k] = v), options.onparameter && options.onparameter(k, v));
+		if (options.parameters[k] !== v) {
+			options.parameters[k] = v;
+			if (options.onparameter) {
+				options.onparameter(k, v);
+			}
+		}
 	}
 
 	async function lease(kind) {
@@ -841,7 +902,10 @@ export function Pool(options, types) {
 	function grant(c, job) {
 		started(job);
 		hold(c);
-		c.idleTimer && (clearTimeout(c.idleTimer), (c.idleTimer = null));
+		if (c.idleTimer) {
+			clearTimeout(c.idleTimer);
+			c.idleTimer = null;
+		}
 		let chain = Promise.resolve(),
 			released = false,
 			lost;
@@ -880,7 +944,9 @@ export function Pool(options, types) {
 					return;
 				}
 				released = true;
-				c.lease === x && (c.lease = null);
+				if (c.lease === x) {
+					c.lease = null;
+				}
 				event("release", c, { kind: job.kind });
 				if (c.closed) {
 					return;
@@ -890,7 +956,11 @@ export function Pool(options, types) {
 					return (c.releasing = true);
 				}
 
-				c.status === "I" ? onready(c) : c.close();
+				if (c.status === "I") {
+					onready(c);
+				} else {
+					c.close();
+				}
 			},
 			onclose(error) {
 				x.error = error;
@@ -931,8 +1001,13 @@ export function Pool(options, types) {
 
 		ending = new Promise<void>((resolve) => {
 			resolve_ending = resolve;
-			timeout !== null && (endTimer = setTimeout(destroy, timeout * 1000));
-			retryTimer && (clearTimeout(retryTimer), (retryTimer = null));
+			if (timeout !== null) {
+				endTimer = setTimeout(destroy, timeout * 1000);
+			}
+			if (retryTimer) {
+				clearTimeout(retryTimer);
+				retryTimer = null;
+			}
 			Promise.resolve().then(finishing);
 		});
 
@@ -958,8 +1033,12 @@ export function Pool(options, types) {
 		}
 
 		if (connections.size === 0 && (opening === 0 || signal.aborted) && waiting.length === 0) {
-			endTimer && clearTimeout(endTimer);
-			retryTimer && clearTimeout(retryTimer);
+			if (endTimer) {
+				clearTimeout(endTimer);
+			}
+			if (retryTimer) {
+				clearTimeout(retryTimer);
+			}
 			const resolve = resolve_ending;
 			resolve_ending = null;
 			resolve();
@@ -977,7 +1056,9 @@ export function Pool(options, types) {
 			);
 		}
 		connections.forEach((c) => c.destroy());
-		connections.size === 0 && finishing();
+		if (connections.size === 0) {
+			finishing();
+		}
 	}
 
 	function close() {
@@ -1005,9 +1086,13 @@ export function Queue() {
 		shift() {
 			const x = xs[head];
 			xs[head++] = undefined;
-			head === xs.length
-				? ((xs = []), (head = 0))
-				: head > 1024 && head * 2 > xs.length && ((xs = xs.slice(head)), (head = 0));
+			if (head === xs.length) {
+				xs = [];
+				head = 0;
+			} else if (head > 1024 && head * 2 > xs.length) {
+				xs = xs.slice(head);
+				head = 0;
+			}
 			return x;
 		},
 		take() {
@@ -1089,7 +1174,9 @@ function Statements(scheduler) {
 		}
 
 		texts.set(text, (x = { text, est: undefined, alone: undefined }));
-		texts.size > limit && texts.delete(texts.keys().next().value);
+		if (texts.size > limit) {
+			texts.delete(texts.keys().next().value);
+		}
 		return x;
 	}
 
@@ -1107,8 +1194,14 @@ function Statements(scheduler) {
 
 		const key = built.types + "\0" + built.text;
 		let statement = map.get(key);
-		statement ? (statement.used = clock++) : (statement = add(key, built.text));
-		tagged && tagged.set(built.types, statement);
+		if (statement) {
+			statement.used = clock++;
+		} else {
+			statement = add(key, built.text);
+		}
+		if (tagged) {
+			tagged.set(built.types, statement);
+		}
 		return statement;
 	}
 
@@ -1140,14 +1233,18 @@ function Statements(scheduler) {
 			alone: undefined,
 		};
 		map.set(key, statement);
-		map.size > limit && evict();
+		if (map.size > limit) {
+			evict();
+		}
 		return statement;
 	}
 
 	function evict() {
 		let oldest = null;
 		for (const x of map.values()) {
-			(!oldest || x.used < oldest.used) && (oldest = x);
+			if (!oldest || x.used < oldest.used) {
+				oldest = x;
+			}
 		}
 		oldest.live = false;
 		map.delete(oldest.key);

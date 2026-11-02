@@ -37,7 +37,6 @@
 			"files": ["**/*.ts"],
 			"rules": {
 				"typescript/no-floating-promises": "warn",
-				"no-unused-expressions": "warn",
 				"typescript/unbound-method": "warn",
 				"typescript/await-thenable": "warn",
 				"no-async-promise-executor": "warn",

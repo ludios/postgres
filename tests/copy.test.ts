@@ -187,7 +187,13 @@ async function slowCopy(sql) {
 			highWaterMark: 1024,
 			write(chunk, encoding, callback) {
 				hash.update(chunk);
-				n++ % 500 === 0 ? setTimeout(callback, 1) : n % 3 ? callback() : setImmediate(callback);
+				if (n++ % 500 === 0) {
+					setTimeout(callback, 1);
+				} else if (n % 3) {
+					callback();
+				} else {
+					setImmediate(callback);
+				}
 			},
 		}),
 	);

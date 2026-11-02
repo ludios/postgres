@@ -42,15 +42,19 @@ const kinds = {
 			.begin(async (sql) => {
 				await sql`insert into soak (x) values (${next})`;
 				await sql`select count(*) from soak`;
-				next % 7 === 0 && sql`select 1/0`.catch(() => {});
+				if (next % 7 === 0) {
+					sql`select 1/0`.catch(() => {});
+				}
 			})
 			.catch(
 				(e) => ["22012", "25P02", "TRANSACTION_ROLLED_BACK"].includes(e.code) || Promise.reject(e),
 			),
 	cursor: async () => {
+		let n = 0;
 		for await (const rows of sql`select generate_series(1, 300) as n`.cursor(50)) {
-			rows.length;
+			n += rows.length;
 		}
+		return n;
 	},
 	copy: async () => {
 		let bytes = 0;
@@ -112,21 +116,25 @@ async function worker() {
 async function faults() {
 	while (Date.now() < deadline) {
 		await delay(500 + Math.random() * 2500);
-		Math.random() < 0.8
-			? await admin`
+		if (Math.random() < 0.8) {
+			await admin`
         select pg_terminate_backend(pid) from pg_stat_activity
         where application_name = ${app} and pid in (
           select pid from pg_stat_activity where application_name = ${app} order by random() limit 1
         )
-      `.catch(() => {})
-			: await sql.close();
+      `.catch(() => {});
+		} else {
+			await sql.close();
+		}
 	}
 }
 
 async function sample() {
 	while (Date.now() < deadline) {
 		await delay(Math.max(1000, seconds * 10));
-		global.gc && global.gc();
+		if (global.gc) {
+			global.gc();
+		}
 		const [{ n }] =
 				await admin`select count(*)::int as n from pg_stat_activity where application_name = ${app}`,
 			oldest = Math.max(0, ...[...pending.values()].map((x) => Date.now() - x.at));
@@ -138,13 +146,14 @@ async function sample() {
 			pending: pending.size,
 			oldest,
 		});
-		oldest > 30000 &&
+		if (oldest > 30000) {
 			failures.push(
 				"an operation has been pending for " +
 					oldest +
 					"ms: " +
 					JSON.stringify([...pending.values()][0]),
 			);
+		}
 		const s = samples[samples.length - 1];
 		console.log(
 			s.t.toFixed(0).padStart(6) +
@@ -169,7 +178,9 @@ const ended = await Promise.race([
 	sql.end({ timeout: 5 }).then(() => true),
 	delay(15000).then(() => false),
 ]);
-ended || failures.push("end() did not resolve");
+if (!ended) {
+	failures.push("end() did not resolve");
+}
 await admin`drop table soak`;
 await admin.end();
 await delay(100);
@@ -179,14 +190,17 @@ const settled = samples.slice(Math.floor(samples.length / 5)),
 	mean = (xs) => xs.reduce((a, b) => a + b.heap, 0) / xs.length,
 	early = mean(settled.slice(0, fifth)),
 	late = mean(settled.slice(-fifth));
-settled.length >= 4 &&
-	late > early * 1.5 + 5 &&
+if (settled.length >= 4 && late > early * 1.5 + 5) {
 	failures.push("heap grew from " + early.toFixed(1) + "MB to " + late.toFixed(1) + "MB");
-Math.max(...samples.map((x) => x.connections)) > 11 &&
+}
+if (Math.max(...samples.map((x) => x.connections)) > 11) {
 	failures.push("more than max connections and the listener at once");
+}
 
 const left = process.getActiveResourcesInfo().filter((x) => x !== "TTYWrap" && x !== "Timeout");
-left.length > 2 && failures.push("handles left after end(): " + left.join());
+if (left.length > 2) {
+	failures.push("handles left after end(): " + left.join());
+}
 
 console.log(
 	"\n" +

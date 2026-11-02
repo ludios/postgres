@@ -114,7 +114,9 @@ export function Connection(ready, options, events) {
 	socket.ondata = (x) => frames.push(x);
 	socket.ondrain = ondrain;
 	socket.onclose = onclose;
-	ready.rest && ready.rest.length && frames.push(ready.rest);
+	if (ready.rest && ready.rest.length) {
+		frames.push(ready.rest);
+	}
 	socket.resume();
 
 	return connection;
@@ -122,7 +124,9 @@ export function Connection(ready, options, events) {
 	function ondrain() {
 		const x = drained;
 		drained = null;
-		x && x();
+		if (x) {
+			x();
+		}
 	}
 
 	function schedule(now?) {
@@ -130,7 +134,10 @@ export function Connection(ready, options, events) {
 			return flush();
 		}
 
-		flushing || ((flushing = true), defer(flush));
+		if (!flushing) {
+			flushing = true;
+			defer(flush);
+		}
 		return true;
 	}
 
@@ -163,7 +170,9 @@ export function Connection(ready, options, events) {
 	}
 
 	function refresh() {
-		blocker && !holds(blocker) && (blocker = null);
+		if (blocker && !holds(blocker)) {
+			blocker = null;
+		}
 		release();
 	}
 
@@ -179,7 +188,9 @@ export function Connection(ready, options, events) {
 			);
 		}
 
-		x.query && (x.query.state = connection.backend);
+		if (x.query) {
+			x.query.state = connection.backend;
+		}
 		if (fence) {
 			pending.splice(pending.indexOf(fence), 0, x);
 		} else if (x.ends && open.size) {
@@ -251,15 +262,29 @@ export function Connection(ready, options, events) {
 			x.entry = null;
 			sync(x, true);
 		}
-		x.fresh && register(x.fresh);
-		x.portal && x.kind === "query" && open.add(x);
-		x.query && (x.query.active = sent.length === 0);
-		x.ends && epoch++;
+		if (x.fresh) {
+			register(x.fresh);
+		}
+		if (x.portal && x.kind === "query") {
+			open.add(x);
+		}
+		if (x.query) {
+			x.query.active = sent.length === 0;
+		}
+		if (x.ends) {
+			epoch++;
+		}
 		x.epoch = epoch;
-		options.scheduler && sent.length === 0 && (headSince = timers.now());
+		if (options.scheduler && sent.length === 0) {
+			headSince = timers.now();
+		}
 		sent.push(x);
-		holds(x) && (blocker = x);
-		x.trace && wrote(x);
+		if (holds(x)) {
+			blocker = x;
+		}
+		if (x.trace) {
+			wrote(x);
+		}
 	}
 
 	function sync(x, refuse?) {
@@ -268,13 +293,19 @@ export function Connection(ready, options, events) {
 		}
 
 		x.synced = true;
-		refuse ? p.query(out, refused) : p.sync(out);
+		if (refuse) {
+			p.query(out, refused);
+		} else {
+			p.sync(out);
+		}
 		schedule();
 	}
 
 	function register(entry) {
 		const current = prepared.get(entry.name);
-		current && prepared.delete(entry.name);
+		if (current) {
+			prepared.delete(entry.name);
+		}
 		prepared.set(entry.name, entry);
 		entry.owner.entry = entry;
 		entry.owner.fresh = null;
@@ -292,7 +323,9 @@ export function Connection(ready, options, events) {
 	}
 
 	function drop(entry) {
-		prepared.get(entry.name) === entry && prepared.delete(entry.name);
+		if (prepared.get(entry.name) === entry) {
+			prepared.delete(entry.name);
+		}
 	}
 
 	function send(query) {
@@ -304,7 +337,9 @@ export function Connection(ready, options, events) {
 			statement.ends === undefined
 				? (statement.ends = ending.test(statement.text))
 				: statement.ends;
-		options.scheduler && cost(x);
+		if (options.scheduler) {
+			cost(x);
+		}
 		queue(x);
 	}
 
@@ -322,7 +357,9 @@ export function Connection(ready, options, events) {
 			const sample = t - headSince,
 				c = x.query.cost;
 			c.est = c.est === undefined || sample > c.est ? sample : c.est + (sample - c.est) * 0.1;
-			events.ontimed && events.ontimed(sample, t);
+			if (events.ontimed) {
+				events.ontimed(sample, t);
+			}
 		}
 
 		headSince = t;
@@ -410,8 +447,12 @@ export function Connection(ready, options, events) {
 		}
 
 		const typed = !inferred(built);
-		name && (x.fresh = Entry(name, x, typed ? built.oids : null));
-		current && p.close(out, "S", name);
+		if (name) {
+			x.fresh = Entry(name, x, typed ? built.oids : null);
+		}
+		if (current) {
+			p.close(out, "S", name);
+		}
 		parse(x, name, statement.text, built.oids);
 		p.describe(out, "S", name);
 
@@ -439,7 +480,9 @@ export function Connection(ready, options, events) {
 			out.truncate(mark);
 			throw error;
 		}
-		x.flushing || (x.synced = true);
+		if (!x.flushing) {
+			x.synced = true;
+		}
 		debug(x.statement.text, x.values, x.entry ? x.entry.oids : x.params || x.query.wire.built.oids);
 	}
 
@@ -454,7 +497,9 @@ export function Connection(ready, options, events) {
 	function learned(entry, statement) {
 		const shape = entry.oids.join() + ":" + entry.columns.map((x) => x.type).join();
 		if (statement.shape !== shape) {
-			statement.shape === undefined || statement.version++;
+			if (statement.shape !== undefined) {
+				statement.version++;
+			}
 			statement.shape = shape;
 		}
 		entry.version = statement.version;
@@ -497,11 +542,17 @@ export function Connection(ready, options, events) {
 
 		for (let i = 0; i < values.length; i++) {
 			out[i] = values[i] === null ? null : serializers[i](values[i]);
-			out[i] === null ||
-				out[i] === undefined ||
-				typeof out[i] === "string" ||
-				out[i] instanceof Uint8Array ||
+			if (
+				out[i] !== null &&
+				out[i] !== undefined &&
+				typeof out[i] !== "string" &&
+				!(out[i] instanceof Uint8Array)
+			) {
+				// A serializer must return a string or bytes. For anything else, Buffer.byteLength
+				// throws here, where the error is this query's, instead of the writer corrupting the
+				// wire later
 				Buffer.byteLength(out[i]);
+			}
 		}
 
 		return out;
@@ -534,7 +585,11 @@ export function Connection(ready, options, events) {
 				return run(x, "");
 			}
 			const entry = x.entry;
-			entry && ((entry.oids = params), (entry.columns = columns), learned(entry, x.statement));
+			if (entry) {
+				entry.oids = params;
+				entry.columns = columns;
+				learned(entry, x.statement);
+			}
 			x.values = serialize(params, built, entry || {});
 			run(x, name);
 		} catch (error) {
@@ -579,7 +634,9 @@ export function Connection(ready, options, events) {
 		x.results = [];
 		x.ends = ending.test(sql);
 		x.streaming = x.open = !!query.streaming;
-		options.scheduler && cost(x);
+		if (options.scheduler) {
+			cost(x);
+		}
 		queue(x);
 	}
 
@@ -840,7 +897,9 @@ export function Connection(ready, options, events) {
 		running.forEach((query) => query.settled || query.reject(decorate(query, copy_error(closed))));
 		running.clear();
 		open.clear();
-		resolve_closing && resolve_closing();
+		if (resolve_closing) {
+			resolve_closing();
+		}
 		events.onclose(connection, closed, lease_error, orderly);
 	}
 
@@ -849,13 +908,17 @@ export function Connection(ready, options, events) {
 	}
 
 	function settleError(x, error) {
-		x.kind === "describe"
-			? x.reject(error)
-			: x.query && !x.query.settled && x.query.reject(decorate(x.query, error));
+		if (x.kind === "describe") {
+			x.reject(error);
+		} else if (x.query && !x.query.settled) {
+			x.query.reject(decorate(x.query, error));
+		}
 	}
 
 	function debug(text, values, oids) {
-		typeof options.debug === "function" && options.debug(connection.id, text, values, oids);
+		if (typeof options.debug === "function") {
+			options.debug(connection.id, text, values, oids);
+		}
 	}
 
 	function wrote(x) {
@@ -872,57 +935,84 @@ export function Connection(ready, options, events) {
 
 	function first() {
 		const x = sent[0];
-		x && x.trace && x.trace.firstByte === null && (x.trace.firstByte = now());
+		if (x && x.trace && x.trace.firstByte === null) {
+			x.trace.firstByte = now();
+		}
 	}
 
 	function frame(type, x, start, end) {
-		traced && first();
+		if (traced) {
+			first();
+		}
 		try {
-			type === 68
-				? DataRow(x, start)
-				: type === 100
-					? CopyData(x, start, end)
-					: type === 90
-						? ReadyForQuery(x, start)
-						: type === 67
-							? CommandComplete(x, start, end)
-							: type === 50
-								? BindComplete()
-								: type === 49
-									? ParseComplete()
-									: type === 51
-										? null
-										: type === 116
-											? ParameterDescription(x, start)
-											: type === 84
-												? RowDescription(x, start)
-												: type === 110
-													? NoData()
-													: type === 69
-														? ErrorResponse(x, start, end)
-														: type === 115
-															? PortalSuspended()
-															: type === 73
-																? EmptyQueryResponse()
-																: type === 65
-																	? NotificationResponse(x, start)
-																	: type === 78
-																		? NoticeResponse(x, start, end)
-																		: type === 83
-																			? ParameterStatus(x, start)
-																			: type === 71
-																				? CopyInResponse()
-																				: type === 72
-																					? CopyOutResponse()
-																					: type === 87
-																						? CopyBothResponse()
-																						: type === 99
-																							? CopyDone()
-																							: type === 86
-																								? unsupported("FunctionCallResponse")
-																								: type === 118
-																									? unsupported("NegotiateProtocolVersion")
-																									: null;
+			switch (type) {
+				case 68:
+					DataRow(x, start);
+					break;
+				case 100:
+					CopyData(x, start, end);
+					break;
+				case 90:
+					ReadyForQuery(x, start);
+					break;
+				case 67:
+					CommandComplete(x, start, end);
+					break;
+				case 50:
+					BindComplete();
+					break;
+				case 49:
+					ParseComplete();
+					break;
+				case 51:
+					// CloseComplete: nothing to do
+					break;
+				case 116:
+					ParameterDescription(x, start);
+					break;
+				case 84:
+					RowDescription(x, start);
+					break;
+				case 110:
+					NoData();
+					break;
+				case 69:
+					ErrorResponse(x, start, end);
+					break;
+				case 115:
+					PortalSuspended();
+					break;
+				case 73:
+					EmptyQueryResponse();
+					break;
+				case 65:
+					NotificationResponse(x, start);
+					break;
+				case 78:
+					NoticeResponse(x, start, end);
+					break;
+				case 83:
+					ParameterStatus(x, start);
+					break;
+				case 71:
+					CopyInResponse();
+					break;
+				case 72:
+					CopyOutResponse();
+					break;
+				case 87:
+					CopyBothResponse();
+					break;
+				case 99:
+					CopyDone();
+					break;
+				case 86:
+					unsupported("FunctionCallResponse");
+					break;
+				case 118:
+					unsupported("NegotiateProtocolVersion");
+					break;
+			}
 		} catch (error) {
 			const x = sent[0];
 			if (x) {
@@ -931,8 +1021,13 @@ export function Connection(ready, options, events) {
 				abandon(error);
 			}
 		}
-		blocker && !holds(blocker) && ((blocker = null), release());
-		out.length && schedule();
+		if (blocker && !holds(blocker)) {
+			blocker = null;
+			release();
+		}
+		if (out.length) {
+			schedule();
+		}
 	}
 
 	function fail(x, error) {
@@ -943,19 +1038,24 @@ export function Connection(ready, options, events) {
 	}
 
 	function unsupported(x) {
-		sent[0] && fail(sent[0], Errors.notSupported(x));
+		if (sent[0]) {
+			fail(sent[0], Errors.notSupported(x));
+		}
 	}
 
 	function ParseComplete() {
 		const x = sent[0],
 			name = x.parses.shift();
 
-		name &&
+		if (
+			name &&
 			x.entry &&
 			x.entry.name === name &&
 			x.entry.owner === x &&
-			x.entry.state === "parsing" &&
-			(x.entry.state = "ready");
+			x.entry.state === "parsing"
+		) {
+			x.entry.state = "ready";
+		}
 	}
 
 	function BindComplete() {
@@ -988,11 +1088,14 @@ export function Connection(ready, options, events) {
 		x.result.columns = columns;
 		if (x.learn) {
 			x.learn = false;
-			x.entry &&
-				x.entry.owner === x &&
-				((x.entry.columns = columns), learned(x.entry, x.statement));
+			if (x.entry && x.entry.owner === x) {
+				x.entry.columns = columns;
+				learned(x.entry, x.statement);
+			}
 		}
-		x.describing && described(x);
+		if (x.describing) {
+			described(x);
+		}
 	}
 
 	function column(name, table, number, type) {
@@ -1042,17 +1145,25 @@ export function Connection(ready, options, events) {
 									: text(x, i, i + length);
 					i += length;
 				}
-				from && (value = from(value, column));
-				raw
-					? (row[j] = value)
-					: column.name === "__proto__"
-						? own(row, column.name, value)
-						: (row[column.name] = value);
+				if (from) {
+					value = from(value, column);
+				}
+				if (raw) {
+					row[j] = value;
+				} else if (column.name === "__proto__") {
+					own(row, column.name, value);
+				} else {
+					row[column.name] = value;
+				}
 			}
 		}
 
 		const out = transform.row.from ? transform.row.from(row) : row;
-		query.forEachFn ? query.forEachFn(out, result) : (result[result.length] = out);
+		if (query.forEachFn) {
+			query.forEachFn(out, result);
+		} else {
+			result[result.length] = out;
+		}
 	}
 
 	function CommandComplete(x, start, end) {
@@ -1064,13 +1175,18 @@ export function Connection(ready, options, events) {
 		result.count = count;
 		result.state = connection.backend;
 		result.statement = item;
-		item.query && (item.query.source = item);
+		if (item.query) {
+			item.query.source = item;
+		}
 		result.columns = result.columns || item.columns;
 
-		item.final &&
-			(item.stream && Object.assign(item.stream, { count, command }),
-			item.final(),
-			(item.final = null));
+		if (item.final) {
+			if (item.stream) {
+				Object.assign(item.stream, { count, command });
+			}
+			item.final();
+			item.final = null;
+		}
 
 		if (item.kind === "simple") {
 			item.results.push(item.result);
@@ -1080,8 +1196,12 @@ export function Connection(ready, options, events) {
 
 		if (item.rows) {
 			item.finished = true;
-			item.flushing && sync(item);
-			result.count && (item.last = new Promise((r) => r(item.query.cursorFn(result)))).catch(noop);
+			if (item.flushing) {
+				sync(item);
+			}
+			if (result.count) {
+				(item.last = new Promise((r) => r(item.query.cursorFn(result)))).catch(noop);
+			}
 		}
 	}
 
@@ -1098,7 +1218,10 @@ export function Connection(ready, options, events) {
 
 	function EmptyQueryResponse() {
 		const item = sent[0];
-		item.kind === "simple" && (item.results.push(item.result), (item.result = new Result()));
+		if (item.kind === "simple") {
+			item.results.push(item.result);
+			item.result = new Result();
+		}
 	}
 
 	async function PortalSuspended() {
@@ -1118,9 +1241,14 @@ export function Connection(ready, options, events) {
 			if (item.query.aborted) {
 				throw item.query.aborted;
 			}
-			next === CLOSE
-				? (p.close(out, "P", ""), sync(item))
-				: (p.execute(out, "", item.rows), p.flush(out), schedule());
+			if (next === CLOSE) {
+				p.close(out, "P", "");
+				sync(item);
+			} else {
+				p.execute(out, "", item.rows);
+				p.flush(out);
+				schedule();
+			}
 		} catch (error) {
 			item.awaiting = false;
 			if (closed || item.synced || sent[0] !== item) {
@@ -1155,18 +1283,23 @@ export function Connection(ready, options, events) {
 		status = p.readyForQuery(x, start);
 		frames.own(false);
 		const item = sent.shift();
-		options.scheduler && timed(item);
+		if (options.scheduler) {
+			timed(item);
+		}
 		item.done = true;
 		item.open = false;
-		item.trace && traced--;
-		item.kind === "internal" && (rolling = false);
-		status !== "I" &&
-			!rolling &&
-			!item.lease &&
-			!connection.lease &&
-			options.max !== 1 &&
+		if (item.trace) {
+			traced--;
+		}
+		if (item.kind === "internal") {
+			rolling = false;
+		}
+		if (status !== "I" && !rolling && !item.lease && !connection.lease && options.max !== 1) {
 			unsafe(item);
-		blocker === item && (blocker = null);
+		}
+		if (blocker === item) {
+			blocker = null;
+		}
 		settle(item);
 		// So that the cached statement no longer keeps the query that prepared it, with its values
 		// and rows
@@ -1201,7 +1334,9 @@ export function Connection(ready, options, events) {
 
 		const { query } = x,
 			cursor = x.origin || (x.portal ? x : null);
-		cursor && (x.own || x.error || !x.suspended) && unfence(cursor);
+		if (cursor && (x.own || x.error || !x.suspended)) {
+			unfence(cursor);
+		}
 
 		if (x.own) {
 			return query.reject(decorate(query, x.own));
@@ -1215,12 +1350,14 @@ export function Connection(ready, options, events) {
 			return suspended(x);
 		}
 
-		x.last
-			? x.last.then(
-					() => query.settled || finish(x),
-					(error) => query.settled || query.reject(decorate(query, error)),
-				)
-			: query.settled || finish(x);
+		if (x.last) {
+			x.last.then(
+				() => query.settled || finish(x),
+				(error) => query.settled || query.reject(decorate(query, error)),
+			);
+		} else if (!query.settled) {
+			finish(x);
+		}
 	}
 
 	function unfence(cursor) {
@@ -1236,7 +1373,9 @@ export function Connection(ready, options, events) {
 		const parsing = x.fresh || (entry && entry.owner === x && entry.state === "parsing");
 
 		if (x.error.code === "42P05" && x.kind === "query" && x.statement.name && parsing) {
-			entry && drop(entry);
+			if (entry) {
+				drop(entry);
+			}
 			x.statement.name += "_";
 			return retryable(x) ? again(x, null) : settleError(x, x.error);
 		}
@@ -1267,7 +1406,9 @@ export function Connection(ready, options, events) {
 	}
 
 	function stale(entry) {
-		prepared.get(entry.name) === entry && (entry.state = "stale");
+		if (prepared.get(entry.name) === entry) {
+			entry.state = "stale";
+		}
 	}
 
 	function retryable(x) {
@@ -1353,7 +1494,11 @@ export function Connection(ready, options, events) {
 		}
 
 		x.own = x.failure;
-		x.end ? p.close(out, "P", x.portal) : p.execute(out, x.portal, x.rows);
+		if (x.end) {
+			p.close(out, "P", x.portal);
+		} else {
+			p.execute(out, x.portal, x.rows);
+		}
 		sync(x);
 	}
 
@@ -1365,7 +1510,9 @@ export function Connection(ready, options, events) {
 		const { query } = x;
 
 		if (x.kind === "simple") {
-			x.result.command !== null && x.results.push(x.result);
+			if (x.result.command !== null) {
+				x.results.push(x.result);
+			}
 			const results = x.results;
 			return query.resolve(results.length > 1 ? results : results[0] || x.result);
 		}
@@ -1375,7 +1522,9 @@ export function Connection(ready, options, events) {
 
 	function NotificationResponse(x, start) {
 		const { pid, channel, payload } = p.notification(x, start);
-		events.onnotify && guard(events.onnotify, channel, payload, pid);
+		if (events.onnotify) {
+			guard(events.onnotify, channel, payload, pid);
+		}
 	}
 
 	function guard(fn, ...xs) {
@@ -1388,7 +1537,7 @@ export function Connection(ready, options, events) {
 
 	function NoticeResponse(x, start, end) {
 		const notice = p.error(x, start, end);
-		listened(channels.notice) &&
+		if (listened(channels.notice)) {
 			channels.notice.publish({
 				notice,
 				connection: connection.id,
@@ -1396,15 +1545,20 @@ export function Connection(ready, options, events) {
 				port: connection.port,
 				database: options.database,
 			});
-		options.onnotice
-			? guard(options.onnotice, notice)
-			: options.onnotice === false || console.log(notice);
+		}
+		if (options.onnotice) {
+			guard(options.onnotice, notice);
+		} else if (options.onnotice !== false) {
+			console.log(notice);
+		}
 	}
 
 	function ParameterStatus(x, start) {
 		const [k, v] = p.parameterStatus(x, start);
 		connection.parameters[k] = v;
-		events.onparameter && guard(events.onparameter, k, v);
+		if (events.onparameter) {
+			guard(events.onparameter, k, v);
+		}
 	}
 
 	/** Resumes reading the socket, if a COPY stream's back-pressure paused it. */
@@ -1479,7 +1633,11 @@ export function Connection(ready, options, events) {
 
 	function writeData(chunk, callback) {
 		p.copyData(out, chunk);
-		flush() ? callback() : (drained = callback);
+		if (flush()) {
+			callback();
+		} else {
+			drained = callback;
+		}
 	}
 
 	function writable(item) {
@@ -1582,7 +1740,9 @@ export function Connection(ready, options, events) {
 	function CopyDone() {
 		frames.own(false);
 		const item = sent[0];
-		item.stream && item.stream.push(null);
+		if (item.stream) {
+			item.stream.push(null);
+		}
 		item.stream = null;
 	}
 }
@@ -1721,9 +1881,11 @@ function compile(columns, array, text, from) {
 		at = "x, i, i + l";
 
 	columns.forEach((c, j) => {
-		c.decode
-			? locals.push("d" + j + " = c[" + j + "].decode")
-			: c.parser && locals.push("p" + j + " = c[" + j + "].parser");
+		if (c.decode) {
+			locals.push("d" + j + " = c[" + j + "].decode");
+		} else if (c.parser) {
+			locals.push("p" + j + " = c[" + j + "].parser");
+		}
 		const value = c.decode
 			? "d" + j + "(" + at + ")"
 			: c.parser

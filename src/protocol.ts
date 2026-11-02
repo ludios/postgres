@@ -84,7 +84,9 @@ export function Writer(size = 16384) {
 		},
 		take() {
 			const out = i < 4096 ? Buffer.from(b.subarray(0, i)) : b.subarray(0, i);
-			i >= 4096 && (b = Buffer.allocUnsafe(size));
+			if (i >= 4096) {
+				b = Buffer.allocUnsafe(size);
+			}
 			i = at = 0;
 			return out;
 		},
@@ -170,7 +172,9 @@ function one(fn) {
 export function startup(w, parameters) {
 	w.untyped().i32(196608);
 	for (const k in parameters) {
-		parameters[k] && w.str(unbroken(k, k)).str(unbroken(k, "" + parameters[k]));
+		if (parameters[k]) {
+			w.str(unbroken(k, k)).str(unbroken(k, "" + parameters[k]));
+		}
 	}
 
 	return w.u8(0).endUntyped();
@@ -256,7 +260,9 @@ export function Frames(onframe, shared = false, onerror = null) {
 		},
 		own(x) {
 			owning = x;
-			x && settle();
+			if (x) {
+				settle();
+			}
 		},
 		pause() {
 			paused = true;
@@ -279,9 +285,14 @@ export function Frames(onframe, shared = false, onerror = null) {
 			return;
 		}
 
-		data && at < data.length && !owned.has(data) && ((data = own(data.subarray(at))), (at = 0));
+		if (data && at < data.length && !owned.has(data)) {
+			data = own(data.subarray(at));
+			at = 0;
+		}
 		for (let i = 0; i < chunks.length; i++) {
-			owned.has(chunks[i]) || (chunks[i] = own(chunks[i]));
+			if (!owned.has(chunks[i])) {
+				chunks[i] = own(chunks[i]);
+			}
 		}
 	}
 
@@ -296,7 +307,11 @@ export function Frames(onframe, shared = false, onerror = null) {
 				if (broken || paused || !((data && at < data.length) || next())) {
 					break;
 				}
-				part ? fill() : frame();
+				if (part) {
+					fill();
+				} else {
+					frame();
+				}
 			}
 		} finally {
 			running = false;
@@ -316,7 +331,9 @@ export function Frames(onframe, shared = false, onerror = null) {
 			new Error("The server sent a message with an invalid length (" + length + ")"),
 			{ code: "PROTOCOL_ERROR" },
 		);
-		onerror && onerror(error);
+		if (onerror) {
+			onerror(error);
+		}
 		return true;
 	}
 
@@ -349,7 +366,9 @@ export function Frames(onframe, shared = false, onerror = null) {
 
 	function start(length) {
 		part = Buffer.allocUnsafe(length);
-		shared && owned.add(part);
+		if (shared) {
+			owned.add(part);
+		}
 		filled = data.copy(part, 0, at);
 		at = data.length;
 	}
@@ -370,7 +389,9 @@ export function Frames(onframe, shared = false, onerror = null) {
 			}
 
 			part = Buffer.allocUnsafe(1 + length);
-			shared && owned.add(part);
+			if (shared) {
+				owned.add(part);
+			}
 			filled = head.copy(part);
 			return filled === part.length && done();
 		}
@@ -465,7 +486,9 @@ export function commandComplete(x, start, end) {
 		if (s === e - 1 || s < first || x[s] !== 32) {
 			break;
 		}
-		count === null && (count = +text(x, s + 1, e));
+		if (count === null) {
+			count = +text(x, s + 1, e);
+		}
 		e = s;
 	}
 

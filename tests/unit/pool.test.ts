@@ -12,7 +12,9 @@ test("Queue hands items back in order across compaction", async () => {
 		out = [];
 	for (let i = 0; i < 5000; i++) {
 		q.push(i);
-		i % 3 === 0 && out.push(q.shift());
+		if (i % 3 === 0) {
+			out.push(q.shift());
+		}
 	}
 	while (q.length) {
 		out.push(q.shift());

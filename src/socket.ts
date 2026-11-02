@@ -34,8 +34,9 @@ function context(ssl) {
 
 	const values = { ...ssl };
 	let last = contexts.get(ssl);
-	(last && same(values, last.values)) ||
+	if (!last || !same(values, last.values)) {
 		contexts.set(ssl, (last = { values, secureContext: tls.createSecureContext(values) }));
+	}
 	return { ...values, secureContext: last.secureContext };
 }
 
@@ -89,7 +90,9 @@ function wrap(socket, host) {
 	let closed = false,
 		failure = null;
 
-	socket.shared && (socket.ondata = data);
+	if (socket.shared) {
+		socket.ondata = data;
+	}
 
 	const x = {
 		ondata: noop,
@@ -118,14 +121,24 @@ function wrap(socket, host) {
 		ref: () => socket.ref && socket.ref(),
 		unref: () => socket.unref && socket.unref(),
 		end(data) {
-			closed || (data ? socket.end(data) : socket.end());
+			if (!closed) {
+				if (data) {
+					socket.end(data);
+				} else {
+					socket.end();
+				}
+			}
 		},
 		destroy(error?) {
-			error && !failure && (failure = error);
+			if (error && !failure) {
+				failure = error;
+			}
 			socket.destroy();
 		},
 		keepAlive(seconds) {
-			seconds && socket.setKeepAlive && socket.setKeepAlive(true, 1000 * seconds);
+			if (seconds && socket.setKeepAlive) {
+				socket.setKeepAlive(true, 1000 * seconds);
+			}
 		},
 	};
 
@@ -153,7 +166,9 @@ function wrap(socket, host) {
 		x.ondrain();
 	}
 	function error(err) {
-		failure || (failure = err);
+		if (!failure) {
+			failure = err;
+		}
 		socket.destroy();
 		close();
 	}

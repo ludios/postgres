@@ -72,7 +72,9 @@ export function Clock(
 
 				let next = null;
 				for (const x of timers.values()) {
-					(!next || x.at < next.at || (x.at === next.at && x.seq < next.seq)) && (next = x);
+					if (!next || x.at < next.at || (x.at === next.at && x.seq < next.seq)) {
+						next = x;
+					}
 				}
 				if (!next || next.at > until) {
 					break;
@@ -86,7 +88,9 @@ export function Clock(
 					onerror(e);
 				}
 			}
-			until !== Infinity && (now = Math.max(now, until));
+			if (until !== Infinity) {
+				now = Math.max(now, until);
+			}
 		},
 	};
 }
@@ -113,7 +117,9 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 			writable: true,
 			readable: true,
 			write(data, encoding, cb) {
-				typeof encoding === "function" && (cb = encoding);
+				if (typeof encoding === "function") {
+					cb = encoding;
+				}
 				if (x.destroyed || !x.writable) {
 					return false;
 				}
@@ -122,7 +128,9 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 				for (const part of chop(data)) {
 					send(part);
 				}
-				cb && setTimeout(cb, 0);
+				if (cb) {
+					setTimeout(cb, 0);
+				}
 				return true;
 			},
 			end(data) {
@@ -130,7 +138,9 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 					return x;
 				}
 
-				data && data.length && x.write(data);
+				if (data && data.length) {
+					x.write(data);
+				}
 				x.writable = false;
 				later(() => x.peer.closed(false));
 				return x;
@@ -143,7 +153,9 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 				x.destroyed = true;
 				x.writable = x.readable = false;
 				setTimeout(() => {
-					error && x.emit("error", error);
+					if (error) {
+						x.emit("error", error);
+					}
 					x.emit("close", !!error);
 				}, 0);
 				later(() => x.peer.closed(true));
@@ -188,7 +200,9 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 				} else {
 					x.readable = false;
 					x.emit("end");
-					x.writable && x.end();
+					if (x.writable) {
+						x.end();
+					}
 					x.destroyed = true;
 					x.emit("close", false);
 				}
@@ -201,7 +215,11 @@ export function Pipe({ clock, random, delay = 0, split = 0 }) {
 			if (x.destroyed) {
 				return;
 			}
-			paused ? held.push(data) : x.emit("data", data);
+			if (paused) {
+				held.push(data);
+			} else {
+				x.emit("data", data);
+			}
 		}
 
 		function chop(data) {

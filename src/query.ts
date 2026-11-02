@@ -69,7 +69,9 @@ export class Query extends Promise<any> {
 		this.aborts = null;
 
 		this.originError = handler.debug ? new Error() : null;
-		this.tagged && !handler.debug && !origins.has(strings) && origins.set(strings, located());
+		if (this.tagged && !handler.debug && !origins.has(strings)) {
+			origins.set(strings, located());
+		}
 	}
 
 	static get [Symbol.species]() {
@@ -85,18 +87,26 @@ export class Query extends Promise<any> {
 	}
 
 	resolve(x) {
-		this.aborts && this.aborts();
+		if (this.aborts) {
+			this.aborts();
+		}
 		this.active = false;
 		this.settled = true;
-		this.trace && traced(this, null, x);
+		if (this.trace) {
+			traced(this, null, x);
+		}
 		this.fulfil(x);
 	}
 
 	reject(x) {
-		this.aborts && this.aborts();
+		if (this.aborts) {
+			this.aborts();
+		}
 		this.active = false;
 		this.settled = true;
-		this.trace && traced(this, x);
+		if (this.trace) {
+			traced(this, x);
+		}
 		this.fail(x);
 	}
 
@@ -218,7 +228,9 @@ export class Query extends Promise<any> {
 						return { done: true };
 					}
 
-					prev && prev();
+					if (prev) {
+						prev();
+					}
 					const promise = new Promise((resolve, reject) => {
 						this.cursorFn = (value) => {
 							resolve({ value, done: false });
@@ -241,7 +253,9 @@ export class Query extends Promise<any> {
 					return promise;
 				},
 				return() {
-					prev && prev(CLOSE);
+					if (prev) {
+						prev(CLOSE);
+					}
 					return { done: true };
 				},
 			}),
@@ -284,9 +298,11 @@ export class Query extends Promise<any> {
 	}
 
 	run() {
-		active(channels.query)
-			? start(channels.query, (this.trace = context(this)), () => this.handler(this))
-			: this.handler(this);
+		if (active(channels.query)) {
+			start(channels.query, (this.trace = context(this)), () => this.handler(this));
+		} else {
+			this.handler(this);
+		}
 	}
 
 	execute() {

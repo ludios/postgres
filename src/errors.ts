@@ -25,7 +25,9 @@ export class PostgresError extends Error {
 	constructor(x) {
 		super(typeof x === "string" ? x : x && x.message);
 		this.name = this.constructor.name;
-		x && typeof x === "object" && Object.assign(this, x);
+		if (x && typeof x === "object") {
+			Object.assign(this, x);
+		}
 	}
 
 	toJSON() {
@@ -106,7 +108,7 @@ function locations() {
 }
 
 export function withOrigin(error, origin) {
-	origin &&
+	if (origin) {
 		Object.defineProperty(error, "stack", {
 			value: [
 				error.stack.split("\n")[0],
@@ -119,6 +121,7 @@ export function withOrigin(error, origin) {
 			configurable: true,
 			enumerable: false,
 		});
+	}
 	return error;
 }
 

@@ -110,11 +110,17 @@ function part(before, x, o, after = "") {
 function joined(join, o, before, after) {
 	let text = "";
 	join.items.forEach((item, i) => {
-		i > 0 && (text = spaced(text, fragment(join.separator, o)));
+		if (i > 0) {
+			text = spaced(text, fragment(join.separator, o));
+		}
 		text = spaced(text, part("", item, o));
 	});
-	before && text && !/\s$/.test(before) && !/^\s/.test(text) && (text = " " + text);
-	after && text && !/^\s/.test(after) && !/\s$/.test(text) && (text = text + " ");
+	if (before && text && !/\s$/.test(before) && !/^\s/.test(text)) {
+		text = " " + text;
+	}
+	if (after && text && !/^\s/.test(after) && !/\s$/.test(text)) {
+		text = text + " ";
+	}
 	return text;
 }
 
@@ -137,7 +143,9 @@ export function value(x, o) {
 		if (v === undefined) {
 			throw Errors.generic("UNDEFINED_VALUE", "Undefined values are not allowed");
 		}
-		x instanceof Parameter || (x = v);
+		if (!(x instanceof Parameter)) {
+			x = v;
+		}
 	}
 	o.values.push(v);
 	o.oids.push(x instanceof Parameter ? o.resolve(x.type) : o.infer ? infer(x) : 0);
@@ -262,13 +270,19 @@ function context(sql) {
 			const end = i;
 			i--;
 			while (i >= 0 && !(sql[i] === c && sql[i - 1] !== c)) {
-				sql[i] === c ? (i -= 2) : i--;
+				if (sql[i] === c) {
+					i -= 2;
+				} else {
+					i--;
+				}
 			}
 			i--;
 			if (sql[i] === ".") {
 				i--;
 			} else {
-				depth === 0 && c === '"' && words.push(sql.slice(i + 1, end + 1));
+				if (depth === 0 && c === '"') {
+					words.push(sql.slice(i + 1, end + 1));
+				}
 			}
 		} else if (/[a-z_0-9$]/i.test(c)) {
 			const end = i + 1;
@@ -285,7 +299,9 @@ function context(sql) {
 			if (word && stops.has(word)) {
 				return null;
 			}
-			word && words.push(word);
+			if (word) {
+				words.push(word);
+			}
 		} else {
 			i--;
 		}
@@ -335,7 +351,9 @@ function values(first, rest, o) {
 
 function update(first, rest, o) {
 	const picked = columns(first, rest);
-	picked.length || empty("update");
+	if (!picked.length) {
+		empty("update");
+	}
 
 	return picked.map((x) => escapeIdentifier(column(x, o)) + "=" + part("values", first[x], o));
 }
@@ -346,7 +364,9 @@ function insert(first, rest, o) {
 	}
 
 	const picked = columns(Array.isArray(first) ? first[0] || {} : first, rest);
-	picked.length || empty("insert");
+	if (!picked.length) {
+		empty("insert");
+	}
 
 	return (
 		"(" +
@@ -377,7 +397,9 @@ function member(x, o) {
 }
 
 function select(first, rest, o) {
-	typeof first === "string" && (first = [first].concat(rest));
+	if (typeof first === "string") {
+		first = [first].concat(rest);
+	}
 	if (Array.isArray(first)) {
 		return identifiers(first, o);
 	}

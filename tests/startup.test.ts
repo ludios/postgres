@@ -147,7 +147,12 @@ const fake = (respond) =>
 
 			const code = buffer.readInt32BE(4);
 			buffer = buffer.subarray(buffer.readInt32BE(0));
-			code === 80877103 ? socket.write("N") : ((started = true), respond(socket, "startup"));
+			if (code === 80877103) {
+				socket.write("N");
+			} else {
+				started = true;
+				respond(socket, "startup");
+			}
 			return true;
 		}
 
@@ -171,9 +176,12 @@ const ready = Buffer.concat([
 
 test("Startup rejects a server that is ready before it accepted the authentication", async () => {
 	const x = await fake((socket, type) => {
-		type === "startup" &&
+		if (type === "startup") {
 			socket.write(message("R", Buffer.concat([int32(10), Buffer.from("SCRAM-SHA-256\0\0")])));
-		type === "p" && socket.write(ready);
+		}
+		if (type === "p") {
+			socket.write(ready);
+		}
 	});
 	await using _close = defer(() => x.close());
 	const code = await session({ port: [port_of(x)], user: "u", pass: "p" }).catch((e) => e.code);
@@ -228,11 +236,14 @@ test("Startup destroys a TCP connection still in progress when connect_timeout p
 
 const refused = async (auth, options?) => {
 	const x = await fake((socket, type) => {
-		type === "startup" && socket.write(message("R", auth));
-		type === "p" &&
+		if (type === "startup") {
+			socket.write(message("R", auth));
+		}
+		if (type === "p") {
 			socket.write(
 				message("R", Buffer.concat([int32(11), Buffer.from("r=other,s=c2FsdA==,i=4096")])),
 			);
+		}
 	});
 	await using _close = defer(() => x.close());
 	const code = await session({ port: [port_of(x)], user: "u", pass: "p", ...options }).catch(
@@ -265,9 +276,12 @@ test("Startup asks the server for its state when it does not report it, for targ
 	const row = (x) =>
 		message("D", Buffer.concat([Buffer.from([0, 1]), int32(x.length), Buffer.from(x)]));
 	const x = await fake((socket, type) => {
-		type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), ready]));
-		type === "Q" &&
+		if (type === "startup") {
+			socket.write(Buffer.concat([message("R", int32(0)), ready]));
+		}
+		if (type === "Q") {
 			socket.write(Buffer.concat([row("on"), row("t"), message("Z", Buffer.from("I"))]));
+		}
 	});
 	await using _close = defer(() => x.close());
 	const { attributes } = await session({
@@ -286,10 +300,13 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 		sent = [];
 	await using _rm = defer(() => fs.rmSync(dir, { recursive: true, force: true }));
 	const x = await fake((socket, type, body) => {
-		type === "startup" && socket.write(message("R", int32(3)));
-		type === "p" &&
-			(sent.push(body.toString("utf8", 0, body.length - 1)),
-			socket.write(Buffer.concat([message("R", int32(0)), ready])));
+		if (type === "startup") {
+			socket.write(message("R", int32(3)));
+		}
+		if (type === "p") {
+			sent.push(body.toString("utf8", 0, body.length - 1));
+			socket.write(Buffer.concat([message("R", int32(0)), ready]));
+		}
 	});
 	await using _close = defer(() => x.close());
 	const port = port_of(x),
@@ -321,9 +338,12 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 
 test("A message the client does not support rejects the query with MESSAGE_NOT_SUPPORTED", async () => {
 	const x = await fake((socket, type) => {
-		type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), ready]));
-		type === "Q" &&
+		if (type === "startup") {
+			socket.write(Buffer.concat([message("R", int32(0)), ready]));
+		}
+		if (type === "Q") {
 			socket.write(Buffer.concat([message("V", int32(0)), message("Z", Buffer.from("I"))]));
+		}
 	});
 	await using _close = defer(() => x.close());
 	await using sql = postgres({
@@ -384,8 +404,12 @@ test("A message with an invalid length during startup rejects with PROTOCOL_ERRO
 
 test("A message with an invalid length after startup rejects the query and closes the connection", async () => {
 	const x = await fake((socket, type) => {
-		type === "startup" && socket.write(Buffer.concat([message("R", int32(0)), ready]));
-		type === "Q" && socket.write(Buffer.concat([header("Z", -1), Buffer.alloc(8)]));
+		if (type === "startup") {
+			socket.write(Buffer.concat([message("R", int32(0)), ready]));
+		}
+		if (type === "Q") {
+			socket.write(Buffer.concat([header("Z", -1), Buffer.alloc(8)]));
+		}
 	});
 	await using _close = defer(() => x.close());
 	await using sql = postgres({
@@ -404,9 +428,12 @@ test("channel_binding: require sends no password when the server asks for cleart
 		codes = [];
 	for (const kind of [3, 5]) {
 		const x = await fake((socket, type) => {
-			type === "startup" &&
+			if (type === "startup") {
 				socket.write(message("R", Buffer.concat([int32(kind), Buffer.alloc(kind === 5 ? 4 : 0)])));
-			type === "p" && received.push(kind);
+			}
+			if (type === "p") {
+				received.push(kind);
+			}
 		});
 		await using _close = defer(() => x.close());
 		codes.push(

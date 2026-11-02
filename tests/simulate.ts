@@ -43,14 +43,18 @@ for (let seed = first; seed < first + runs; seed++) {
 		console.log(
 			"\n⛔️ SEED=" + seed + " (" + result.scenario + ")\n  " + result.violations.join("\n  "),
 		);
-		single && console.log("\n" + result.trace.join("\n"));
+		if (single) {
+			console.log("\n" + result.trace.join("\n"));
+		}
 		if (failed >= (+process.env.MAXFAIL || 10) && !single) {
 			break;
 		}
 	} else if (single) {
 		console.log(result.trace.join("\n"));
 	}
-	!single && seed % 100 === 0 && process.stdout.write(".");
+	if (!single && seed % 100 === 0) {
+		process.stdout.write(".");
+	}
 }
 
 console.log(
@@ -149,27 +153,35 @@ async function simulate(seed) {
 	} catch (error) {
 		process.off("unhandledRejection", stray);
 		process.off("uncaughtException", stray);
-		restore && restore();
+		if (restore) {
+			restore();
+		}
 		violations.push(error.message);
 		return { violations, trace, scenario: name };
 	}
 
 	const open = settled.filter((x) => !x.done).length;
-	open && violations.push(open + " of " + settled.length + " operations never settled");
-	ended || violations.push("end() did not resolve");
+	if (open) {
+		violations.push(open + " of " + settled.length + " operations never settled");
+	}
+	if (!ended) {
+		violations.push("end() did not resolve");
+	}
 
 	violations.push(...server.violations);
 
-	server.peak > config.max &&
+	if (server.peak > config.max) {
 		violations.push("peak of " + server.peak + " sessions with max " + config.max);
+	}
 	const burst = Math.max(
 		0,
 		...server.attempts.map((t) => server.attempts.filter((x) => x >= t && x < t + 1000).length),
 	);
-	burst > 2 * config.max + 4 &&
+	if (burst > 2 * config.max + 4) {
 		violations.push(burst + " failed connection attempts within one second");
+	}
 
-	clock.pending &&
+	if (clock.pending) {
 		violations.push(
 			clock.pending +
 				" timers left after end(), due at " +
@@ -178,12 +190,17 @@ async function simulate(seed) {
 					.map((x) => Math.round(x.at) + "ms")
 					.join(", "),
 		);
+	}
 	const sockets = clients.filter((x) => !x.destroyed).length;
-	sockets && violations.push(sockets + " sockets left open after end()");
+	if (sockets) {
+		violations.push(sockets + " sockets left open after end()");
+	}
 
 	process.off("unhandledRejection", stray);
 	process.off("uncaughtException", stray);
-	restore && restore();
+	if (restore) {
+		restore();
+	}
 
 	return { violations, trace, scenario: name };
 
@@ -230,14 +247,17 @@ async function simulate(seed) {
 				() => log("done " + name + " " + id),
 				(e) => {
 					log("fail " + name + " " + id + " " + (e && (e.code || e.message)));
-					(!e ||
+					if (
+						!e ||
 						!e.code ||
 						e instanceof TypeError ||
 						e instanceof RangeError ||
-						e.code === "STATEMENT_PENDING") &&
+						e.code === "STATEMENT_PENDING"
+					) {
 						violations.push(
 							name + " " + id + " failed inside the client: " + ((e && e.stack) || e),
 						);
+					}
 				},
 			)
 			.then(() => (x.done = true));
@@ -277,11 +297,12 @@ async function simulate(seed) {
 
 		if (kind === "sleep") {
 			const q = sql`select ${id}::int as id, ${scope}::int as scope sleep(${random.int(1, 500)}::int)`;
-			random.chance(0.3) &&
+			if (random.chance(0.3)) {
 				clock.timers.setTimeout(
 					() => Promise.resolve(q.cancel()).catch(() => {}),
 					random.int(0, 300),
 				);
+			}
 			return q.then(expect(kind, id, scope, 1));
 		}
 		if (kind === "unsafe") {
@@ -350,8 +371,7 @@ async function simulate(seed) {
 						),
 					(e) => {
 						const lost = /^(CONNECTION_|ECONNRESET)/.test(e.code);
-						!lost &&
-							server.outcomes.get(scope) === "commit" &&
+						if (!lost && server.outcomes.get(scope) === "commit") {
 							violations.push(
 								"transaction " +
 									scope +
@@ -359,6 +379,7 @@ async function simulate(seed) {
 									e.message +
 									") but the server committed it",
 							);
+						}
 						throw e;
 					},
 				),
@@ -414,13 +435,15 @@ async function simulate(seed) {
 		}
 
 		log("fault " + kind + " session " + x.id);
-		kind === "kill"
-			? server.kill(x)
-			: kind === "close"
-				? server.close(x, false)
-				: kind === "reset"
-					? server.close(x, true)
-					: server[kind](x);
+		if (kind === "kill") {
+			server.kill(x);
+		} else if (kind === "close") {
+			server.close(x, false);
+		} else if (kind === "reset") {
+			server.close(x, true);
+		} else {
+			server[kind](x);
+		}
 	}
 }
 

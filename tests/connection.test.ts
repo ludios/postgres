@@ -1157,10 +1157,12 @@ function lyingServer(final) {
 
 			const code = buf.readInt32BE(4);
 			buf = buf.subarray(buf.readInt32BE(0));
-			code === 80877103
-				? s.write("N")
-				: ((started = true),
-					s.write(msg("R", Buffer.concat([i32(10), z("SCRAM-SHA-256"), z("")]))));
+			if (code === 80877103) {
+				s.write("N");
+			} else {
+				started = true;
+				s.write(msg("R", Buffer.concat([i32(10), z("SCRAM-SHA-256"), z("")])));
+			}
 			return true;
 		}
 

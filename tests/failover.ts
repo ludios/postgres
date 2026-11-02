@@ -52,7 +52,9 @@ await writer`create table failover (id int primary key, port int)`;
 await delay(500);
 
 const [{ standby }] = await reader`select pg_is_in_recovery() as standby`;
-standby || failures.push("prefer-standby did not connect to the standby");
+if (!standby) {
+	failures.push("prefer-standby did not connect to the standby");
+}
 
 const state = { running: true };
 let id = 0,
@@ -70,14 +72,18 @@ async function write() {
 				await writer`insert into failover values (${x}, inet_server_port()) returning port`;
 			written++;
 			lastPort = port;
-			failedAt && !resumedAt && port === 5435 && (resumedAt = Date.now());
+			if (failedAt && !resumedAt && port === 5435) {
+				resumedAt = Date.now();
+			}
 		} catch (error) {
 			const code = error.code || error.message;
 			errors[code] = (errors[code] || 0) + 1;
-			code === "25006" && failures.push("a write reached a read-only server: " + error.message);
-			expected.has(code) ||
-				code === "25006" ||
+			if (code === "25006") {
+				failures.push("a write reached a read-only server: " + error.message);
+			}
+			if (!expected.has(code) && code !== "25006") {
 				failures.push("unexpected error: " + code + " " + error.message);
+			}
 			await delay(50);
 		}
 	}
@@ -101,15 +107,20 @@ await Promise.race([
 	delay(10000).then(() => failures.push("writes did not settle after the failover")),
 ]);
 
-before.port === 5434 || failures.push("writes before the failover went to " + before.port);
-resumedAt || failures.push("writes did not resume within 20s of the failover");
-lastPort === 5435 ||
+if (before.port !== 5434) {
+	failures.push("writes before the failover went to " + before.port);
+}
+if (!resumedAt) {
+	failures.push("writes did not resume within 20s of the failover");
+}
+if (lastPort !== 5435) {
 	failures.push("writes after the failover went to " + lastPort + ", not the promoted standby");
+}
 
 const [{ count }] = await writer`select count(*)::int as count from failover`.catch(() => [
 	{ count: -1 },
 ]);
-count >= before.written ||
+if (!(count >= before.written)) {
 	failures.push(
 		"the promoted standby has " +
 			count +
@@ -117,12 +128,15 @@ count >= before.written ||
 			before.written +
 			" written before the failover",
 	);
+}
 
 const ended = await Promise.race([
 	Promise.all([writer.end({ timeout: 2 }), reader.end({ timeout: 2 })]).then(() => true),
 	delay(10000).then(() => false),
 ]);
-ended || failures.push("end() did not resolve");
+if (!ended) {
+	failures.push("end() did not resolve");
+}
 
 spawnSync("sh", [path.join(here, "failover.sh"), "reset"]);
 

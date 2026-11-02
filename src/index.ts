@@ -89,7 +89,9 @@ function Postgres(a?, b?) {
 		end,
 	});
 
-	Symbol.asyncDispose && (sql[Symbol.asyncDispose] = () => end());
+	if (Symbol.asyncDispose) {
+		sql[Symbol.asyncDispose] = () => end();
+	}
 
 	return sql;
 
@@ -133,7 +135,10 @@ function Postgres(a?, b?) {
 		}
 
 		function unsafe(string, args = [], options = {}) {
-			arguments.length === 2 && !Array.isArray(args) && ((options = args), (args = []));
+			if (arguments.length === 2 && !Array.isArray(args)) {
+				options = args;
+				args = [];
+			}
 			return new Query([string], args, handler, {
 				prepare: false,
 				...options,
@@ -146,7 +151,10 @@ function Postgres(a?, b?) {
 		}
 
 		function file(path, args = [], options = {}) {
-			arguments.length === 2 && !Array.isArray(args) && ((options = args), (args = []));
+			if (arguments.length === 2 && !Array.isArray(args)) {
+				options = args;
+				args = [];
+			}
 			const fileHandler = (query) =>
 				fs.readFile(path, "utf8", (err, string) => {
 					if (err) {
@@ -176,13 +184,20 @@ function Postgres(a?, b?) {
 			reserved = Sql(Object.assign((q) => lease.send(q), { cancel: pool.cancel }));
 
 		reserved.release = () => lease.release();
-		Symbol.dispose && (reserved[Symbol.dispose] = reserved.release);
-		Symbol.asyncDispose && (reserved[Symbol.asyncDispose] = async () => reserved.release());
+		if (Symbol.dispose) {
+			reserved[Symbol.dispose] = reserved.release;
+		}
+		if (Symbol.asyncDispose) {
+			reserved[Symbol.asyncDispose] = async () => reserved.release();
+		}
 		return reserved;
 	}
 
 	function begin(mode, fn) {
-		!fn && ((fn = mode), (mode = ""));
+		if (!fn) {
+			fn = mode;
+			mode = "";
+		}
 		if (!active(channels.transaction)) {
 			return transaction(mode, fn, null);
 		}
@@ -214,12 +229,13 @@ function Postgres(a?, b?) {
 		let savepoints = 0,
 			prepare = null;
 
-		context &&
+		if (context) {
 			Object.assign(context, {
 				connection: lease.connection.id,
 				host: lease.connection.host,
 				port: lease.connection.port,
 			});
+		}
 
 		try {
 			await control(lease, "begin " + mode.replace(/[^a-z ]/gi, ""));
@@ -271,7 +287,9 @@ function Postgres(a?, b?) {
 				prepare = x.replace(/[^a-z0-9$\-_. ]/gi, "");
 			};
 
-			name && (await control(lease, "savepoint " + identifier(name)));
+			if (name) {
+				await control(lease, "savepoint " + identifier(name));
+			}
 			try {
 				result = await new Promise((resolve, reject) => {
 					const x = fn(scoped);
@@ -284,17 +302,26 @@ function Postgres(a?, b?) {
 					throw lease.error || lease.connection.closed;
 				}
 			} catch (error) {
-				context && !name && (context.outcome = "rollback");
-				stopped()
-					? rolled && (await rolled.catch(() => {}))
-					: lease.connection.closed ||
-						(await control(lease, name ? "rollback to " + identifier(name) : "rollback"));
+				if (context && !name) {
+					context.outcome = "rollback";
+				}
+				if (stopped()) {
+					if (rolled) {
+						await rolled.catch(() => {});
+					}
+				} else if (!lease.connection.closed) {
+					await control(lease, name ? "rollback to " + identifier(name) : "rollback");
+				}
 				throw (error instanceof PostgresError && error.code === "25P02" && uncaught) || error;
 			}
 
 			if (stopped()) {
-				rolled && (await rolled);
-				context && !name && (context.outcome = "rollback");
+				if (rolled) {
+					await rolled;
+				}
+				if (context && !name) {
+					context.outcome = "rollback";
+				}
 
 				if (after) {
 					throw after;
@@ -308,12 +335,9 @@ function Postgres(a?, b?) {
 					lease,
 					prepare ? "prepare transaction '" + prepare.replace(/'/g, "''") + "'" : "commit",
 				);
-				context &&
-					(context.outcome = prepare
-						? "prepare"
-						: done.command === "COMMIT"
-							? "commit"
-							: "rollback");
+				if (context) {
+					context.outcome = prepare ? "prepare" : done.command === "COMMIT" ? "commit" : "rollback";
+				}
 
 				if (!prepare && done.command !== "COMMIT") {
 					throw Errors.generic(
@@ -330,12 +354,18 @@ function Postgres(a?, b?) {
 					return savepoint((sql) => sql.apply(sql, arguments));
 				}
 
-				arguments.length === 1 && ((fn = name), (name = null));
+				if (arguments.length === 1) {
+					fn = name;
+					name = null;
+				}
 				return scope(fn, "s" + savepoints++ + (name ? "_" + name : ""), false, stopped);
 			}
 
 			async function nested(inner, fn) {
-				!fn && ((fn = inner), (inner = ""));
+				if (!fn) {
+					fn = inner;
+					inner = "";
+				}
 
 				if (normal(inner) && normal(inner) !== normal(mode)) {
 					throw Errors.generic(
