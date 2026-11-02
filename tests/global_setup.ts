@@ -2,12 +2,13 @@
 import { spawn } from "child_process";
 import type { TestProject } from "vitest/node";
 import { bootstrap } from "./bootstrap.ts";
-import { pg_vars, start_pg_tmp, without_pg_vars } from "./pg_tmp.ts";
+import { pg_env, pg_vars, type PgVars } from "./pg_env.ts";
+import { start_pg_tmp } from "./pg_tmp.ts";
 
 declare module "vitest" {
 	export interface ProvidedContext {
 		/** The PG* variables that point at the `postgres` superuser of the server that the tests use */
-		pg_vars: { PGHOST: string; PGPORT: string; PGUSER: string };
+		pg_vars: PgVars;
 		/** The port (on localhost) of a second server, for tests that connect to several hosts */
 		second_pg_port: number;
 		/** The directory of the Unix socket of the server that `pg_vars` point at */
@@ -24,9 +25,8 @@ declare module "vitest" {
  * @returns a function that ends the session
  */
 function hold_session(port: number): () => void {
-	const env = { ...without_pg_vars(process.env), ...pg_vars(port) };
 	const psql = spawn("psql", ["-X", "-q", "-d", "postgres"], {
-		env,
+		env: pg_env(port),
 		stdio: ["pipe", "ignore", "inherit"],
 	});
 	return () => {
@@ -44,10 +44,9 @@ function hold_session(port: number): () => void {
 export async function setup(project: TestProject): Promise<() => void> {
 	const [first, second] = await Promise.all([start_pg_tmp(), start_pg_tmp()]);
 	const end_sessions = [first, second].map((server) => hold_session(server.port));
-	const first_vars = pg_vars(first.port);
-	bootstrap({ ...without_pg_vars(process.env), ...first_vars });
+	bootstrap(pg_env(first.port));
 
-	project.provide("pg_vars", first_vars);
+	project.provide("pg_vars", pg_vars(first.port));
 	project.provide("second_pg_port", second.port);
 	project.provide("pg_socket_dir", first.socket_dir);
 	return () => {

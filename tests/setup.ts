@@ -3,7 +3,7 @@
 import { beforeEach, inject } from "vitest";
 import { exec } from "./bootstrap.ts";
 import { options, postgres } from "./common.ts";
-import { replace_pg_vars } from "./pg_tmp.ts";
+import { replace_pg_vars } from "./pg_env.ts";
 
 // Point the PG* variables at the `postgres` superuser of the server that tests/global_setup.ts
 // started for the tests, replacing any that this process was started with

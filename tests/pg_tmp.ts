@@ -6,6 +6,7 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { promisify } from "util";
+import { without_pg_vars } from "./pg_env.ts";
 
 const run = promisify(execFile);
 
@@ -13,39 +14,6 @@ const run = promisify(execFile);
 const check_interval = 120;
 
 const hba_file = fileURLToPath(new URL("pg_hba.conf", import.meta.url));
-
-/**
- * @param {NodeJS.ProcessEnv} env - an environment
- * @returns {NodeJS.ProcessEnv} `env` without the PG* variables, which would otherwise choose the
- *   server, the user, and other settings of PostgreSQL client programs (including pg_tmp's port, and
- *   the user that pg_tmp's checks for a connected client log in as)
- */
-export function without_pg_vars(env) {
-	return Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith("PG")));
-}
-
-/**
- * Delete every PG* variable from this process's environment, and then set `vars`.
- *
- * @param {Record<string, string>} vars - the PG* variables to set (or none, to only delete)
- */
-export function replace_pg_vars(vars) {
-	for (const name of Object.keys(process.env)) {
-		if (name.startsWith("PG")) {
-			delete process.env[name];
-		}
-	}
-	Object.assign(process.env, vars);
-}
-
-/**
- * @param {number} port - the port (on localhost) of a server that `start_pg_tmp` started
- * @returns {{ PGHOST: string, PGPORT: string, PGUSER: string }} the PG* variables that point
- *   PostgreSQL client programs (and this library's defaults) at that server's `postgres` superuser
- */
-export function pg_vars(port) {
-	return { PGHOST: "localhost", PGPORT: String(port), PGUSER: "postgres" };
-}
 
 /**
  * @param {string} s - any string
@@ -86,6 +54,8 @@ async function write_certificate(dir, env) {
  *   directory of its Unix socket
  */
 export async function start_pg_tmp() {
+	// PG* variables would choose pg_tmp's port, and the user that pg_tmp's checks for a connected
+	// client log in as
 	const env = without_pg_vars(process.env);
 	// With -t (TCP), pg_tmp's URL does not say where the Unix socket is, so we choose the directory (-d)
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "postgres_js_test."));

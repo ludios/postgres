@@ -1,7 +1,8 @@
 // Model-output: Claude Opus 5.5
 import { bootstrap } from "./bootstrap.ts";
 import { postgres, options, delay } from "./common.ts";
-import { pg_vars, replace_pg_vars, start_pg_tmp } from "./pg_tmp.ts";
+import { pg_vars, replace_pg_vars } from "./pg_env.ts";
+import { start_pg_tmp } from "./pg_tmp.ts";
 
 // A server of its own, set up like the one that the integration tests use
 const { port } = await start_pg_tmp();
