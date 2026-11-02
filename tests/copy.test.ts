@@ -55,12 +55,7 @@ test("Copy write as first", async () => {
 
 test("Copy from file", async () => {
 	await sql`create table test (x int, y int, z int)`;
-	await new Promise(async (r) =>
-		fs
-			.createReadStream(rel("copy.csv"))
-			.pipe(await sql`copy test from stdin`.writable())
-			.on("finish", r),
-	);
+	await pipeline(fs.createReadStream(rel("copy.csv")), await sql`copy test from stdin`.writable());
 
 	expect(await sql`select * from test order by x`).toEqual([
 		{ x: 1, y: 2, z: 3 },

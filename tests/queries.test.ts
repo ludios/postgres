@@ -1,5 +1,6 @@
 import fs from "fs";
 import crypto from "crypto";
+import { pipeline } from "stream/promises";
 import { expect, test } from "vitest";
 import net from "net";
 import {
@@ -122,12 +123,7 @@ test("Large object", async () => {
 
 	const lo = await sql.largeObject();
 	await using _close = defer(() => lo.close());
-	await new Promise(async (r) =>
-		fs
-			.createReadStream(file)
-			.pipe(await lo.writable())
-			.on("finish", r),
-	);
+	await pipeline(fs.createReadStream(file), await lo.writable());
 	await lo.seek(0);
 
 	const out = crypto.createHash("md5");

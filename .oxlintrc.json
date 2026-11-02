@@ -50,7 +50,6 @@
 				"typescript/no-floating-promises": "warn",
 				"typescript/unbound-method": "warn",
 				"typescript/await-thenable": "warn",
-				"no-async-promise-executor": "warn",
 				"typescript/no-base-to-string": "warn",
 				"unicorn/no-unnecessary-await": "warn",
 				"typescript/require-array-sort-compare": "warn",

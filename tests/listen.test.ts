@@ -76,10 +76,10 @@ const until = async (fn, ms = 5000) => {
 test("listen and notify", async () => {
 	await using sql = postgres(options);
 	const channel = "hello";
-	const result = await new Promise(async (r) => {
-		await sql.listen(channel, r);
-		sql.notify(channel, "works");
-	});
+	const { promise, resolve } = Promise.withResolvers();
+	await sql.listen(channel, resolve);
+	await sql.notify(channel, "works");
+	const result = await promise;
 
 	expect(result).toBe("works");
 });
@@ -132,11 +132,10 @@ test("multiple listeners work after a reconnect", async () => {
 test("listen and notify with weird name", async () => {
 	await using sql = postgres(options);
 	const channel = "wat-;.ø.§";
-	let unlisten;
-	const result = await new Promise(async (r) => {
-		unlisten = (await sql.listen(channel, r)).unlisten;
-		sql.notify(channel, "works");
-	});
+	const { promise, resolve } = Promise.withResolvers();
+	const { unlisten } = await sql.listen(channel, resolve);
+	await sql.notify(channel, "works");
+	const result = await promise;
 	await unlisten();
 
 	expect(result).toBe("works");
@@ -145,10 +144,10 @@ test("listen and notify with weird name", async () => {
 test("listen and notify with upper case", async () => {
 	await using sql = postgres(options);
 	const channel = "withUpperChar";
-	const result = await new Promise(async (r) => {
-		await sql.listen(channel, r);
-		sql.notify(channel, "works");
-	});
+	const { promise, resolve } = Promise.withResolvers();
+	await sql.listen(channel, resolve);
+	await sql.notify(channel, "works");
+	const result = await promise;
 
 	expect(result).toBe("works");
 });

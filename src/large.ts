@@ -1,10 +1,10 @@
 import Stream from "stream";
 
 export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
-	return new Promise(async (resolve, reject) => {
-		await sql
+	return new Promise((resolve, reject) => {
+		sql
 			.begin(async (tx) => {
-				let finish;
+				const { promise: finished, resolve: finish } = Promise.withResolvers();
 				if (!oid) {
 					[{ oid }] = await tx`select lo_creat(-1) as oid`;
 				}
@@ -34,7 +34,7 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
 
 				resolve(lo);
 
-				return new Promise(async (r) => (finish = r));
+				return finished;
 
 				async function readable({ highWaterMark = 2048 * 8, start = 0, end = Infinity } = {}) {
 					let max = end - start;
