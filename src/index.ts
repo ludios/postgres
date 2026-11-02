@@ -455,11 +455,13 @@ function Listen(options) {
 	 * @param retries - how many of these LISTENs have failed so far
 	 */
 	function relisten(channel, name, retries = 0) {
+		// A listener that joins while this LISTEN is in flight gets its onlisten call from listen()
+		const listeners = [...channel.listeners];
 		channel.timer = null;
 		send_listen(channel, name).then(
 			() => {
-				channel.listeners.forEach((l) => {
-					if (l.onlisten) {
+				listeners.forEach((l) => {
+					if (channel.listeners.has(l) && l.onlisten) {
 						l.onlisten();
 					}
 				});

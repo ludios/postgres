@@ -2,6 +2,35 @@ import net from "net";
 import { expect, test } from "vitest";
 import { postgres, options, delay, pg_socket_dir, pg_port, port_of, terminate } from "./setup.ts";
 
+/**
+ * Starts a TCP proxy to the server at `pg_port`, for a test that meddles with what a client sends.
+ * @param meddle - called with each chunk a client sends, the number of that client's connection to
+ *   the proxy (1 for the first), and the client and server sockets; returns true to swallow the
+ *   chunk, or false to have it forwarded to the server
+ * @returns the proxy, listening on `port_of(proxy)`; close it when the test is done
+ */
+async function proxy_to_server(
+	meddle: (chunk: Buffer, connection: number, client: net.Socket, server: net.Socket) => boolean,
+) {
+	let connections = 0;
+	const proxy = net.createServer((client) => {
+		const server = net.connect(pg_port, "localhost"),
+			connection = ++connections;
+		client.on("data", (x) => {
+			if (!meddle(x, connection, client, server)) {
+				server.write(x);
+			}
+		});
+		server.on("data", (x) => client.writable && client.write(x));
+		client.on("error", () => server.destroy());
+		server.on("error", () => client.destroy());
+		client.on("close", () => server.destroy());
+		server.on("close", () => client.destroy());
+	});
+	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
+	return proxy;
+}
+
 const until = async (fn, ms = 5000) => {
 	const end = Date.now() + ms;
 	while (!(await fn())) {
@@ -342,27 +371,18 @@ test("unlisten after end resolves without a query", async () => {
 });
 
 test("A close while a LISTEN is in flight starts no second retry chain", async () => {
-	// A proxy to the server, which drops its second connection as soon as the client sends a LISTEN
-	let connections = 0;
-	const proxy = net.createServer((client) => {
-		const server = net.connect(pg_port, "localhost"),
-			drop = ++connections === 2;
-		client.on("data", (x) => {
-			if (drop && x.includes('listen "test"')) {
+	// The proxy drops its second connection as soon as the client sends a LISTEN on it
+	let dropped = false;
+	const proxy = await proxy_to_server((x, connection, client, server) => {
+			if (connection === 2 && x.includes('listen "test"')) {
+				dropped = true;
 				server.destroy();
 				client.destroy();
-				return;
+				return true;
 			}
-			server.write(x);
-		});
-		server.on("data", (x) => client.writable && client.write(x));
-		client.on("error", () => server.destroy());
-		server.on("error", () => client.destroy());
-		client.on("close", () => server.destroy());
-		server.on("close", () => client.destroy());
-	});
-	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
-	const sql = postgres({ ...options, host: "localhost", port: port_of(proxy), backoff: () => 0.1 }),
+			return false;
+		}),
+		sql = postgres({ ...options, host: "localhost", port: port_of(proxy), backoff: () => 0.1 }),
 		xs = [];
 	let listens = 0;
 	try {
@@ -377,7 +397,45 @@ test("A close while a LISTEN is in flight starts no second retry chain", async (
 		await delay(300);
 		await sql.notify("test", "a");
 		await until(() => xs.length === 1);
-		expect([connections, listens, xs]).toEqual([4, 2, ["a"]]);
+		expect([dropped, listens, xs]).toEqual([true, 2, ["a"]]);
+	} finally {
+		await sql.end();
+		proxy.close();
+	}
+});
+
+test("A listener that joins while a reconnect's LISTEN is in flight gets onlisten once", async () => {
+	// The proxy holds back the LISTEN on its second connection until the test releases it
+	let on_hold, release;
+	const held = new Promise<void>((r) => (on_hold = r)),
+		proxy = await proxy_to_server((x, connection, client, server) => {
+			if (connection === 2 && x.includes('listen "test"')) {
+				release = () => server.write(x);
+				on_hold();
+				return true;
+			}
+			return false;
+		}),
+		sql = postgres({ ...options, host: "localhost", port: port_of(proxy) });
+	let first = 0,
+		second = 0;
+	try {
+		const { state } = await sql.listen(
+			"test",
+			() => {},
+			() => first++,
+		);
+		await terminate(state.pid);
+		await held;
+		const joining = sql.listen(
+			"test",
+			() => {},
+			() => second++,
+		);
+		release();
+		await joining;
+		await until(() => first === 2);
+		expect([first, second]).toEqual([2, 1]);
 	} finally {
 		await sql.end();
 		proxy.close();
