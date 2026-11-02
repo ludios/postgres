@@ -1,5 +1,6 @@
+import net from "net";
 import { expect, test } from "vitest";
-import { postgres, sql, options, login_md5, rel, idle_timeout, delay } from "./setup.ts";
+import { postgres, sql, options, login_md5, rel, idle_timeout, delay, port_of } from "./setup.ts";
 
 test("Undefined values throws", async () => {
 	let error;
@@ -188,6 +189,67 @@ test("Error contains query serialized parameters", async () => {
 
 test("Error contains query raw parameters", async () => {
 	expect(await sql`selec ${1}`.catch((err) => err.args[0])).toBe(1);
+});
+
+/**
+ * Starts a query for each of `xs` on `sql`, each with its element as its only parameter.
+ * @returns the promises of the errors that the queries reject with, in the order of `xs`
+ */
+function failures(sql, xs) {
+	return xs.map((x) => sql`select pg_sleep(1), ${x}::text as x`.catch((e) => e));
+}
+
+// The tests below compare `args`, not `parameters`, because a query that fails before it is built
+// has empty `parameters`.
+
+test("Pipelined queries that a connection close rejects each get their own error", async () => {
+	const sql = postgres({ ...options, max: 1 }),
+		killer = postgres(options);
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
+	const errors = failures(sql, ["a", "b", "c"]);
+	await delay(50);
+	await killer`select pg_terminate_backend(${pid}::int)`;
+	await killer.end();
+	expect((await Promise.all(errors)).map((e) => e.args)).toEqual([["a"], ["b"], ["c"]]);
+	await sql.end();
+});
+
+test("Queries on a reserved connection that has closed each get their own error", async () => {
+	const sql = postgres({ ...options, max: 1 }),
+		killer = postgres(options),
+		reserved = await sql.reserve();
+	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
+	await killer`select pg_terminate_backend(${pid}::int)`;
+	await killer.end();
+	const errors = [];
+	for (const x of ["a", "b", "c"]) {
+		errors.push(await failures(reserved, [x])[0]);
+	}
+	expect(errors.map((e) => e.args)).toEqual([["a"], ["b"], ["c"]]);
+	await sql.end();
+});
+
+test("Queries waiting for a connection when end() destroys the pool each get their own error", async () => {
+	const sql = postgres({ ...options, max: 1 }),
+		reserved = await sql.reserve();
+	const errors = failures(sql, ["a", "b"]);
+	await sql.end({ timeout: 0 });
+	expect((await Promise.all(errors)).map((e) => e.args)).toEqual([["a"], ["b"]]);
+	reserved.release();
+});
+
+test("Queries waiting for a connection when end() gives up connecting each get their own error", async () => {
+	const server = net.createServer((socket) => socket.destroy());
+	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+	const sql = postgres({ ...options, host: "127.0.0.1", port: port_of(server), max: 1 });
+	const errors = failures(sql, ["a", "b"]);
+	await delay(10);
+	await sql.end();
+	server.close();
+	expect((await Promise.all(errors)).map((e) => [e.code, e.args])).toEqual([
+		["CONNECTION_ENDED", ["a"]],
+		["CONNECTION_ENDED", ["b"]],
+	]);
 });
 
 test("Query and parameters on errorare not enumerable if debug is not set", async () => {

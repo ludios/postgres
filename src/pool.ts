@@ -167,7 +167,7 @@ export function Pool(options, types) {
 
 		if (lease) {
 			return lease.connection.closed
-				? job.q.reject(queryError(lease.connection.closed, job.q, options.debug))
+				? job.q.reject(queryError(copy_error(lease.connection.closed), job.q, options.debug))
 				: lease.released
 					? job.q.reject(queryError(ended(lease), job.q, options.debug))
 					: run(lease.connection, job);
@@ -659,7 +659,7 @@ export function Pool(options, types) {
 				return released;
 			},
 			send(q) {
-				if (c.closed) return q.reject(queryError(c.closed, q, options.debug));
+				if (c.closed) return q.reject(queryError(copy_error(c.closed), q, options.debug));
 
 				if (released) return q.reject(queryError(ended(x), q, options.debug));
 
@@ -739,13 +739,12 @@ export function Pool(options, types) {
 		if (waiting.length === 0) connections.forEach((c) => c.inflight === 0 && !c.lease && c.close());
 
 		if (connections.size === 0 && opening === 0 && waiting.length) {
-			const error = Errors.connection(
-				"CONNECTION_ENDED",
-				options,
-				options.host[0],
-				options.port[0],
-			);
-			waiting.take().forEach((job) => reject(job, error));
+			for (const job of waiting.take()) {
+				reject(
+					job,
+					Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]),
+				);
+			}
 		}
 
 		if (connections.size === 0 && (opening === 0 || signal.aborted) && waiting.length === 0) {
@@ -761,13 +760,12 @@ export function Pool(options, types) {
 		endTimer = null;
 		signal.aborted = true;
 		signal.sockets.forEach((x) => x.destroy());
-		const error = Errors.connection(
-			"CONNECTION_DESTROYED",
-			options,
-			options.host[0],
-			options.port[0],
-		);
-		waiting.take().forEach((job) => reject(job, error));
+		for (const job of waiting.take()) {
+			reject(
+				job,
+				Errors.connection("CONNECTION_DESTROYED", options, options.host[0], options.port[0]),
+			);
+		}
 		connections.forEach((c) => c.destroy());
 		connections.size === 0 && finishing();
 	}

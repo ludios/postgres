@@ -1,6 +1,6 @@
 import Stream from "stream";
 import * as p from "./protocol.ts";
-import { Errors, queryError } from "./errors.ts";
+import { Errors, copy_error, queryError } from "./errors.ts";
 import Result from "./result.ts";
 import { CLOSE } from "./query.ts";
 import type { Query } from "./query.ts";
@@ -148,7 +148,7 @@ export function Connection(ready, options, events) {
 	}
 
 	function queue(x) {
-		if (closed) return settleError(x, closed);
+		if (closed) return settleError(x, copy_error(closed));
 
 		if (blocker && blocker.streaming && blocker.open)
 			return settleError(
@@ -576,10 +576,10 @@ export function Connection(ready, options, events) {
 				? settle(x)
 				: x === head && x.error && x.error.severity === "FATAL"
 					? settleError(x, x.error)
-					: settleError(x, closed);
+					: settleError(x, copy_error(closed));
 		});
-		pending.splice(0).forEach((x) => (x.own ? settle(x) : settleError(x, closed)));
-		running.forEach((query) => query.settled || query.reject(decorate(query, closed)));
+		pending.splice(0).forEach((x) => (x.own ? settle(x) : settleError(x, copy_error(closed))));
+		running.forEach((query) => query.settled || query.reject(decorate(query, copy_error(closed))));
 		running.clear();
 		open.clear();
 		resolve_closing && resolve_closing();
