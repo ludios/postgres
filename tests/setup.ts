@@ -40,15 +40,10 @@ async function create_file_database(): Promise<string> {
 		throw new Error("tests/setup.ts must be imported by a *.test.ts file, not by " + test_path);
 	}
 	const name = "postgres_js_test_" + path.basename(test_path, ".test.ts");
-	const admin = postgres({ db: "postgres", max: 1 });
-	try {
-		const [{ exists }] =
-			await admin`select exists (select from pg_database where datname = ${name})`;
-		if (!exists) {
-			await admin`create database ${admin(name)} owner ${admin(login.user)}`;
-		}
-	} finally {
-		await admin.end();
+	await using admin = postgres({ db: "postgres", max: 1 });
+	const [{ exists }] = await admin`select exists (select from pg_database where datname = ${name})`;
+	if (!exists) {
+		await admin`create database ${admin(name)} owner ${admin(login.user)}`;
 	}
 	return name;
 }
