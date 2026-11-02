@@ -1882,7 +1882,7 @@ function read(state, array, text, from) {
 
 	try {
 		return (state[key] = compile(state.columns, array, text, from));
-	} catch (_) {
+	} catch {
 		compiles = state.compilable = false;
 		return null;
 	}

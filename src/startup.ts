@@ -573,7 +573,7 @@ function endpoint(certificate) {
 		const x = Buffer.from(certificate),
 			algorithm = signature(x);
 		return algorithm ? crypto.createHash(algorithm).update(x).digest() : null;
-	} catch (_) {
+	} catch {
 		return null;
 	}
 }
@@ -656,7 +656,7 @@ function pgpass(file, host, port, database, user) {
 			return null;
 		}
 		text = fs.readFileSync(file, "utf8");
-	} catch (_) {
+	} catch {
 		return null;
 	}
 	const wanted = [host, String(port), database, user];

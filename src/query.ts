@@ -342,7 +342,7 @@ function context(q) {
 	if (q.strings.length) {
 		try {
 			text = q.text;
-		} catch (error) {
+		} catch {
 			text = null;
 		}
 	}
@@ -380,7 +380,7 @@ function located() {
 	Error.stackTraceLimit = 8;
 	try {
 		return trim(String(new Error().stack));
-	} catch (error) {
+	} catch {
 		return "";
 	} finally {
 		Error.stackTraceLimit = limit;

@@ -68,7 +68,7 @@ export function finish(t, context, error, result?) {
 function tracing(name) {
 	try {
 		return typeof dc.tracingChannel === "function" ? dc.tracingChannel(name) : null;
-	} catch (error) {
+	} catch {
 		return null;
 	}
 }
@@ -76,7 +76,7 @@ function tracing(name) {
 function plain(name) {
 	try {
 		return dc.channel(name);
-	} catch (error) {
+	} catch {
 		return null;
 	}
 }

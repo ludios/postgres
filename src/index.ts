@@ -1154,7 +1154,7 @@ function parseUrl(url) {
 function decode(x) {
 	try {
 		return decodeURIComponent(x);
-	} catch (_) {
+	} catch {
 		return x;
 	}
 }
@@ -1193,7 +1193,7 @@ function passfile(env) {
 				? (env.APPDATA || "") + "\\postgresql\\pgpass.conf"
 				: os.homedir() + "/.pgpass")
 		);
-	} catch (_) {
+	} catch {
 		return null;
 	}
 }
@@ -1201,7 +1201,7 @@ function passfile(env) {
 function osUsername() {
 	try {
 		return os.userInfo().username;
-	} catch (_) {
+	} catch {
 		return process.env.USERNAME || process.env.USER || process.env.LOGNAME;
 	}
 }

@@ -66,8 +66,9 @@
 		// This is just annoying.
 		"no-underscore-dangle": "off",
 		// https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-unused-vars.html
-		// Should be a warning, not an error.
-		"no-unused-vars": "warn",
+		// Should be a warning, not an error. A name with a leading underscore is
+		// unused on purpose: the arguments that a noop takes, or `await using _x`.
+		"no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
 		// https://oxc.rs/docs/guide/usage/linter/rules/unicorn/no-useless-spread.html
 		// A bad rule: it will stop you from doing [...something] to copy e.g. a Set
 		// to avoid issues with it being mutated as you iterate it.

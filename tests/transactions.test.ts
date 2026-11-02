@@ -145,7 +145,7 @@ test("Transaction rejects with rethrown error", async () => {
 			.begin(async (sql) => {
 				try {
 					await sql`select exception`;
-				} catch (ex) {
+				} catch {
 					throw new Error("WAT");
 				}
 			})

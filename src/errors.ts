@@ -102,7 +102,7 @@ function locations() {
 	try {
 		const url = new URL(".", import.meta.url);
 		return url.protocol === "file:" ? [url.href, decodeURIComponent(url.pathname)] : [url.href];
-	} catch (error) {
+	} catch {
 		return [];
 	}
 }
