@@ -268,15 +268,25 @@ test("A query that sql.close() waits for gets CONNECTION_CLOSED, not CONNECTION_
 		max: 1,
 		socket: () => (raw = net.connect(pg_port, "localhost")),
 	});
-	await sql`select 1`;
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
 	const error = sql`select pg_sleep(1)`.catch((e) => e.code);
-	// So that the query is in flight, and sql.close() has to wait for it
-	await delay(50);
+	await until_sleeping(pid);
 	const closing = sql.close();
 	raw.destroy();
 	expect(await error).toBe("CONNECTION_CLOSED");
 	await closing;
 	await sql.end();
+});
+
+test("A query that sql.close() waits for gets CONNECTION_DESTROYED if the timeout of sql.end({ timeout }) is reached", async () => {
+	const sql = postgres({ ...options, max: 1 });
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
+	const error = sql`select pg_sleep(1)`.catch((e) => e.code);
+	await until_sleeping(pid);
+	const closing = sql.close();
+	await sql.end({ timeout: 0 });
+	expect(await error).toBe("CONNECTION_DESTROYED");
+	await closing;
 });
 
 test("responds with server parameters (application_name)", async () => {
