@@ -85,8 +85,16 @@ function Postgres(a?, b?) {
 
 		const typed = (value, type) => new Parameter(value, type);
 
-		Object.entries<PostgresType>(options.types).forEach(
-			([name, type]) => (typed[name] = (x) => new Parameter(x, type.to)),
+		// Defined, not assigned: assigning throws for the names that a function already has (such
+		// as `name`, which is also a PostgreSQL type, `length` and `arguments`), and assigning
+		// `__proto__` would replace the prototype of `typed`.
+		Object.entries<PostgresType>(options.types).forEach(([name, type]) =>
+			Object.defineProperty(typed, name, {
+				value: (x) => new Parameter(x, type.to),
+				writable: true,
+				enumerable: true,
+				configurable: true,
+			}),
 		);
 
 		Object.assign(sql, {

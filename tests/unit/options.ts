@@ -104,6 +104,13 @@ test("sql.array() is removed, and says so", async () => {
 	).toBe("ARRAY_REMOVED");
 });
 
+test("A custom type can have the name of a property of functions, such as name or length", async () => {
+	const names = ["name", "length", "arguments", "caller", "__proto__"],
+		type = { to: 19, from: [19], parse: (x) => x, serialize: (x) => x },
+		sql = postgres({ max: 1, types: Object.fromEntries(names.map((name) => [name, type])) });
+	expect(names.map((name) => sql.types[name]("x").type).join()).toBe("19,19,19,19,19");
+});
+
 test("The removed casing transforms throw when read, and Object.assign does not copy them", async () => {
 	const names = "camel toCamel fromCamel pascal toPascal fromPascal kebab toKebab fromKebab",
 		codes = names.split(" ").map((name) => {
