@@ -512,7 +512,7 @@ const numeric_options = [
  * @returns the value of the option, where `disable` and `false` in the url are `false`, and a
  *          string for a numeric option is the number it is written as
  * @throws if a numeric option is a number that is NaN, negative or infinite, or text that is not
- *         a non-negative decimal number
+ *         a non-negative decimal number with or without whitespace around it
  */
 function read_option(k, d, o, query, env) {
 	const variable = "PG" + k.toUpperCase();
@@ -533,7 +533,8 @@ function read_option(k, d, o, query, env) {
 	if (!numeric_options.includes(k) || (typeof value !== "string" && typeof value !== "number")) {
 		return value;
 	}
-	const number = typeof value === "number" ? value : /^\d+(\.\d+)?$/.test(value) ? +value : NaN;
+	const number =
+		typeof value === "number" ? value : /^\s*\d+(\.\d+)?\s*$/.test(value) ? +value : NaN;
 	if (!Number.isFinite(number) || number < 0) {
 		const shown = typeof value === "string" ? JSON.stringify(value) : String(value);
 		throw new Error(source + " must be a non-negative decimal number, but it is " + shown);

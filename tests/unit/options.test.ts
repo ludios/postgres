@@ -174,7 +174,7 @@ test("The scheduler is on by default, and off with scheduler: false, scheduler=f
 });
 
 test("A numeric option written as text is a number, from the url, a PG variable or the options", async () => {
-	process.env.PGMAX_PIPELINE = "7";
+	process.env.PGMAX_PIPELINE = " 7\r\n";
 	let read;
 	try {
 		const x = postgres("postgres://u@h/db?max=1&connect_timeout=2.5", {
@@ -196,7 +196,7 @@ test("A numeric option that is not a finite, non-negative number, or text that i
 	} finally {
 		delete process.env.PGCONNECT_TIMEOUT;
 	}
-	const texts = ["abc", "", " 1", "-1", "1e3", "0x10", ".5", "Infinity", "9".repeat(400)];
+	const texts = ["abc", "", " ", "-1", "1e3", "0x10", ".5", "Infinity", "9".repeat(400)];
 	expect([
 		from_variable,
 		thrown(() => postgres({ max: 1, idle_timeout: "abc" })).message,
