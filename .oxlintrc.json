@@ -66,7 +66,7 @@
 	"rules": {
 		"typescript/no-floating-promises": "error",
 		"import/no-cycle": ["error", { "maxDepth": 8 }],
-		"no-console": ["warn", { "allow": ["warn", "error"] }],
+		"no-console": ["error", { "allow": ["warn", "error"] }],
 		"no-debugger": "error",
 		// AGENTS.md: "Use the { } curlies even for one-statement blocks."
 		"curly": ["error", "all"],

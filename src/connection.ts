@@ -1510,6 +1510,7 @@ export function Connection(ready, options, events) {
 		if (options.onnotice) {
 			guard(options.onnotice, notice);
 		} else if (options.onnotice !== false) {
+			// oxlint-disable-next-line no-console -- the default onnotice prints to stdout, as documented
 			console.log(notice);
 		}
 	}

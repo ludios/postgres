@@ -229,6 +229,7 @@ function attempt(options, host, port, signal) {
 						if (options.onnotice) {
 							options.onnotice(x);
 						} else if (options.onnotice !== false) {
+							// oxlint-disable-next-line no-console -- the default onnotice prints to stdout, as documented
 							console.log(x);
 						}
 					} catch (error) {

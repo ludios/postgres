@@ -1012,7 +1012,7 @@ function parse_options(a, b) {
 		o.prepare = false;
 	}
 	if ("timeout" in o) {
-		console.log("The timeout option is deprecated, use idle_timeout instead");
+		console.warn("The timeout option is deprecated, use idle_timeout instead");
 		o.idle_timeout = o.timeout;
 	}
 	// As in libpq, the url's sslrootcert, or else PGSSLROOTCERT, names the certificate authorities
