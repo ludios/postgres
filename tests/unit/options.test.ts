@@ -280,7 +280,8 @@ test("sslrootcert=system makes verify-full the ssl mode, and any other mode, als
 	]);
 });
 
-test("PGSSLROOTCERT=system acts as sslrootcert=system in the url, which comes first", async () => {
+test("PGSSLROOTCERT=system acts as sslrootcert=system in the url, which comes first, and TLS options replace both", async () => {
+	const tls = { ca: [] };
 	const must =
 		'The environment variable PGSSLROOTCERT is "system", which, as in libpq, needs the ssl mode ' +
 		'"verify-full", but ssl is "require"';
@@ -294,35 +295,36 @@ test("PGSSLROOTCERT=system acts as sslrootcert=system in the url, which comes fi
 			{ PGSSLROOTCERT: "/etc/ca.pem" },
 			() => postgres("postgres://u@h/db?sslrootcert=system", { max: 1 }).options.ssl,
 		),
-	]).toEqual(["verify-full", must, "verify-full"]);
+		with_env({ PGSSLROOTCERT: "system" }, () => postgres({ max: 1, ssl: tls }).options.ssl),
+	]).toEqual(["verify-full", must, "verify-full", tls]);
 });
 
-test("A file of certificate authorities, which is not read, throws when ssl is true, require or verify-full", async () => {
+test("A file of certificate authorities, which is not read, throws with true or a mode that encrypts", async () => {
 	const must = (source) =>
 		"The " +
 		source +
-		' is "/etc/ca.pem", a file, which postgres.js does not read, so it cannot check the ' +
-		"certificate against the certificate authorities in it. Pass them as ssl: { ca } instead";
+		' is "/etc/ca.pem", a file of certificate authorities, which postgres.js does not read, so ' +
+		"the server's certificate could not be checked against them. Pass them as ssl: { ca } " +
+		"instead, with checkServerIdentity: () => undefined if the host name is not to be checked, " +
+		"as libpq's require and verify-ca do not check it";
 	const tls = { ca: [] };
-	const unread = with_env({ PGSSLROOTCERT: "/etc/ca.pem" }, () => [
-		postgres({ max: 1 }).options.ssl,
-		postgres({ max: 1, ssl: tls }).options.ssl,
-		postgres({ max: 1, host: "/run/postgresql", ssl: "verify-full" }).options.ssl,
-		postgres({ max: 1, ssl: "prefer" }).options.ssl,
+	const thrown_with = (ssl) => thrown(() => postgres({ max: 1, ssl })).message;
+	const read = with_env({ PGSSLROOTCERT: "/etc/ca.pem" }, () => [
+		[
+			postgres({ max: 1 }).options.ssl,
+			postgres({ max: 1, ssl: tls }).options.ssl,
+			postgres({ max: 1, host: "/run/postgresql", ssl: "verify-full" }).options.ssl,
+		],
+		[true, "allow", "prefer", "require", "verify-full"].map(thrown_with),
 	]);
 	expect([
-		unread,
+		read,
 		postgres("postgres://u@h/db?sslrootcert=/etc/ca.pem", { max: 1 }).options.connection,
-		with_env(
-			{ PGSSLROOTCERT: "/etc/ca.pem", PGSSLMODE: "verify-full" },
-			() => thrown(() => postgres({ max: 1 })).message,
-		),
-		thrown(() => postgres("postgres://u@h/db?sslrootcert=/etc/ca.pem", { max: 1, ssl: true }))
+		thrown(() => postgres("postgres://u@h/db?sslrootcert=/etc/ca.pem&sslmode=require", { max: 1 }))
 			.message,
 	]).toEqual([
-		[false, tls, "verify-full", "prefer"],
+		[[false, tls, "verify-full"], Array(5).fill(must("environment variable PGSSLROOTCERT"))],
 		{ application_name: "postgres.js" },
-		must("environment variable PGSSLROOTCERT"),
 		must("url parameter sslrootcert"),
 	]);
 });

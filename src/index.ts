@@ -978,11 +978,11 @@ function parse_options(a, b) {
 		o.idle_timeout = o.timeout;
 	}
 	// As in libpq, the url's sslrootcert, or else PGSSLROOTCERT, names the certificate authorities
-	// that the server's certificate is checked against. "system" makes verify-full the mode when
-	// neither the url nor PGSSLMODE gives one, and any other mode an error. A file is not read here,
-	// so it is an error with a mode that libpq checks the certificate against it with, as checking
-	// against other certificate authorities would be worse. Both are checked below, once ssl is
-	// read.
+	// to check the server's certificate against. With "system", verify-full is the mode when
+	// neither the url nor PGSSLMODE gives one, and any other mode is an error. A file is not read
+	// here, so any mode that encrypts is an error with a file: libpq would check the certificate
+	// against the file in each of those modes. TLS options in ssl replace both. Both are checked
+	// below, once ssl is read.
 	const [roots_source, roots] = Object.hasOwn(query, "sslrootcert")
 		? ["The url parameter sslrootcert", query.sslrootcert]
 		: ["The environment variable PGSSLROOTCERT", env.PGSSLROOTCERT];
@@ -1035,26 +1035,27 @@ function parse_options(a, b) {
 		timers: o.timers || default_timers(),
 	};
 
+	// TLS options give their own certificate authorities, or none
+	const tls_options = options.ssl !== null && typeof options.ssl === "object";
 	// true checks the certificate as verify-full does
-	if (roots === "system" && options.ssl !== "verify-full" && options.ssl !== true) {
+	if (roots === "system" && !tls_options && options.ssl !== "verify-full" && options.ssl !== true) {
 		throw new Error(
 			roots_source +
 				' is "system", which, as in libpq, needs the ssl mode "verify-full", but ssl is ' +
 				shown(options.ssl),
 		);
 	}
-	// libpq checks the certificate against a file with require, verify-ca and verify-full, but not
-	// with allow or prefer; true checks it as verify-full does. TLS options give their own
-	// certificate authorities, and a Unix-domain socket has no TLS.
-	const checked =
-		options.ssl === true || options.ssl === "require" || options.ssl === "verify-full";
-	if (roots && roots !== "system" && checked && !options.path) {
+	// ssl is now false, true or a mode that encrypts, unless it is TLS options; a Unix-domain
+	// socket has no TLS
+	if (roots && roots !== "system" && options.ssl !== false && !tls_options && !options.path) {
 		throw new Error(
 			roots_source +
 				" is " +
 				shown(roots) +
-				", a file, which postgres.js does not read, so it cannot check the certificate " +
-				"against the certificate authorities in it. Pass them as ssl: { ca } instead",
+				", a file of certificate authorities, which postgres.js does not read, so the " +
+				"server's certificate could not be checked against them. Pass them as ssl: { ca } " +
+				"instead, with checkServerIdentity: () => undefined if the host name is not to be " +
+				"checked, as libpq's require and verify-ca do not check it",
 		);
 	}
 	// As in libpq, direct needs a mode that never connects without TLS
@@ -1062,7 +1063,7 @@ function parse_options(a, b) {
 		options.ssl === true ||
 		options.ssl === "require" ||
 		options.ssl === "verify-full" ||
-		typeof options.ssl === "object";
+		tls_options;
 	if (options.sslnegotiation === "direct" && !always_tls) {
 		throw new Error(
 			'sslnegotiation is "direct", which, as in libpq, needs an ssl that always encrypts: true, ' +

@@ -194,7 +194,8 @@ declare namespace postgres {
 		 * TLS: false, a mode as in libpq's sslmode (but not 'verify-ca', which throws), or options for
 		 * tls.connect.
 		 * 'require', 'allow' and 'prefer' do not verify the certificate; Cloudflare Workers always do.
-		 * @default process.env.PGSSLMODE, or else false
+		 * @default process.env.PGSSLMODE; else 'verify-full' if sslrootcert in the url, or else
+		 * PGSSLROOTCERT, is 'system'; else false
 		 */
 		ssl?: SSL | undefined;
 		/**
