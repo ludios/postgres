@@ -213,10 +213,6 @@ export function Connection(ready, options, events) {
 	}
 
 	function write(x) {
-		if (x.kind === "local" && sent.length === 0) {
-			return settle_soon(x);
-		}
-
 		const mark = out.length;
 		let result;
 		try {
@@ -234,7 +230,12 @@ export function Connection(ready, options, events) {
 			if (!x.own || x.kind === "step" || !connection.lease) {
 				x.kind = "local";
 				x.cost = undefined;
-				return sent.length === 0 ? settle_soon(x) : sent.push(x);
+				if (sent.length === 0) {
+					settle_soon(x);
+				} else {
+					sent.push(x);
+				}
+				return;
 			}
 
 			x.kind = "simple";
@@ -1389,6 +1390,23 @@ export function Connection(ready, options, events) {
 		}
 	}
 
+	/**
+	 * Ends the COPY FROM or COPY BOTH of exchange `item` before all of its data has
+	 * been sent. A COPY FROM ends with CopyFail, which makes the server fail the COPY
+	 * with `message`. A COPY BOTH ends with CopyDone, because walsender, the server
+	 * of COPY BOTH, takes CopyFail as a FATAL error.
+	 */
+	function end_copy(item, message) {
+		if (item.copy === "both") {
+			p.copyDone(out);
+		} else {
+			p.copyFail(out, message);
+		}
+		item.copied = true;
+		item.open = false;
+		schedule(true);
+	}
+
 	function writeData(chunk, callback) {
 		p.copyData(out, chunk);
 		flush() ? callback() : (drained = callback);
@@ -1404,15 +1422,7 @@ export function Connection(ready, options, events) {
 				callback(error);
 				discard(item);
 				if (!item.copied && !closed && !item.error) {
-					// walsender, the server of COPY BOTH, takes CopyFail as a FATAL error
-					if (item.copy === "both") {
-						p.copyDone(out);
-					} else {
-						p.copyFail(out, (error || "The COPY stream was destroyed") + "");
-					}
-					item.copied = true;
-					item.open = false;
-					schedule(true);
+					end_copy(item, (error || "The COPY stream was destroyed") + "");
 					refresh();
 				}
 			},
@@ -1427,29 +1437,13 @@ export function Connection(ready, options, events) {
 		};
 	}
 
-	/**
-	 * Ends the COPY FROM or COPY BOTH of exchange `item`, which was cancelled before
-	 * it started, with CopyFail or CopyDone; the server holds back a cancel request
-	 * while it waits for COPY data. The query fails with a 57014 error.
-	 */
-	function refuse(item) {
-		if (item.copy === "both") {
-			// walsender, the server of COPY BOTH, takes CopyFail as a FATAL error
-			p.copyDone(out);
-			item.error = item.error || Errors.canceled();
-		} else {
-			p.copyFail(out, "canceling statement due to user request");
-		}
-		item.copied = true;
-		item.open = false;
-		schedule(true);
-	}
-
 	function CopyInResponse() {
 		const item = sent[0];
 		item.copy = "in";
+		// The server holds back a cancel request while it waits for COPY data, so a
+		// cancelled COPY FROM ends with CopyFail
 		if (item.stopped) {
-			return refuse(item);
+			return end_copy(item, "canceling statement due to user request");
 		}
 		item.stream = new Stream.Writable(writable(item));
 		item.query.resolve(item.stream);
@@ -1485,8 +1479,11 @@ export function Connection(ready, options, events) {
 	function CopyBothResponse() {
 		const item = sent[0];
 		item.copy = "both";
+		// The server holds back a cancel request while it waits for COPY data, so a
+		// cancelled COPY BOTH ends with CopyDone, which fails nothing
 		if (item.stopped) {
-			return refuse(item);
+			item.error = item.error || Errors.canceled();
+			return end_copy(item, "canceling statement due to user request");
 		}
 		item.stream = new Stream.Duplex({ ...writable(item), read: readable(item) });
 		frames.own(true);
