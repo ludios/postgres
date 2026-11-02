@@ -363,7 +363,7 @@ test("Queries that a reserved connection gets as it closes each get their own er
 	await sql.end();
 });
 
-test("Query and parameters on errorare not enumerable if debug is not set", async () => {
+test("Query and parameters on an error are not enumerable if debug is not set", async () => {
 	const sql = postgres({ ...options, debug: false });
 
 	expect(
