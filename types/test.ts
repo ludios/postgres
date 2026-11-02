@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import dc from 'node:diagnostics_channel'
 import postgres, { type Sql, type TransactionSql, type Row, type PendingQuery, type ReplicationEvent, type QueryTrace, type PoolEvent } from './index.js'
 
@@ -20,7 +21,7 @@ const sql = postgres({
   slot: 'my_slot',
   onread: false,
   password: async() => 'secret',
-  transform: postgres.camel,
+  transform: { column: { to: (x: string) => x.toLowerCase(), from: (x: string) => x.toUpperCase() } },
   connection: { application_name: 'test', statement_timeout: 1000 },
   types: { bigint: postgres.BigInt }
 })
@@ -171,9 +172,6 @@ function pass(sql: Sql) {
   return sql`select 1`
 }
 pass(postgres())
-
-const named: string = postgres.toCamel('a_b')
-postgres.fromCamel(named)
 
 dc.subscribe('tracing:postgres:query:asyncEnd', message => {
   const x = message as QueryTrace

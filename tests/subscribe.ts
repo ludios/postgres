@@ -1,6 +1,6 @@
 // Model-output: Claude Opus 5.5
 import { expect, test } from "vitest";
-import { postgres, delay } from "./setup.ts";
+import { postgres, delay, camel_case, snake_case } from "./setup.ts";
 
 test("subscribe", { timeout: 10_000 }, async () => {
 	const sql = postgres({
@@ -53,8 +53,8 @@ test("subscribe with transform", { timeout: 10_000 }, async () => {
 	const sql = postgres({
 		transform: {
 			column: {
-				from: postgres.toCamel,
-				to: postgres.fromCamel,
+				from: camel_case,
+				to: snake_case,
 			},
 		},
 		database: "postgres_js_test",

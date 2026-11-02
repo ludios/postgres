@@ -30,6 +30,18 @@ export function port_of(server: net.Server): number {
 	return address.port;
 }
 
+/**
+ * @param x - a name in snake_case
+ * @returns `x` in camelCase
+ */
+export const camel_case = (x) => x.replace(/_(.)/g, (_, c) => c.toUpperCase());
+
+/**
+ * @param x - a name in camelCase
+ * @returns `x` in snake_case
+ */
+export const snake_case = (x) => x.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());
+
 /** The `idle_timeout` (in seconds) of `options` */
 export const idle_timeout = 1;
 

@@ -3,6 +3,7 @@ import util from "util";
 import { expect, test } from "vitest";
 import postgres from "../../src/index.ts";
 import cases from "./build.cases.ts";
+import { snake_case } from "../common.ts";
 
 const sql = postgres({ host: "localhost", port: 1, max: 1 });
 const show = (q) => JSON.stringify([q.text, q.parameters]);
@@ -65,7 +66,7 @@ test("A join has the length of the items it kept", async () => {
 });
 
 test("Transform column names in helpers", async () => {
-	const sql = postgres({ host: "localhost", port: 1, transform: postgres.camel });
+	const sql = postgres({ host: "localhost", port: 1, transform: { column: { to: snake_case } } });
 	const expected = JSON.stringify(['insert into x ("foo_bar")values($1)', [1]]);
 	expect(show(sql`insert into x ${sql({ fooBar: 1 })}`)).toBe(expected);
 });

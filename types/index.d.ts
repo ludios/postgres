@@ -102,64 +102,6 @@ declare namespace postgres {
     types?: number[] | undefined
   }
 
-  /** snake_case to PascalCase */
-  function toPascal(str: string): string
-  namespace toPascal {
-    namespace column { function from(str: string): string }
-    namespace value { function from(str: unknown, column: Column<string>): string }
-  }
-  /** PascalCase to snake_case */
-  function fromPascal(str: string): string
-  namespace fromPascal {
-    namespace column { function to(str: string): string }
-  }
-  /** snake_case to and from PascalCase, as a transform */
-  namespace pascal {
-    namespace column {
-      function from(str: string): string
-      function to(str: string): string
-    }
-    namespace value { function from(str: unknown, column: Column<string>): string }
-  }
-  /** snake_case to camelCase */
-  function toCamel(str: string): string
-  namespace toCamel {
-    namespace column { function from(str: string): string }
-    namespace value { function from(str: unknown, column: Column<string>): string }
-  }
-  /** camelCase to snake_case */
-  function fromCamel(str: string): string
-  namespace fromCamel {
-    namespace column { function to(str: string): string }
-  }
-  /** snake_case to and from camelCase, as a transform */
-  namespace camel {
-    namespace column {
-      function from(str: string): string
-      function to(str: string): string
-    }
-    namespace value { function from(str: unknown, column: Column<string>): string }
-  }
-  /** snake_case to kebab-case */
-  function toKebab(str: string): string
-  namespace toKebab {
-    namespace column { function from(str: string): string }
-    namespace value { function from(str: unknown, column: Column<string>): string }
-  }
-  /** kebab-case to snake_case */
-  function fromKebab(str: string): string
-  namespace fromKebab {
-    namespace column { function to(str: string): string }
-  }
-  /** snake_case to and from kebab-case, as a transform */
-  namespace kebab {
-    namespace column {
-      function from(str: string): string
-      function to(str: string): string
-    }
-    namespace value { function from(str: unknown, column: Column<string>): string }
-  }
-
   /** int8 as bigint: `types: { bigint: postgres.BigInt }` */
   const BigInt: PostgresType<bigint>
 

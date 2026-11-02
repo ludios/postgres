@@ -2,19 +2,7 @@
 import os from "os";
 import fs from "fs";
 
-import {
-	Types,
-	Parameter,
-	toPascal,
-	pascal,
-	toCamel,
-	camel,
-	toKebab,
-	kebab,
-	fromPascal,
-	fromCamel,
-	fromKebab,
-} from "./types.ts";
+import { Types, Parameter } from "./types.ts";
 import type { PostgresType } from "./types.ts";
 
 import { Identifier, Builder } from "./build.ts";
@@ -27,15 +15,6 @@ import { channels, active, start, finish, userName } from "./diagnostics.ts";
 
 export default Object.assign(Postgres, {
 	PostgresError,
-	toPascal,
-	pascal,
-	toCamel,
-	camel,
-	toKebab,
-	kebab,
-	fromPascal,
-	fromCamel,
-	fromKebab,
 	BigInt: {
 		to: 20,
 		from: [20],
