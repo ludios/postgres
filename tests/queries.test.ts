@@ -8,6 +8,7 @@ import {
 	options,
 	thrown,
 	delay,
+	defer,
 	terminate,
 	until_sleeping,
 	pg_port,
@@ -27,7 +28,6 @@ test("Result has command", async () => {
 
 test("Create table", async () => {
 	expect((await sql`create table test(int int)`).command).toBe("CREATE TABLE");
-	await sql`drop table test`;
 });
 
 test("Drop table", async () => {
@@ -103,17 +103,14 @@ test("Result becomes array", async () => {
 
 test("Include table oid and column number in column details", async () => {
 	await sql`create table tester (name text, age int)`;
+	await using _drop = defer(() => sql`drop table tester`);
 	const r = await sql`select name, age from tester where name like $1 and age > $2`.describe();
 	const [{ oid }] = await sql`select oid from pg_class where relname = 'tester'`;
 
-	try {
-		expect(r.columns.map((c) => [c.table, c.number])).toEqual([
-			[oid, 1],
-			[oid, 2],
-		]);
-	} finally {
-		await sql`drop table tester`;
-	}
+	expect(r.columns.map((c) => [c.table, c.number])).toEqual([
+		[oid, 1],
+		[oid, 2],
+	]);
 });
 
 test("Large object", async () => {
@@ -121,6 +118,7 @@ test("Large object", async () => {
 	const md5 = crypto.createHash("md5").update(fs.readFileSync(file)).digest("hex");
 
 	const lo = await sql.largeObject();
+	await using _close = defer(() => lo.close());
 	await new Promise(async (r) =>
 		fs
 			.createReadStream(file)
@@ -135,7 +133,6 @@ test("Large object", async () => {
 	);
 
 	expect(out.digest("hex")).toBe(md5);
-	await lo.close();
 });
 
 test("Large object tell, size, truncate, and ranges for readable and writable", async () => {
@@ -147,6 +144,7 @@ test("Large object tell, size, truncate, and ranges for readable and writable", 
 			}
 			return s;
 		};
+	await using _close = defer(() => lo.close());
 	await lo.write(Buffer.from("0123456789"));
 	const [tell] = await lo.tell(),
 		[size] = await lo.size();
@@ -168,34 +166,30 @@ test("Large object tell, size, truncate, and ranges for readable and writable", 
 		"012abc6789",
 		"4",
 	]);
-	await lo.close();
 });
 
 test("Multiple statements give one result each", async () => {
 	await sql`create table test (x int)`;
 	const xs = await sql.unsafe("update test set x = 1; delete from test; select 1 as a");
 	expect(xs.map((x) => x.command)).toEqual(["UPDATE", "DELETE", "SELECT"]);
-	await sql`drop table test`;
 });
 
 test("Error mid-result does not offset rows of next query", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	await sql`select 1 / (g - 3) from generate_series(1, 5) g`.catch((x) => x);
 	const result = await sql`select 1 as x`;
-	await sql.end();
 	expect(result.length).toBe(1);
 });
 
 test("Result is not sparse after a query errors mid row-stream", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	await sql`select n, 1 / (3 - n) as boom from generate_series(1, 5) n`.catch(() => {});
 	const result = await sql`select x from generate_series(1, 3) x`;
-	await sql.end();
 	expect(result.map((r) => r.x)).toEqual([1, 2, 3]);
 });
 
 test("Undefined value in a pipelined query rejects only that query", async () => {
-	const sql = postgres(options);
+	await using sql = postgres(options);
 	await sql`select 1`;
 	const results = await Promise.all(
 		[sql`select pg_sleep(0.1), 1 as x`, sql`select ${undefined} as x`, sql`select 3 as x`].map(
@@ -207,12 +201,11 @@ test("Undefined value in a pipelined query rejects only that query", async () =>
 		),
 	);
 	const after = (await sql`select 4 as x`)[0].x;
-	await sql.end();
 	expect([...results, after]).toEqual([1, "UNDEFINED_VALUE", 3, 4]);
 });
 
 test("Undefined value in a pipelined cursor rejects only that query", async () => {
-	const sql = postgres(options);
+	await using sql = postgres(options);
 	await sql`select 1`;
 	const results = await Promise.all(
 		[
@@ -227,12 +220,11 @@ test("Undefined value in a pipelined cursor rejects only that query", async () =
 		),
 	);
 	const after = (await sql`select 4 as x`)[0].x;
-	await sql.end();
 	expect([...results, after]).toEqual([1, "UNDEFINED_VALUE", 3, 4]);
 });
 
 test("Too many parameters in a pipelined query rejects only that query", async () => {
-	const sql = postgres(options);
+	await using sql = postgres(options);
 	await sql`select 1`;
 	const results = await Promise.all(
 		[
@@ -248,12 +240,11 @@ test("Too many parameters in a pipelined query rejects only that query", async (
 		),
 	);
 	const after = (await sql`select 5 as x`)[0].x;
-	await sql.end();
 	expect([...results, after]).toEqual([1, "MAX_PARAMETERS_EXCEEDED", 3, 4, 5]);
 });
 
 test("Parameter failing to serialize in a pipelined cursor rejects only that query", async () => {
-	const sql = postgres(options);
+	await using sql = postgres(options);
 	await sql`select 1`;
 	const results = await Promise.all(
 		[
@@ -268,7 +259,6 @@ test("Parameter failing to serialize in a pipelined cursor rejects only that que
 		),
 	);
 	const after = (await sql`select 4 as x`)[0].x;
-	await sql.end();
 	expect([...results, after]).toEqual([1, "RangeError", 3, 4]);
 });
 
@@ -291,39 +281,32 @@ test("Cancel returns a promise", async () => {
 
 test("A cancel that reaches the server after its query has finished does not cancel the next query", async () => {
 	// Without an idle timeout, the next query has to run on the same connection
-	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	try {
-		const [{ pid }] = await sql`select pg_backend_pid() as pid`;
-		const fast = sql`select 1`.execute();
-		fast.catch(() => {});
-		// Let the query go out, then block, so that the server finishes it while its reply stays unread
-		await new Promise((resolve) => process.nextTick(resolve));
-		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-		const cancelled = fast.cancel(),
-			[{ x, after }] = await sql`select pg_sleep(0.3), 1 as x, pg_backend_pid() as after`;
-		await cancelled;
-		expect([x, after]).toEqual([1, pid]);
-	} finally {
-		await sql.end();
-	}
+	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
+	const fast = sql`select 1`.execute();
+	fast.catch(() => {});
+	// Let the query go out, then block, so that the server finishes it while its reply stays unread
+	await new Promise((resolve) => process.nextTick(resolve));
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+	const cancelled = fast.cancel(),
+		[{ x, after }] = await sql`select pg_sleep(0.3), 1 as x, pg_backend_pid() as after`;
+	await cancelled;
+	expect([x, after]).toEqual([1, pid]);
 });
 
 test("A cancel of a query pipelined behind another does not cancel a query sent after it", async () => {
 	const sql = postgres({ ...options, max: 1, idle_timeout: null });
-	try {
-		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
-			head = sql`select pg_sleep(0.2)`.execute(),
-			fast = sql`select 1`.execute();
-		fast.catch(() => {});
-		await until_sleeping(pid);
-		// `fast` finishes long before its cancel request, sent once it is the head, arrives
-		const cancelled = fast.cancel(),
-			[{ x }] = await sql`select pg_sleep(0.3), 1 as x`;
-		await Promise.all([cancelled, head]);
-		expect(x).toBe(1);
-	} finally {
-		await sql.end({ timeout: 0 });
-	}
+	await using _end = defer(() => sql.end({ timeout: 0 }));
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+		head = sql`select pg_sleep(0.2)`.execute(),
+		fast = sql`select 1`.execute();
+	fast.catch(() => {});
+	await until_sleeping(pid);
+	// `fast` finishes long before its cancel request, sent once it is the head, arrives
+	const cancelled = fast.cancel(),
+		[{ x }] = await sql`select pg_sleep(0.3), 1 as x`;
+	await Promise.all([cancelled, head]);
+	expect(x).toBe(1);
 });
 
 test("A cancel request that times out closes its connection, so that it can't cancel a later query", async () => {
@@ -336,85 +319,73 @@ test("A cancel request that times out closes its connection, so that it can't ca
 		// The second socket is the cancel request's, which never connects
 		socket: () => (++sockets === 2 ? new Promise(() => {}) : net.connect(pg_port, "localhost")),
 	});
-	try {
-		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
-			sleeping = sql`select pg_sleep(0.1)`.execute();
-		await until_sleeping(pid);
-		const cancelled = sleeping.cancel().then(
-			() => "resolved",
-			(error) => error.code,
-		);
-		await sleeping;
-		const [{ other }] = await sql`select pg_backend_pid() as other`,
-			outcome = await Promise.race([cancelled, delay(3000).then(() => "pending")]);
-		expect([outcome, other === pid, sockets]).toEqual(["CONNECT_TIMEOUT", false, 3]);
-	} finally {
-		await sql.end({ timeout: 0 });
-	}
+	await using _end = defer(() => sql.end({ timeout: 0 }));
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+		sleeping = sql`select pg_sleep(0.1)`.execute();
+	await until_sleeping(pid);
+	const cancelled = sleeping.cancel().then(
+		() => "resolved",
+		(error) => error.code,
+	);
+	await sleeping;
+	const [{ other }] = await sql`select pg_backend_pid() as other`,
+		outcome = await Promise.race([cancelled, delay(3000).then(() => "pending")]);
+	expect([outcome, other === pid, sockets]).toEqual(["CONNECT_TIMEOUT", false, 3]);
 });
 
 test("A cancel of a pipelined query holds its connection for as long as the query ahead of it runs", async () => {
 	const sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: 1 });
-	try {
-		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
-			first = sql`select pg_sleep(1.5)`.execute(),
-			second = sql`select 1`.execute();
-		second.catch(() => {});
-		await until_sleeping(pid);
-		const cancelled = second.cancel();
-		// Sent after connect_timeout, while the first query still runs; written before the cancel
-		// request, it would get it
-		await delay(1200);
-		const third = sql`select pg_sleep(0.3)`.execute();
-		await Promise.all([first, cancelled]);
-		await expect(third).resolves.toBeDefined();
-	} finally {
-		await sql.end({ timeout: 0 });
-	}
+	await using _end = defer(() => sql.end({ timeout: 0 }));
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+		first = sql`select pg_sleep(1.5)`.execute(),
+		second = sql`select 1`.execute();
+	second.catch(() => {});
+	await until_sleeping(pid);
+	const cancelled = second.cancel();
+	// Sent after connect_timeout, while the first query still runs; written before the cancel
+	// request, it would get it
+	await delay(1200);
+	const third = sql`select pg_sleep(0.3)`.execute();
+	await Promise.all([first, cancelled]);
+	await expect(third).resolves.toBeDefined();
 });
 
 test("Canceling a pipelined query whose parameters failed to serialize does not hold its connection", async () => {
 	const sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: null });
-	try {
-		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
-			circular: any = {};
-		circular.self = circular;
-		const sleeping = sql`select pg_sleep(0.1)`.execute(),
-			failed = sql`select ${sql.json(circular)} as x`.execute();
-		failed.catch(() => {});
-		await until_sleeping(pid);
-		const cancelled = failed.cancel();
-		await sleeping;
-		await expect(failed).rejects.toThrow(TypeError);
-		const settled = await Promise.race([
-			Promise.all([cancelled, sql`select 1 as x`]).then(([, [{ x }]]) => x),
-			delay(3000).then(() => "pending"),
-		]);
-		expect(settled).toBe(1);
-	} finally {
-		await sql.end({ timeout: 0 });
-	}
+	await using _end = defer(() => sql.end({ timeout: 0 }));
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+		circular: any = {};
+	circular.self = circular;
+	const sleeping = sql`select pg_sleep(0.1)`.execute(),
+		failed = sql`select ${sql.json(circular)} as x`.execute();
+	failed.catch(() => {});
+	await until_sleeping(pid);
+	const cancelled = failed.cancel();
+	await sleeping;
+	await expect(failed).rejects.toThrow(TypeError);
+	const settled = await Promise.race([
+		Promise.all([cancelled, sql`select 1 as x`]).then(([, [{ x }]]) => x),
+		delay(3000).then(() => "pending"),
+	]);
+	expect(settled).toBe(1);
 });
 
 test("Every cancel() of a query pipelined behind another settles when the connection closes", async () => {
 	const sql = postgres({ ...options, max: 1 });
-	try {
-		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
-			first = sql`select pg_sleep(10)`.execute(),
-			second = sql`select 1`.execute();
-		first.catch(() => {});
-		second.catch(() => {});
-		await until_sleeping(pid);
-		const cancels = [second.cancel(), second.cancel()];
-		await terminate(pid);
-		const settled = await Promise.race([
-			Promise.allSettled(cancels).then(() => "settled"),
-			delay(3000).then(() => "pending"),
-		]);
-		expect(settled).toBe("settled");
-	} finally {
-		await sql.end({ timeout: 0 });
-	}
+	await using _end = defer(() => sql.end({ timeout: 0 }));
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+		first = sql`select pg_sleep(10)`.execute(),
+		second = sql`select 1`.execute();
+	first.catch(() => {});
+	second.catch(() => {});
+	await until_sleeping(pid);
+	const cancels = [second.cancel(), second.cancel()];
+	await terminate(pid);
+	const settled = await Promise.race([
+		Promise.allSettled(cancels).then(() => "settled"),
+		delay(3000).then(() => "pending"),
+	]);
+	expect(settled).toBe("settled");
 });
 
 test("result.statement and query.statement have the documented name, string, types and columns", async () => {
@@ -434,7 +405,7 @@ test("result.statement and query.statement have the documented name, string, typ
 
 test("debug gets the values as sent and the parameter types, also on first use", async () => {
 	const calls = [];
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		max: 1,
 		debug: (id, query, values, types) => calls.push([values, types]),
@@ -445,16 +416,14 @@ test("debug gets the values as sent and the parameter types, also on first use",
 		[["1"], [23]],
 		[["1"], [23]],
 	]);
-	await sql.end();
 });
 
 test("Inspecting a query with debug shows why it can not be built", async () => {
-	const util = await import("util"),
-		sql = postgres({ ...options, debug: true });
+	const util = await import("util");
+	await using sql = postgres({ ...options, debug: true });
 	expect(util.inspect(sql`select ${undefined}`)).toBe(
 		"Query { UNDEFINED_VALUE: Undefined values are not allowed }",
 	);
-	await sql.end();
 });
 
 test(".stream() says it is now .forEach()", async () => {
@@ -482,5 +451,4 @@ test("A deferred constraint failing at the end of an implicit transaction reject
 		await sql`select count(*)::int as n from test`.then(([x]) => x.n),
 	];
 	expect(codes).toEqual(["23505", "23505", 1]);
-	await sql`drop table test`;
 });
