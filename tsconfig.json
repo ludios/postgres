@@ -3,7 +3,9 @@
 	"compilerOptions": {
 		// Typecheck only; Node runs the .ts files itself by stripping the types.
 		"noEmit": true,
-		"target": "esnext",
+		// Node 22 is the oldest Node that this package supports.
+		"target": "es2024",
+		"lib": ["es2024"],
 		"module": "nodenext",
 		"types": ["node"],
 		// Allow only the TypeScript syntax that Node's type stripping can run.
