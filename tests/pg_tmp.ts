@@ -41,7 +41,8 @@ async function write_certificate(dir, env) {
 /**
  * Start a throwaway PostgreSQL server with pg_tmp, set up for the tests: tests/pg_hba.conf, a
  * certificate (`ssl` itself stays off until ALTER SYSTEM turns it on), logical decoding, prepared
- * transactions, and a `postgres` superuser.
+ * transactions, room for the connections of test files that run in parallel, and a `postgres`
+ * superuser.
  *
  * pg_tmp checks every `check_interval` seconds whether a client is connected, and the first check
  * that finds no client stops the server and deletes its directory. So the server is gone within
@@ -67,6 +68,9 @@ export async function start_pg_tmp() {
 			ssl_key_file: cert.key,
 			wal_level: "logical",
 			max_prepared_transactions: "100",
+			// The default is 100, and the integration test files, which run in parallel, were seen
+			// using 64 connections at once
+			max_connections: "200",
 		};
 		const pg_options = Object.entries(settings)
 			.map(([name, value]) => "-c " + sh_quote(name + "=" + value))

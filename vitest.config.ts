@@ -25,8 +25,6 @@ export default defineConfig({
 					name: "integration",
 					include: ["tests/*.test.ts"],
 					globalSetup: ["tests/global_setup.ts"],
-					// One file at a time, because they share the servers, and tables such as `test`
-					fileParallelism: false,
 				},
 			},
 		],
