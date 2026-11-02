@@ -1,6 +1,7 @@
 // Helpers for the unit tests and the integration tests alike. Importing this module has no side
 // effects (unlike tests/common.ts, which imports the library).
 import type net from "net";
+import util from "util";
 
 /**
  * @param server - a server that listens on a TCP port (not on a Unix socket or a pipe)
@@ -30,14 +31,21 @@ export const camel_case = (x) => x.replace(/(?!^)_(.)/g, (_, c) => c.toUpperCase
 export const snake_case = (x) => x.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());
 
 /**
- * @param f - a function that must throw when called
- * @returns the value that `f` threw (usually an Error, whose `code` or `message` the caller checks)
+ * @param f - a function that the caller expects to throw synchronously (a promise that `f` returns
+ * is not awaited)
+ * @returns the value that `f` threw (usually an Error, whose `code` or `message` the caller checks);
+ * or, if `f` returned without throwing, an Error with the code DID_NOT_THROW whose message shows what
+ * `f` returned, so that the caller's check fails and its diff shows which call did not throw
  */
 export function thrown(f: () => unknown): any {
+	let returned;
 	try {
-		f();
+		returned = f();
 	} catch (e) {
 		return e;
 	}
-	throw new Error("Expected the function to throw, but it returned without throwing");
+	return Object.assign(
+		new Error("Returned without throwing: " + util.inspect(returned, { depth: 0 })),
+		{ code: "DID_NOT_THROW" },
+	);
 }
