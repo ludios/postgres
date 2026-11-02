@@ -1,6 +1,11 @@
 import path from "path";
 import { Clock, Random } from "./sim/net.ts";
 import { Server } from "./sim/server.ts";
+import { replace_pg_vars } from "./pg_env.ts";
+
+// The pools read no PG* variable of the shell, such as a PGSSLMODE, with which every connection
+// would ask the simulated server for TLS
+replace_pg_vars({});
 
 const single = process.env.SEED !== undefined,
 	first = single ? +process.env.SEED : 1,
