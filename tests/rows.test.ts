@@ -17,15 +17,20 @@ test("Rows keep the same shape and values across many rows", async () => {
       '{"k":1}'::json as j
     from generate_series(1, 40)
   `;
-	expect(rows.map((x) => Object.entries(x))).toEqual(Array(40).fill(Object.entries(rows[0])));
-	expect([
-		rows[39].a,
-		rows[39].n,
-		rows[39].d instanceof Date,
-		rows[39]["1"],
-		rows[39].arr,
-		rows[39].j.k,
-	]).toEqual([2, null, true, 1, [1, 2], 1]);
+	expect(rows.map((x) => Object.entries(x))).toEqual(
+		Array.from({ length: 40 }, () => [
+			["1", 1],
+			["a", 2],
+			["n", null],
+			["b", true],
+			['we"ird', "q"],
+			["}; throw 1; //", "y"],
+			["f", 1.5],
+			["d", new Date("2026-06-01T00:00:00Z")],
+			["arr", [1, 2]],
+			["j", { k: 1 }],
+		]),
+	);
 });
 
 test("Rows with a __proto__ column stay plain objects", async () => {
