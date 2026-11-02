@@ -528,10 +528,7 @@ function parseOptions(a, b) {
 	const env = process.env,
 		o = (!a || typeof a === "string" ? b : a) || {},
 		url = parseUrl(a),
-		query = [...url.url.searchParams].reduce<Record<string, string>>(
-			(a, [b, c]) => ((a[b] = c), a),
-			{},
-		),
+		query = Object.fromEntries(url.url.searchParams),
 		targets = hosts(o, query, url, env),
 		port = o.port || query.port || env.PGPORT || 5432,
 		user = o.user || o.username || url.url.username || env.PGUSERNAME || env.PGUSER || osUsername();
@@ -588,9 +585,10 @@ function parseOptions(a, b) {
 		connection: {
 			application_name: env.PGAPPNAME || "postgres.js",
 			...o.connection,
-			...Object.entries(query).reduce(
-				(acc, [k, v]) => (k in defaults || k === "host" || k === "port" || (acc[k] = v), acc),
-				{},
+			...Object.fromEntries(
+				Object.entries(query).filter(
+					([k]) => !Object.hasOwn(defaults, k) && k !== "host" && k !== "port",
+				),
 			),
 		},
 		types: o.types || {},

@@ -241,3 +241,14 @@ test("A numeric option written as anything but a non-negative decimal number thr
 		...texts.map((x) => "The url parameter backoff" + must + JSON.stringify(x)),
 	]);
 });
+
+test("Url parameters named like Object.prototype properties go to the server", async () => {
+	const url = "postgres://u@h/db?constructor=a&toString=b&__proto__=c&search_path=d";
+	expect(Object.entries(postgres(url, { max: 1 }).options.connection)).toEqual([
+		["application_name", "postgres.js"],
+		["constructor", "a"],
+		["toString", "b"],
+		["__proto__", "c"],
+		["search_path", "d"],
+	]);
+});
