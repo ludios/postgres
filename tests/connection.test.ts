@@ -1812,6 +1812,27 @@ test(
 	},
 );
 
+test("A query rejected during a COPY on a reserved connection doesn't leave the connection notable", async () => {
+	const sql = postgres({ ...options, max: 2 }),
+		reserved = await sql.reserve();
+	await reserved`create temp table copied (x int)`;
+	const writable = await reserved`copy copied from stdin`.writable(),
+		rejected = reserved`select 1 as rejected`,
+		code = await rejected.then(
+			() => "ran",
+			(e) => e.code,
+		);
+	await new Promise((resolve, reject) => {
+		writable.on("finish", resolve);
+		writable.on("error", reject);
+		writable.end("1\n");
+	});
+	// `notable` is internal: the pool asks it whether the scheduler is needed for a quick query
+	expect([code, rejected.connection.notable]).toEqual(["COPY_IN_PROGRESS", false]);
+	reserved.release();
+	await sql.end();
+});
+
 test("An identifier that looks like many comments after start does not stall the event loop", async () => {
 	const sql = postgres({ ...options, max: 2 }),
 		column = "start" + "/**/".repeat(40) + "x",

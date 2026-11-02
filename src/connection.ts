@@ -170,6 +170,9 @@ export function Connection(ready, options, events) {
 			);
 		}
 
+		if (x.cost >= notable) {
+			notables++;
+		}
 		x.query && (x.query.state = connection.backend);
 		if (fence) {
 			pending.splice(pending.indexOf(fence), 0, x);
@@ -283,11 +286,9 @@ export function Connection(ready, options, events) {
 
 	function cost(x) {
 		const { query } = x;
-		query.cost &&
-			!query.cursorFn &&
-			!query.streaming &&
-			(x.cost = query.cost.est === undefined ? unknown : query.cost.est);
-		x.cost >= notable && notables++;
+		if (query.cost && !query.cursorFn && !query.streaming) {
+			x.cost = query.cost.est === undefined ? unknown : query.cost.est;
+		}
 	}
 
 	function timed(x) {
@@ -1144,14 +1145,14 @@ export function Connection(ready, options, events) {
 		retry.previous = x.entry;
 		retry.trace = x.trace;
 		retry.cost = x.cost;
-		if (retry.cost >= notable) {
-			notables++;
-		}
 
 		if (sent.length) {
 			return queue(retry);
 		}
 
+		if (retry.cost >= notable) {
+			notables++;
+		}
 		pending.unshift(retry);
 		release();
 	}
