@@ -639,7 +639,7 @@ setTimeout(() => query.cancel(), 100)
 const result = await query
 ```
 
-`.signal()` cancels the query when an [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal) aborts: one still waiting for a connection is rejected without being sent, and a running one gets a cancel request. A cursor canceled while its callback runs, or while an async iterator over it is between batches, is stopped by the client instead: it fetches no more rows, closes its portal and rejects with `57014`, with no cancel request sent.
+`.signal()` cancels the query when an [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal) aborts: one still waiting for a connection is rejected without being sent, and a running one gets a cancel request. If the cancel request cannot be sent (say, because the network is down), the promise from `query.cancel()` rejects with the error, but `.signal()` ignores the error, and the query keeps running. A cursor canceled while its callback runs, or while an async iterator over it is between batches, is stopped by the client instead: it fetches no more rows, closes its portal and rejects with `57014`, with no cancel request sent.
 
 ```js
 await sql`select * from report()`.signal(AbortSignal.timeout(5000))

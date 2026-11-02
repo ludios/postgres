@@ -145,13 +145,21 @@ export class Query extends Promise<any> {
 			return this;
 		}
 
+		// Nothing awaits this cancel request, so a failure to send it (say, because the network is
+		// down) must not crash the process; the query then keeps running.
+		const abort = () => {
+			this.cancel().catch(() => {});
+		};
 		if (signal.aborted) {
-			return (this.cancel(), this);
+			abort();
+			return this;
 		}
 
-		const abort = () => this.cancel();
 		signal.addEventListener("abort", abort, { once: true });
-		this.aborts = () => ((this.aborts = null), signal.removeEventListener("abort", abort));
+		this.aborts = () => {
+			this.aborts = null;
+			signal.removeEventListener("abort", abort);
+		};
 		return this;
 	}
 
