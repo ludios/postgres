@@ -690,7 +690,7 @@ test("bytea and int2, int4 and bool arrays are read in binary once their stateme
 	const results = [await binaries(pool), await binaries(pool), await binaries(pool)].map((x) =>
 			Array.from(x),
 		),
-		row = {
+		row: Record<string, unknown> = {
 			k: 1,
 			b: Buffer.from("00ff10", "hex"),
 			i4: [1, -2, null, 2147483647, -2147483648],

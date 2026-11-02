@@ -59,7 +59,7 @@ if (!standby) {
 const state = { running: true };
 let id = 0,
 	written = 0,
-	lastPort = null,
+	lastPort: number | null = null,
 	failedAt = null,
 	resumedAt = null;
 const errors = {};

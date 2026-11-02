@@ -11,6 +11,7 @@ import { Errors, PostgresError, throw_on_casing_transforms } from "./errors.ts";
 import Subscribe from "./subscribe.ts";
 import largeObject from "./large.ts";
 import { channels, active, start, finish, userName } from "./diagnostics.ts";
+import type postgres from "../types/index.js";
 
 export default Object.assign(Postgres, {
 	PostgresError,
@@ -196,7 +197,7 @@ function Postgres(a?, b?) {
 			return transaction(mode, fn, null);
 		}
 
-		const context = {
+		const context: postgres.TransactionTrace = {
 			mode,
 			database: options.database,
 			user: userName(options),
@@ -1132,7 +1133,7 @@ function parseTransform(x) {
 
 function parseUrl(url) {
 	if (!url || typeof url !== "string") {
-		return { url: { searchParams: new Map() }, targets: [] };
+		return { url: { searchParams: new Map() }, targets: [] as string[] };
 	}
 
 	const rest = url.slice(url.indexOf("://") + 3),

@@ -448,7 +448,22 @@ export const text =
 
 const u32 = (x, i) => ((x[i] << 24) | (x[i + 1] << 16) | (x[i + 2] << 8) | x[i + 3]) >>> 0,
 	u16 = (x, i) => (x[i] << 8) | x[i + 1],
-	field = (name, table, number, type) => ({ name, table, number, type });
+	field = (name, table, number, type): Column => ({ name, table, number, type });
+
+/** A column of a RowDescription. The connection adds `parser` and `decode` to the columns it makes. */
+export type Column = {
+	name: string;
+	/** The oid of the table that the column is from, or 0 */
+	table: number;
+	/** The column's number in that table, or 0 */
+	number: number;
+	/** The oid of the column's type */
+	type: number;
+	/** Parses a value of the column from its text; null for a column read as text */
+	parser?: ((x: string) => unknown) | null;
+	/** Decodes a value of the column from its binary form, for a column fetched in binary; else null */
+	decode?: ((x: Buffer, start: number, end: number) => unknown) | null;
+};
 
 export function rowDescription(x, start, end, make = field) {
 	const columns = new Array((x[start + 5] << 8) | x[start + 6]);

@@ -185,7 +185,7 @@ function attempt(options, host, port, signal) {
 						socket,
 					}),
 					parameters = {},
-					backend = { pid: null, secret: null },
+					backend: { pid: number | null; secret: number | null } = { pid: null, secret: null },
 					frames = p.Frames(frame, false, (error) => {
 						refuse(error);
 						socket.destroy();

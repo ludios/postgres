@@ -22,7 +22,7 @@ const postgres = (
 	)
 ).default;
 
-const scenarios = {
+const scenarios: Record<string, { faults: string[]; kinds?: string[] }> = {
 	split: { faults: [] },
 	errors: { faults: [], kinds: ["query", "rows", "fail", "syntax", "begin", "cursor", "unsafe"] },
 	close: { faults: ["close", "reset"] },

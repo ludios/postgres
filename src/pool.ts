@@ -4,6 +4,7 @@ import { Connection } from "./connection.ts";
 import { Query } from "./query.ts";
 import { Errors, PostgresError, copy_error, queryError } from "./errors.ts";
 import { channels, listened } from "./diagnostics.ts";
+import type { Column } from "./protocol.ts";
 
 /**
  * Milliseconds. A query estimated to take at least this long is slow, and the scheduler keeps slow
@@ -46,6 +47,62 @@ type Pooled = ReturnType<typeof Connection> & {
 	retiring?: boolean;
 	/** Called once the connection closes. */
 	retired?: Array<() => void>;
+};
+
+/**
+ * A connection leased to one job (a transaction, or a reserve()) until released; the job's queries
+ * are sent through it.
+ */
+export type Lease = {
+	/** The job's kind: "transaction" or "reserve" */
+	kind: string;
+	/** The error that closed the connection while it was leased, if any */
+	error: Error | null;
+	connection: Pooled;
+	/** Rejects with the error that closed the connection while it was leased; never resolves */
+	closed: Promise<never>;
+	readonly released: boolean;
+	/** Sends `q` on the connection, once the queries sent before it have been written */
+	send(q: Query): void;
+	/** Gives the connection back to the pool, or closes it if it is not idle */
+	release(): void;
+	onclose(error: Error): void;
+};
+
+/** The scheduler's knowledge of a statement text */
+type Cost = {
+	/** The estimated time that the text takes to run, in ms; undefined until it has run */
+	est: number | undefined;
+};
+
+/** A statement text that the scheduler knows */
+type Known = Cost & {
+	text: string;
+	/** Whether the text opens a transaction, so that its query must run alone; undefined until tested */
+	alone: boolean | undefined;
+};
+
+/** A statement text's entry in the cache of prepared statements */
+export type Statement = {
+	/** The parameter types and the text, which the cache is keyed by; null for an unnamed statement */
+	key: string | null;
+	/** Whether the entry is still in the cache */
+	live: boolean;
+	/** The statement's name on the server; "" for an unnamed statement */
+	name: string;
+	text: string;
+	/** Whether the text ends a transaction; undefined until tested */
+	ends: boolean | undefined;
+	/** The parameter and column types that the server described last; undefined until described */
+	shape: string | undefined;
+	/** Counts the changes of `shape`, so that a connection's entry for an older shape is stale */
+	version: number;
+	/** The cache's clock when the statement was last used, for eviction */
+	used: number;
+	/** The scheduler's cost of the text, or null without the scheduler */
+	cost: Cost | null;
+	/** Whether the text opens a transaction, so that its query must run alone; undefined until tested */
+	alone?: boolean | undefined;
 };
 
 export function Pool(options, types) {
@@ -154,7 +211,12 @@ export function Pool(options, types) {
 	}
 
 	function describeOnly(q, built, lease) {
-		const statement = { name: "", text: built.text, oids: built.oids, columns: null },
+		const statement = {
+				name: "",
+				text: built.text,
+				oids: built.oids,
+				columns: null as Column[] | null,
+			},
 			start = (c) => {
 				q.connection = c;
 				c.describe(statement, built.oids).then(
@@ -937,10 +999,10 @@ export function Pool(options, types) {
 			released = false,
 			lost;
 
-		const closed = new Promise((_, fail) => (lost = fail));
+		const closed = new Promise<never>((_, fail) => (lost = fail));
 		closed.catch(() => {});
 
-		const x = {
+		const x: Lease = {
 			kind: job.kind,
 			error: null,
 			connection: c,
@@ -1003,8 +1065,6 @@ export function Pool(options, types) {
 		job.resolve(x);
 		return x;
 	}
-
-	type Lease = ReturnType<typeof grant>;
 
 	function cancel(q) {
 		const removed = waiting.remove((x) => {
@@ -1211,13 +1271,13 @@ function opens(text) {
 
 function Statements(scheduler) {
 	const prefix = Math.random().toString(36).slice(2, 10),
-		map = new Map(),
+		map = new Map<string, Statement>(),
 		templates = new WeakMap();
 
 	let counter = 1,
 		clock = 0;
 
-	const texts = new Map();
+	const texts = new Map<string, Known>();
 
 	return { get, clear, known };
 
@@ -1260,7 +1320,7 @@ function Statements(scheduler) {
 		return statement;
 	}
 
-	function unnamed(text) {
+	function unnamed(text: string): Statement {
 		return {
 			key: null,
 			live: false,
@@ -1274,8 +1334,8 @@ function Statements(scheduler) {
 		};
 	}
 
-	function add(key, text) {
-		const statement = {
+	function add(key: string, text: string) {
+		const statement: Statement = {
 			key,
 			live: true,
 			name: prefix + counter++,

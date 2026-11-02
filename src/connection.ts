@@ -4,6 +4,9 @@ import { Errors, copy_error, queryError } from "./errors.ts";
 import Result from "./result.ts";
 import { CLOSE } from "./query.ts";
 import type { Query } from "./query.ts";
+import type { Column } from "./protocol.ts";
+import type { Lease, Statement } from "./pool.ts";
+import type postgres from "../types/index.js";
 import { now, channels, listened } from "./diagnostics.ts";
 
 const text = p.text,
@@ -13,11 +16,142 @@ const text = p.text,
 	refused = "postgres.js: query could not be built",
 	skip = Symbol("skip"),
 	unknown = 100,
-	states = new WeakMap(),
+	states = new WeakMap<Column[], Shape>(),
 	after = 16;
 
 let ids = 1,
 	compiles = true;
+
+/**
+ * One exchange with the server: the messages of a query (Parse to Sync, or one Query), or of the
+ * connection's own work, and what the connection learns while they are in flight.
+ */
+export type Exchange = {
+	/**
+	 * "query": a query of the extended protocol; "simple": one of the simple protocol; "step": the next
+	 * rows of a cursor; "describe": a Describe of a statement; "internal": the connection's own, such
+	 * as the rollback of an unsafe transaction; "local": a query that failed before it was written
+	 */
+	kind: "query" | "simple" | "step" | "describe" | "internal" | "local";
+	/** The query, or null for the connection's own work */
+	query: Query | null;
+	/** The lease that the query is sent through, if any */
+	lease: Lease | null;
+	/** Writes the exchange's messages; returns `skip` if the query cannot be written */
+	write: (x: Exchange) => unknown;
+	trace: postgres.QueryTrace | null;
+	/** The statement, from the pool's cache */
+	statement: Statement | null;
+	text: string;
+	/** The connection's entry for the prepared statement, once the exchange uses one */
+	entry: Entry | null;
+	/** The entry made for a statement that this exchange prepares */
+	fresh: Entry | null;
+	/** For a retry: the entry of the exchange that is retried */
+	previous: Entry | null;
+	/** The names of the statements whose ParseComplete has not come yet */
+	parses: string[];
+	/** The parameters, serialized */
+	values: (string | Uint8Array | null)[] | null;
+	/** The types of the parameters, from ParameterDescription */
+	params: number[] | null;
+	columns: Column[] | null;
+	// The result format of each column for Bind, or null for text
+	formats: number[] | null;
+	/** The columns that `reader` reads */
+	shaped: Column[] | null;
+	reader: Shape | null;
+	result: Result;
+	/** The results of a simple-protocol exchange, one per statement */
+	results: Result[] | null;
+	/** For a step: the cursor's exchange */
+	origin: Exchange | null;
+	portal: string;
+	/** The rows per Execute of a cursor; 0 for all */
+	rows: number;
+	end: boolean;
+	failure: Error | null;
+	flushing: boolean;
+	streaming: boolean;
+	open: boolean;
+	/** Whether the query must have the connection to itself */
+	alone: boolean;
+	describing: boolean;
+	learn: boolean;
+	verify: boolean;
+	synced: boolean;
+	bound: boolean;
+	suspended: boolean;
+	finished: boolean;
+	done: boolean;
+	/** Whether the statement ends a transaction */
+	ends: boolean;
+	epoch: number;
+	retried: boolean;
+	/** For a retry: the error of the exchange that is retried */
+	original: Error | null;
+	error: Error | null;
+	/** An error of the exchange's own, before any answer of the server, such as a refused build */
+	own: Error | null;
+	cancel: PromiseWithResolvers<unknown> | null;
+	// Whether a cancel request has been sent for this exchange
+	stopped: boolean;
+	// The promise of this exchange's cancel request while that request is in flight; otherwise null
+	stopping: Promise<unknown> | null;
+	/** The stream of a COPY */
+	stream: Stream.Readable | Stream.Writable | null;
+	// "in", "out" or "both", once the server has started a COPY FROM, TO or BOTH
+	copy: "in" | "out" | "both" | null;
+	// Whether we have sent all of the COPY data, for COPY FROM and COPY BOTH
+	copied: boolean;
+	/** Whether the reader of a COPY TO stream wants more data */
+	wanted: boolean;
+	/** The final callback of a COPY FROM stream, until CommandComplete calls it */
+	final: ((error?: Error | null) => void) | null;
+	resolve: ((value: unknown) => void) | null;
+	reject: ((error: unknown) => void) | null;
+	/** The scheduler's estimate of the query's cost */
+	cost: number | undefined;
+};
+
+/** The connection's cache entry for a prepared statement */
+type Entry = {
+	/** The name of the prepared statement on the connection */
+	name: string;
+	/**
+	 * The exchange that prepares the statement. ReadyForQuery sets it to null once that exchange has
+	 * ended, so that the cache does not keep the exchange's query.
+	 */
+	owner: Exchange | null;
+	/** The types of the parameters, or null until the server has described them */
+	oids: number[] | null;
+	/** The columns of the statement's rows, once the server has described them */
+	columns: Column[] | null;
+	// What binary_columns() gives for `columns`, once they are known
+	binary: { columns: Column[]; formats: number[] } | null;
+	/** The serializer of each parameter, once `oids` are known */
+	serializers: ((value: any) => unknown)[] | null;
+	/** "parsing" until ParseComplete, then "ready"; "stale" once the statement's shape has changed */
+	state: "parsing" | "ready" | "stale";
+	/** The version of the statement's shape that the entry was described for; -1 until then */
+	version: number;
+};
+
+/** Reads the row at `i` of DataRow `x`; compiled by compile() */
+type RowReader = (x: Buffer, i: number) => unknown;
+
+/** The row readers of one list of columns, compiled once rows of it have been read `after` times */
+type Shape = {
+	columns: Column[];
+	/** How many times rows of these columns have been read */
+	seen: number;
+	/** The reader of a row as an object, once compiled */
+	object: RowReader | null;
+	/** The reader of a row as an array, once compiled */
+	array: RowReader | null;
+	/** Whether a reader can be compiled: not too many columns, none named __proto__, and compiling works */
+	compilable: boolean;
+};
 
 export function Connection(ready, options, events) {
 	const { socket } = ready,
@@ -65,7 +199,7 @@ export function Connection(ready, options, events) {
 		backend: ready.backend,
 		parameters: ready.parameters,
 		prepared,
-		lease: null,
+		lease: null as Lease | null,
 		get status() {
 			return status;
 		},
@@ -1821,7 +1955,16 @@ export function own(row, name, value) {
 	Object.defineProperty(row, name, { value, writable: true, enumerable: true, configurable: true });
 }
 
-function Exchange(kind, query, lease, write) {
+/**
+ * @returns a new exchange of `kind`, for `query` (null for the connection's own work), sent through
+ *   `lease` (null for the pool's), whose messages `write` writes
+ */
+function Exchange(
+	kind: Exchange["kind"],
+	query: Query | null,
+	lease: Lease | null,
+	write: Exchange["write"],
+): Exchange {
 	return {
 		kind,
 		query,
@@ -1851,7 +1994,7 @@ function Exchange(kind, query, lease, write) {
 		flushing: false,
 		streaming: false,
 		open: false,
-		alone: !!(query && query.alone),
+		alone: query?.alone ?? false,
 		describing: false,
 		learn: false,
 		verify: false,
@@ -1891,7 +2034,7 @@ function Exchange(kind, query, lease, write) {
  * @param oids - the types of the parameters, or null until the server has described them
  * @returns the connection's cache entry for a prepared statement
  */
-function Entry(name, owner, oids) {
+function Entry(name: string, owner: Exchange, oids: number[] | null): Entry {
 	return {
 		name,
 		owner,
@@ -1905,7 +2048,7 @@ function Entry(name, owner, oids) {
 	};
 }
 
-function Rows(columns) {
+function Rows(columns: Column[]): Shape {
 	let state = states.get(columns);
 	if (state === undefined) {
 		state = {
@@ -1913,8 +2056,7 @@ function Rows(columns) {
 			seen: 0,
 			object: null,
 			array: null,
-			compilable:
-				compiles && columns.length <= 512 && !columns.some((x) => String(x.name) === "__proto__"),
+			compilable: compiles && columns.length <= 512 && !columns.some((x) => x.name === "__proto__"),
 		};
 		states.set(columns, state);
 	}

@@ -3,6 +3,7 @@ import { build, isQuery, Join, joinStrings } from "./build.ts";
 import { ours } from "./errors.ts";
 import { channels, active, start, finish, now, userName } from "./diagnostics.ts";
 import { statement } from "./result.ts";
+import type postgres from "../types/index.js";
 
 const origins = new WeakMap();
 
@@ -29,7 +30,7 @@ export class Query extends Promise<any> {
 	/** What `build()` returned, cached. */
 	declare built: any;
 	/** The diagnostics_channel context, while tracing this Query. */
-	declare trace: any;
+	declare trace: postgres.QueryTrace | null;
 	/** Removes the abort listener that `signal()` added. */
 	declare aborts: (() => void) | null;
 	declare originError: Error | null;
@@ -40,6 +41,10 @@ export class Query extends Promise<any> {
 	declare forEachFn: (row: any, result: any) => any;
 	/** `true` for `.raw()`, `"values"` for `.values()`. */
 	declare isRaw: boolean | "values";
+	/** Whether the query must have its connection to itself: its statement opens a transaction block */
+	declare alone: boolean | undefined;
+	/** Called once the query has been written on its lease's connection; the lease's send() sets it */
+	declare onwrite: (() => void) | undefined;
 
 	constructor(strings, args, handler, options = {}) {
 		let resolve, reject;
@@ -337,7 +342,7 @@ export class Query extends Promise<any> {
 	}
 }
 
-function context(q) {
+function context(q): postgres.QueryTrace {
 	const options = q.handler.options || {};
 	let text = null;
 	if (q.strings.length) {

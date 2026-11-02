@@ -1,4 +1,5 @@
 import { own } from "./connection.ts";
+import type postgres from "../types/index.js";
 
 const noop = (..._: any[]) => {},
 	statusInterval = 10000,
@@ -148,7 +149,7 @@ export default function Subscribe(postgres, options) {
 		const relations = {};
 		let acked = 0n,
 			received = 0n,
-			transaction = null,
+			transaction: Transaction | null = null,
 			queue = null,
 			failed = false,
 			stopped = false,
@@ -184,7 +185,8 @@ export default function Subscribe(postgres, options) {
 
 		function message(kind, x, info) {
 			if (kind === "begin") {
-				return (transaction = { lsn: x.lsn, end: null, time: x.time, xid: x.xid });
+				transaction = { lsn: x.lsn, end: null, time: x.time, xid: x.xid };
+				return transaction;
 			}
 
 			if (kind === "commit") {
@@ -194,7 +196,7 @@ export default function Subscribe(postgres, options) {
 				return run(() => commit(done));
 			}
 
-			const at = transaction || {};
+			const at: Partial<Transaction> = transaction || {};
 			info.lsn = at.lsn && lsnToString(at.lsn);
 			info.time = at.time;
 			info.xid = at.xid;
@@ -368,6 +370,16 @@ export default function Subscribe(postgres, options) {
 	}
 }
 
+/** The transaction that the replication messages are part of, from its Begin to its Commit */
+type Transaction = {
+	lsn: bigint;
+	/** The LSN of the end of the transaction, from its Commit */
+	end: bigint | null;
+	/** When it committed */
+	time: Date;
+	xid: number;
+};
+
 function max(a, b) {
 	return a > b ? a : b;
 }
@@ -380,7 +392,7 @@ function parse(x, relations, parsers, message, transform) {
 	const type = x[0];
 	if (type === 82) {
 		let i = 1;
-		const r = (relations[x.readUInt32BE(i)] = {
+		const r: postgres.RelationInfo = (relations[x.readUInt32BE(i)] = {
 			schema: x.toString("utf8", (i += 4), (i = x.indexOf(0, i))) || "pg_catalog",
 			table: x.toString("utf8", i + 1, (i = x.indexOf(0, i + 1))),
 			columns: Array(x.readUInt16BE((i += 2))),

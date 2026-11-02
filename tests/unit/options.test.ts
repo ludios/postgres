@@ -281,7 +281,7 @@ test("sslrootcert=system makes verify-full the ssl mode, and any other mode, als
 });
 
 test("PGSSLROOTCERT=system acts as sslrootcert=system in the url, which comes first, and TLS options replace both", async () => {
-	const tls = { ca: [] };
+	const tls: { ca: string[] } = { ca: [] };
 	const must =
 		'The environment variable PGSSLROOTCERT is "system", which, as in libpq, needs the ssl mode ' +
 		'"verify-full", but ssl is "require"';
@@ -307,7 +307,7 @@ test("A file of certificate authorities, which is not read, throws with true or 
 		"the server's certificate could not be checked against them. Pass them as ssl: { ca } " +
 		"instead, with checkServerIdentity: () => undefined if the host name is not to be checked, " +
 		"as libpq's require and verify-ca do not check it";
-	const tls = { ca: [] };
+	const tls: { ca: string[] } = { ca: [] };
 	const thrown_with = (ssl) => thrown(() => postgres({ max: 1, ssl })).message;
 	const read = with_env({ PGSSLROOTCERT: "/etc/ca.pem" }, () => [
 		[

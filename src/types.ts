@@ -100,18 +100,18 @@ const arrays = {
 };
 
 export const types = {
-	string: { to: 25, from: null, serialize: string },
+	string: { to: 25, serialize: string },
 	number: { to: 0, from: [21, 23, 26, 700, 701], serialize: string, parse: number },
 	json: { to: 114, from: [114, 3802], serialize: (x) => JSON.stringify(x), parse: json },
 	boolean: { to: 16, from: [16], serialize: (x) => (x === true ? "t" : "f"), parse: bool },
-	date: { to: 1184, from: [1082, 1114, 1184], serialize: serializeDate, parse: null },
+	date: { to: 1184, from: [1082, 1114, 1184], serialize: serializeDate },
 	bytea: {
 		to: 17,
 		from: [17],
 		serialize: (x) => "\\x" + Buffer.from(x).toString("hex"),
 		parse: (x) => Buffer.from(x.slice(2), "hex"),
 	},
-};
+} satisfies Record<string, PostgresType>;
 
 const dates = { 1082: parseDate, 1114: parseTimestamp, 1184: parseTimestamptz };
 
