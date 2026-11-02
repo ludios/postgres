@@ -6,9 +6,6 @@ import { CLOSE } from "./query.ts";
 import type { Query } from "./query.ts";
 import { now, channels, listened } from "./diagnostics.ts";
 
-export const slow = 100;
-export const notable = 5;
-
 const text = p.text,
 	noop = (..._: any[]) => {},
 	ending = /^\s*(commit|end|abort|rollback(?!\s+to\b)|prepare\s+transaction)\b/i,
@@ -98,10 +95,7 @@ export function Connection(ready, options, events) {
 		ref: () => socket.ref(),
 		unref: () => socket.unref(),
 		backlog,
-		heavy: () => costly(slow),
-		get notable() {
-			return costly(notable);
-		},
+		costly,
 	};
 
 	socket.ondata = (x) => frames.push(x);
@@ -340,8 +334,9 @@ export function Connection(ready, options, events) {
 	}
 
 	/**
-	 * Whether some exchange in `sent` or `pending` is estimated (by its `cost`) to take at least
-	 * `ms` milliseconds.
+	 * Whether some exchange in `sent` or `pending` has a `cost` of at least `ms`: an estimate, made
+	 * when its query was sent, of the milliseconds that the whole exchange takes (`unknown` if there
+	 * was no estimate yet). The time that an exchange has already run is not subtracted.
 	 */
 	function costly(ms) {
 		for (let i = 0; i < sent.length; i++) {

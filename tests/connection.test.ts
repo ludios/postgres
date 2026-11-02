@@ -2,6 +2,7 @@ import net from "net";
 import tls from "tls";
 import crypto from "crypto";
 import { expect, test } from "vitest";
+import { notable } from "../src/pool.ts";
 import {
 	postgres,
 	sql,
@@ -1779,8 +1780,8 @@ test("A query rejected during a COPY on a reserved connection doesn't leave the 
 		writable.on("error", reject);
 		writable.end("1\n");
 	});
-	// `notable` is internal: the pool asks it whether the scheduler is needed for a quick query
-	expect([code, rejected.connection.notable]).toEqual(["COPY_IN_PROGRESS", false]);
+	// `costly` is internal: the pool asks it whether a quick query needs the scheduler
+	expect([code, rejected.connection.costly(notable)]).toEqual(["COPY_IN_PROGRESS", false]);
 	reserved.release();
 	await sql.end();
 });

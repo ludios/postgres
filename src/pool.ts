@@ -1,9 +1,22 @@
 import { open as startup } from "./startup.ts";
 import type { Signal } from "./startup.ts";
-import { Connection, slow, notable } from "./connection.ts";
+import { Connection } from "./connection.ts";
 import { Query } from "./query.ts";
 import { Errors, PostgresError, copy_error, queryError } from "./errors.ts";
 import { channels, listened } from "./diagnostics.ts";
+
+/**
+ * Milliseconds. A query estimated to take at least this long is slow, and the scheduler keeps slow
+ * queries together, so that quick queries don't wait behind them.
+ */
+const slow = 100;
+
+/**
+ * Milliseconds. A query estimated to take less than this long is quick, and the pool places it
+ * without the scheduler, unless a connection that can take it has an exchange estimated to take at
+ * least this long.
+ */
+export const notable = 5;
 
 const begins = /\bbegin\b/i,
 	starts = /\bstart\b/gi,
@@ -331,7 +344,7 @@ export function Pool(options, types) {
 		}
 
 		for (const c of connections) {
-			if (usable(c) && c.notable) {
+			if (usable(c) && c.costly(notable)) {
 				return true;
 			}
 		}
@@ -349,7 +362,9 @@ export function Pool(options, types) {
 
 		let heavy = 0;
 		for (const c of connections) {
-			c.inflight && c.heavy() && heavy++;
+			if (c.inflight && c.costly(slow)) {
+				heavy++;
+			}
 		}
 
 		decay(t);
@@ -372,7 +387,7 @@ export function Pool(options, types) {
 
 		for (const c of connections) {
 			const v =
-				usable(c) && c.inflight < options.max_pipeline && (!heavy || c.heavy())
+				usable(c) && c.inflight < options.max_pipeline && (!heavy || c.costly(slow))
 					? c.backlog(t)
 					: Infinity;
 			if (v <= most && v < value) {
