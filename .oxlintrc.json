@@ -23,7 +23,10 @@
 	},
 
 	"ignorePatterns": [
-		"**/dist/**"
+		"**/dist/**",
+		// Upstream's hand-written public types, and the type-level tests that
+		// tsc checks but nothing runs.
+		"types/**"
 	],
 
 	"overrides": [
@@ -47,10 +50,7 @@
 				"typescript/require-array-sort-compare": "warn",
 				"typescript/no-implied-eval": "warn",
 				"unicorn/prefer-string-starts-ends-with": "warn",
-				"typescript/no-redundant-type-constituents": "warn",
-				"typescript/no-misused-spread": "warn",
-				"no-constant-condition": "warn",
-				"no-constant-binary-expression": "warn"
+				"typescript/no-misused-spread": "warn"
 			}
 		}
 	],
