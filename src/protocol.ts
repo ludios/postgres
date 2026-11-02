@@ -435,7 +435,7 @@ export function error(x, start, end) {
 	}
 	// The V field (the severity, not localized) is optional: PostgreSQL sends it since 9.6, and a
 	// pooler that makes its own errors may send only S
-	if (fields.severity === undefined) {
+	if (fields.severity === undefined && fields.severity_local !== undefined) {
 		fields.severity = fields.severity_local;
 	}
 	return fields;

@@ -296,6 +296,14 @@ test("Decode ErrorResponse with the severity only in the localized S field", asy
 	expect([e.severity, e.severity_local, e.code]).toEqual(["FATAL", "FATAL", "08P01"]);
 });
 
+test("Decode ErrorResponse without either severity field and without a severity", async () => {
+	const e = decode(
+		p.error,
+		msg("E", Buffer.from("C08P01\0"), Buffer.from("Mno severity\0"), Buffer.from([0])),
+	);
+	expect(["severity" in e, "severity_local" in e, e.code]).toEqual([false, false, "08P01"]);
+});
+
 test("Decode RowDescription", async () => {
 	const columns = decode(
 		p.rowDescription,
