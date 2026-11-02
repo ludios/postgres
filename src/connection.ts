@@ -572,11 +572,14 @@ export function Connection(ready, options, events) {
 		closed.cause = fatal || error || undefined;
 		sent.splice(0).forEach((x) => {
 			x.stream && x.stream.destroy(closed);
-			x.own
-				? settle(x)
-				: x === head && x.error && x.error.severity === "FATAL"
-					? settleError(x, x.error)
-					: settleError(x, copy_error(closed));
+			if (x.own) {
+				settle(x);
+				return;
+			}
+			// The head's own FATAL error is copied too, because it may be `closed.cause`, which every
+			// copy of `closed` shares
+			const reason = x === head && x.error && x.error.severity === "FATAL" ? x.error : closed;
+			settleError(x, copy_error(reason));
 		});
 		pending.splice(0).forEach((x) => (x.own ? settle(x) : settleError(x, copy_error(closed))));
 		running.forEach((query) => query.settled || query.reject(decorate(query, copy_error(closed))));

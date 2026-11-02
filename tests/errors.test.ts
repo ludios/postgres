@@ -202,7 +202,12 @@ test("Pipelined queries that a connection close rejects each get their own error
 	await delay(50);
 	await killer`select pg_terminate_backend(${pid}::int)`;
 	await killer.end();
-	expect((await Promise.all(errors)).map((e) => e.args)).toEqual([["a"], ["b"], ["c"]]);
+	// The `cause` of b's and c's errors is a's FATAL error, which must not have a's `args`
+	expect((await Promise.all(errors)).map((e) => [e.args, e.cause?.args])).toEqual([
+		[["a"], undefined],
+		[["b"], undefined],
+		[["c"], undefined],
+	]);
 	await sql.end();
 });
 
