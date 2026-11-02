@@ -46,11 +46,12 @@ async function create_file_database(): Promise<string> {
 	return db;
 }
 
+const db = await create_file_database();
 /**
  * The `options` of tests/common.ts, but connecting to the database of the test file that imports
  * this module, which no other test file uses
  */
-export const options = { ...common_options, db: await create_file_database() };
+export const options = { ...common_options, db };
 
 const log = console.log;
 const notice = (x) =>
