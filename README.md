@@ -716,7 +716,7 @@ await sql`
 
 #### BEGIN / COMMIT `await sql.begin([options = ''], fn) -> fn()`
 
-Use `sql.begin` to start a new transaction. Postgres.js will reserve a connection for the transaction and pass the callback function a scoped `sql` instance for the transaction, named `tx` in the examples below. Inside the callback, a query made with the pool's `sql`, not `tx`, runs outside the transaction. `sql.begin` will resolve with the returned value from the callback function.
+Use `sql.begin` to start a new transaction. Postgres.js will reserve a connection for the transaction and call the callback function with the transaction (named `tx` in the examples below), which makes queries as `sql` does, but in the transaction. A query that the callback makes with `sql` instead of `tx` runs outside the transaction, on another connection: with `max: 1`, it waits for the transaction's connection, so a callback that awaits it never finishes (unless `queue_timeout` is set). `sql.begin` will resolve with the returned value from the callback function.
 
 `BEGIN` is automatically sent with the optional options, and if anything fails `ROLLBACK` will be called so the connection can be released and execution can continue.
 
@@ -773,7 +773,7 @@ await sql.begin(async tx => {
 })
 ```
 
-#### SAVEPOINT `await sql.savepoint([name], fn) -> fn()`
+#### SAVEPOINT `await tx.savepoint([name], fn) -> fn()`
 
 ```js
 sql.begin('read write', async tx => {
@@ -810,7 +810,7 @@ sql.begin('read write', async tx => {
 
 #### Nested `sql.begin`
 
-Inside a transaction, `sql.begin(fn)` runs `fn` in a savepoint, so code that opens a transaction works the same whether it is given the pool or a transaction. Nothing it does is committed until the outer transaction commits. A mode other than the transaction's own, such as `'read only'` inside a `'read write'` transaction, throws `NESTED_TRANSACTION_MODE`, since a savepoint can't change it, and so does `sql.prepare()` inside a nested `begin`. A savepoint with a name is still `sql.savepoint(name, fn)`.
+Inside a transaction, `tx.begin(fn)` runs `fn` in a savepoint, so code that opens a transaction works the same whether it is given the pool or a transaction. Nothing it does is committed until the outer transaction commits. A mode other than the transaction's own, such as `'read only'` inside a `'read write'` transaction, throws `NESTED_TRANSACTION_MODE`, since a savepoint can't change it, and so does `prepare()` inside a nested `begin`. A savepoint with a name is still `tx.savepoint(name, fn)`.
 
 ```js
 async function transfer(sql, from, to, amount) {
@@ -824,7 +824,7 @@ await transfer(sql, 1, 2, 10)                 // its own transaction
 await sql.begin(tx => transfer(tx, 1, 2, 10)) // a savepoint in this one
 ```
 
-#### ROLLBACK `await sql.rollback()`
+#### ROLLBACK `await tx.rollback()`
 
 Rolls back the transaction without throwing, and `sql.begin` resolves with what the callback returns (#500). Called in a savepoint or a nested `sql.begin`, it rolls back only that savepoint, and the outer transaction goes on. The rollback is sent at once, after any queries already made. Queries made after it in the same scope are not sent and reject with `TRANSACTION_ROLLED_BACK`, and so does the `sql.begin` they were made in.
 
@@ -837,7 +837,7 @@ const result = await sql.begin(async tx => {
 })
 ```
 
-#### PREPARE TRANSACTION `await sql.prepare([name]) -> fn()`
+#### PREPARE TRANSACTION `await tx.prepare([name]) -> fn()`
 
 Indicates that the transactions should be prepared using the [`PREPARE TRANSACTION [NAME]`](https://www.postgresql.org/docs/current/sql-prepare-transaction.html) statement
 instead of being committed.
