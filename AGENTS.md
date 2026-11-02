@@ -158,6 +158,8 @@ The integration tests (`pnpm test:integration`) start their own two PostgreSQL s
 
 **Other sessions may be at work** and their commits must not be lost. On HEAD / master / main / prime: rebase, amend, reset, stash, etc. **are never allowed**, unless other sessions are idle and not waiting on anything!
 
+To change a commit message, use `git-reword COMMIT < NEW_FULL_MESSAGE`, not `git history reword` or an amend.
+
 Smaller changes are usually easier to think about. Commit one logical change at a time whenever possible! Commit early and often!
 
 When small commits are too hard with e.g. the build still working, larger commits are fine.
