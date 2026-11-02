@@ -364,10 +364,6 @@ function Postgres(a?, b?) {
 			.trim();
 	}
 
-	function identifier(x) {
-		return '"' + x.replace(/"/g, '""') + '"';
-	}
-
 	function control(lease, text) {
 		const q = new Query(
 			[text],
@@ -388,14 +384,22 @@ function Postgres(a?, b?) {
 	}
 }
 
+/**
+ * @param x - a name, such as a channel's
+ * @returns `x` quoted as an SQL identifier
+ */
+function identifier(x) {
+	return '"' + x.replace(/"/g, '""') + '"';
+}
+
 function Listen(options) {
 	const { setTimeout, clearTimeout } = options.timers,
 		/**
 		 * Channel name → channel: its `listeners` (each a `{ fn, onlisten }`); its `state`, the
 		 * connection's `{ pid, secret }`, which is one object for the channel's lifetime, so that a
 		 * listener sees reconnects in it; `result`, the promise of the latest LISTEN; `listening`,
-		 * whether that LISTEN succeeded and its connection has not closed since; and `timer`, the
-		 * timer of the next retry of a failed LISTEN, if one is pending.
+		 * whether that LISTEN succeeded, and onclose() has not seen the listener connection close
+		 * since; and `timer`, the timer of the next retry of a failed LISTEN, if one is pending.
 		 */
 		channels = new Map();
 	let sql = null,
@@ -430,9 +434,10 @@ function Listen(options) {
 					}
 
 					// Only a channel that was listening on the closed connection needs a new LISTEN. A
-					// channel whose LISTEN is in flight, or which waits to retry a failed LISTEN, is on
-					// its way already: a second chain of retries would send a second LISTEN, call each
-					// onlisten twice, and leave a timer that end() cannot clear.
+					// channel whose LISTEN is in flight sees it fail, which rejects the listen() calls
+					// that await it, and makes relisten() retry if the LISTEN was its own. A channel
+					// that waits to retry is on its way already. A second chain of retries would send a
+					// second LISTEN, call each onlisten twice, and leave a timer that end() cannot clear.
 					channels.forEach((channel, name) => {
 						if (channel.listening) {
 							relisten(channel, name);
@@ -448,6 +453,23 @@ function Listen(options) {
 			sql = pool;
 		}
 		return sql;
+	}
+
+	/**
+	 * Sends LISTEN for a channel, as its latest LISTEN.
+	 * @param channel - the channel
+	 * @param name - the channel's name
+	 * @returns the LISTEN's result, once `channel` has recorded the success (also `channel.result`)
+	 */
+	function send_listen(channel, name) {
+		const x = connection();
+		channel.listening = false;
+		channel.result = x`listen ${x.unsafe(identifier(name))}`.then((result) => {
+			channel.listening = true;
+			Object.assign(channel.state, result.state);
+			return result;
+		});
+		return channel.result;
 	}
 
 	/**
@@ -495,23 +517,6 @@ function Listen(options) {
 	}
 
 	/**
-	 * Sends LISTEN for a channel, as its latest LISTEN.
-	 * @param channel - the channel
-	 * @param name - the channel's name
-	 * @returns the LISTEN's result, once `channel` has recorded the success (also `channel.result`)
-	 */
-	function send_listen(channel, name) {
-		const x = connection();
-		channel.listening = false;
-		channel.result = x`listen ${x.unsafe('"' + name.replace(/"/g, '""') + '"')}`.then((result) => {
-			channel.listening = true;
-			Object.assign(channel.state, result.state);
-			return result;
-		});
-		return channel.result;
-	}
-
-	/**
 	 * Forgets a channel that has no listeners left, and ends the listener connection if no channel
 	 * remains.
 	 * @param channel - the channel
@@ -530,7 +535,7 @@ function Listen(options) {
 		}
 
 		if (!failed) {
-			await x`unlisten ${x.unsafe('"' + name.replace(/"/g, '""') + '"')}`.catch((e) => {
+			await x`unlisten ${x.unsafe(identifier(name))}`.catch((e) => {
 				if (!/^CONNECTION_/.test(e.code)) {
 					throw e;
 				}

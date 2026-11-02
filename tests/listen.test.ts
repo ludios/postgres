@@ -21,7 +21,11 @@ async function proxy_to_server(
 				server.write(x);
 			}
 		});
-		server.on("data", (x) => client.writable && client.write(x));
+		server.on("data", (x) => {
+			if (client.writable) {
+				client.write(x);
+			}
+		});
 		client.on("error", () => server.destroy());
 		server.on("error", () => client.destroy());
 		client.on("close", () => server.destroy());
@@ -29,6 +33,14 @@ async function proxy_to_server(
 	});
 	await new Promise<void>((r) => proxy.listen(0, "localhost", r));
 	return proxy;
+}
+
+/**
+ * @param chunk - a chunk that a client sent
+ * @returns whether the chunk carries the LISTEN statement of the tests below, not their UNLISTEN
+ */
+function sends_listen(chunk: Buffer) {
+	return chunk.includes('listen "test"') && !chunk.includes('unlisten "test"');
 }
 
 const until = async (fn, ms = 5000) => {
@@ -374,7 +386,7 @@ test("A close while a LISTEN is in flight starts no second retry chain", async (
 	// The proxy drops its second connection as soon as the client sends a LISTEN on it
 	let dropped = false;
 	const proxy = await proxy_to_server((x, connection, client, server) => {
-			if (connection === 2 && x.includes('listen "test"')) {
+			if (connection === 2 && sends_listen(x)) {
 				dropped = true;
 				server.destroy();
 				client.destroy();
@@ -409,7 +421,7 @@ test("A listener that joins while a reconnect's LISTEN is in flight gets onliste
 	let on_hold, release;
 	const held = new Promise<void>((r) => (on_hold = r)),
 		proxy = await proxy_to_server((x, connection, client, server) => {
-			if (connection === 2 && x.includes('listen "test"')) {
+			if (connection === 2 && sends_listen(x)) {
 				release = () => server.write(x);
 				on_hold();
 				return true;
@@ -467,7 +479,7 @@ test("The last unlisten during an outage clears the retry timer and sends no UNL
 		connections = 0;
 	const proxy = await proxy_to_server((x, connection, client, server) => {
 			connections = connection;
-			if (connection === 2 && x.includes('listen "test"')) {
+			if (connection === 2 && sends_listen(x)) {
 				dropped = true;
 				server.destroy();
 				client.destroy();
@@ -475,7 +487,13 @@ test("The last unlisten during an outage clears the retry timer and sends no UNL
 			}
 			return false;
 		}),
-		sql = postgres({ ...options, host: "localhost", port: port_of(proxy), backoff: () => 10, timers });
+		sql = postgres({
+			...options,
+			host: "localhost",
+			port: port_of(proxy),
+			backoff: () => 10,
+			timers,
+		});
 	try {
 		const { state, unlisten } = await sql.listen("test", () => {});
 		await terminate(state.pid);
