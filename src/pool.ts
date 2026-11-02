@@ -892,7 +892,9 @@ export function Pool(options, types) {
 
 	async function acquire(kind) {
 		used = true;
-		await 1;
+		// Yield a tick, so that a query issued just before this call reaches the pool first:
+		// Query.handle() defers its dispatch by one.
+		await Promise.resolve();
 		if (ending) {
 			throw Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]);
 		}

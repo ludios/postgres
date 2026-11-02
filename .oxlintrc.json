@@ -48,9 +48,7 @@
 			"files": ["**/*.ts"],
 			"rules": {
 				"typescript/unbound-method": "warn",
-				"typescript/await-thenable": "warn",
 				"typescript/no-base-to-string": "warn",
-				"unicorn/no-unnecessary-await": "warn",
 				"typescript/require-array-sort-compare": "warn",
 				"unicorn/prefer-string-starts-ends-with": "warn",
 				"typescript/no-misused-spread": "warn"
