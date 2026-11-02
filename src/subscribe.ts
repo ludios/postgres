@@ -1,6 +1,6 @@
 import { own } from "./connection.ts";
 
-const noop = (..._: unknown[]) => {},
+const noop = (..._: any[]) => {},
 	statusInterval = 10000,
 	epoch = BigInt(Date.UTC(2000, 0, 1)) * 1000n;
 

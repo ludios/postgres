@@ -9,7 +9,7 @@ export const slow = 100;
 export const notable = 5;
 
 const text = p.text,
-	noop = (..._: unknown[]) => {},
+	noop = (..._: any[]) => {},
 	ending = /^\s*(commit|end|abort|rollback(?!\s+to\b)|prepare\s+transaction)\b/i,
 	limit = 1000,
 	refused = "postgres.js: query could not be built",

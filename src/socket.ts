@@ -1,7 +1,7 @@
 import net from "net";
 import tls from "tls";
 
-const noop = (..._: unknown[]) => {},
+const noop = (..._: any[]) => {},
 	agent = (globalThis.navigator && globalThis.navigator.userAgent) || "",
 	workers = agent.startsWith("Cloudflare-Workers"),
 	onreadSafe =

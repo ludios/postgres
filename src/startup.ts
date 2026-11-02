@@ -5,7 +5,7 @@ import { Socket, secured, secureOptions } from "./socket.ts";
 import { Errors } from "./errors.ts";
 import { channels, active, start, finish, userName } from "./diagnostics.ts";
 
-const noop = (..._: unknown[]) => {};
+const noop = (..._: any[]) => {};
 
 const R = 82,
 	S = 83,
