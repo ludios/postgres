@@ -162,13 +162,7 @@ export function Pool(options, types) {
 		}
 
 		if (job.q && job.q.cancelled) {
-			return job.q.reject(
-				queryError(
-					Errors.generic("57014", "canceling statement due to user request"),
-					job.q,
-					options.debug,
-				),
-			);
+			return job.q.reject(queryError(Errors.canceled(), job.q, options.debug));
 		}
 
 		if (lease) {
@@ -496,6 +490,12 @@ export function Pool(options, types) {
 		return null;
 	}
 
+	/**
+	 * Loads the pool's types on connection `c`, then lets the connections go on: the waiting
+	 * queries run, or, if a type does not exist, are rejected, and each connection that is left
+	 * with nothing to do settles into idleness.
+	 * @param c - an open connection
+	 */
 	function loadTypes(c) {
 		hold(c);
 		typesLoading = true;
@@ -516,21 +516,36 @@ export function Pool(options, types) {
 					}),
 			)
 			.then(
-				() => (typesLoaded = true),
-				(error) =>
-					error instanceof PostgresError
-						? (typesLoaded = true)
-						: error &&
-							error.code === "TYPE_NOT_FOUND" &&
-							((typesError = error), (typesFailed = now())),
+				() => {
+					typesLoaded = true;
+				},
+				(error) => {
+					if (error instanceof PostgresError) {
+						// The server answered a lookup with an error: the pool goes on as if loaded
+						typesLoaded = true;
+					} else if (error && error.code === "TYPE_NOT_FOUND") {
+						typesError = error;
+						typesFailed = now();
+					}
+					// Otherwise the load did not finish (`c` closed, say): another connection tries below
+				},
 			)
 			.then(() => {
 				typesLoading = false;
 				connections.forEach((x) => (x.loading = !typesLoaded && !typesError));
-				(typesLoaded || typesError) && recovered();
-				typesError
-					? waiting.take().forEach((job) => reject(job, copy_error(typesError)))
-					: typesLoaded || [...connections].some((x) => !x.closed && (loadTypes(x), true));
+				if (typesLoaded || typesError) {
+					recovered();
+				}
+				if (typesError) {
+					for (const job of waiting.take()) {
+						reject(job, copy_error(typesError));
+					}
+				} else if (!typesLoaded) {
+					const other = [...connections].find((x) => !x.closed);
+					if (other) {
+						loadTypes(other);
+					}
+				}
 				drain();
 				connections.forEach((x) => idle(x));
 			});
@@ -841,13 +856,7 @@ export function Pool(options, types) {
 
 	function cancel(q) {
 		if (waiting.remove((x) => x.q === q && (started(x), true))) {
-			q.reject(
-				queryError(
-					Errors.generic("57014", "canceling statement due to user request"),
-					q,
-					options.debug,
-				),
-			);
+			q.reject(queryError(Errors.canceled(), q, options.debug));
 			return Promise.resolve();
 		}
 
