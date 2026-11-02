@@ -5,6 +5,14 @@ import { Query } from "./query.ts";
 import { Errors, PostgresError, copy_error, queryError } from "./errors.ts";
 import { channels, listened } from "./diagnostics.ts";
 import type { Column } from "./protocol.ts";
+import type { Options, Timers } from "./index.ts";
+import type { Ready } from "./startup.ts";
+import type { Built } from "./build.ts";
+import type { Failure } from "./errors.ts";
+import type { Types } from "./types.ts";
+
+/** A timer of the pool's `timers` */
+type Timer = ReturnType<Timers["setTimeout"]>;
 
 /**
  * Milliseconds. A query estimated to take at least this long is slow, and the scheduler keeps slow
@@ -27,7 +35,7 @@ const begins = /\bbegin\b/i,
  * A Connection, with the fields that the pool keeps on it. `opened` sets `index` and `loading`;
  * the pool adds the other fields later, so each of them is undefined until then.
  */
-type Pooled = ReturnType<typeof Connection> & {
+type Pooled = Connection & {
 	/** The index of the host (in `options.host`) that the connection went to. */
 	index: number;
 	/**
@@ -38,9 +46,9 @@ type Pooled = ReturnType<typeof Connection> & {
 	/** When the connection last became idle. */
 	idleSince?: number;
 	/** Closes the connection after `idle_timeout`. */
-	idleTimer?: any;
+	idleTimer?: Timer | null;
 	/** Retires the connection after `max_lifetime`. */
-	lifeTimer?: any;
+	lifeTimer?: Timer | null;
 	/** Whether the lease was released while queries were still in flight. */
 	releasing?: boolean;
 	/** Whether the connection closes as soon as it has no lease and nothing in flight. */
@@ -82,6 +90,30 @@ type Known = Cost & {
 	alone: boolean | undefined;
 };
 
+/** What waits for a connection: a query to run on one, a describe, or a lease */
+type Job = {
+	/** The query, for a query or a describe */
+	q?: Query;
+	/** The text, for a query of the simple protocol */
+	simple?: string;
+	/** The statement, for a query of the extended protocol */
+	statement?: Statement;
+	/** Whether the query needs the connection to itself */
+	exclusive?: boolean;
+	/** Runs the job on the connection, instead of sending `q` (a describe) */
+	run?: (c: Pooled) => void;
+	/** For a lease: true, with its `kind`, and `resolve` for the lease */
+	lease?: boolean;
+	kind?: string;
+	resolve?: (lease: Lease) => void;
+	/** Rejects the describe's or the lease's promise */
+	reject?: (error: Error) => void;
+	/** When the job was queued, for the "lease" event; 0 if nobody listens to the pool channel */
+	queued?: number;
+	/** The `queue_timeout` timer */
+	timer?: Timer | null;
+};
+
 /** A statement text's entry in the cache of prepared statements */
 export type Statement = {
 	/** The parameter types and the text, which the cache is keyed by; null for an unnamed statement */
@@ -105,11 +137,11 @@ export type Statement = {
 	alone?: boolean | undefined;
 };
 
-export function Pool(options, types) {
+export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	const { setTimeout, clearTimeout, now } = options.timers,
 		statements = Statements(options.scheduler),
 		connections = new Set<Pooled>(),
-		waiting = Queue(),
+		waiting = Queue<Job>(),
 		events = {
 			parser: types.parser,
 			decoder: types.decoder,
@@ -127,22 +159,23 @@ export function Pool(options, types) {
 		max_inflight = Math.max(1, options.max_pipeline);
 
 	const signal: Signal = { aborted: false, sockets: new Set() },
-		replacing = [];
+		replacing: number[] = [];
 
 	let opening = 0,
-		ending = null,
+		ending: Promise<void> | null = null,
 		// Resolves `ending`, once the pool has finished ending.
 		resolve_ending: (() => void) | null = null,
 		used = false,
-		endTimer = null,
+		endTimer: Timer | null = null,
 		retries = 0,
-		failingSince = null,
+		failingSince: number | null = null,
 		nextAttempt = 0,
-		retryTimer = null,
+		retryTimer: Timer | null = null,
 		typesLoaded = options.fetch_types === false,
-		typesError = null,
+		typesError: Failure | null = null,
 		typesFailed = 0,
-		failure = null,
+		// The error of the connection attempts that fail fast, while they do
+		failure: { error: Failure } | null = null,
 		typesLoading = false;
 
 	const pool = {
@@ -164,7 +197,7 @@ export function Pool(options, types) {
 
 	return pool;
 
-	function query(q, lease?) {
+	function query(q: Query, lease?: Lease) {
 		if (ending && !lease) {
 			q.reject(
 				queryError(
@@ -176,7 +209,7 @@ export function Pool(options, types) {
 			return;
 		}
 
-		let built;
+		let built: Built;
 		try {
 			built = q.build();
 		} catch (error) {
@@ -187,12 +220,12 @@ export function Pool(options, types) {
 		const free = !lease && options.max !== 1;
 
 		if (q.options.simple && !built.values.length) {
-			const known = (free || options.scheduler) && statements.known(built.text);
-			q.alone = free && alone(known);
+			const known = free || options.scheduler ? statements.known(built.text) : null;
+			q.alone = !!known && free && alone(known);
 			if (options.scheduler) {
 				q.cost = known;
 			}
-			place({ q, simple: built.text, exclusive: !!q.streaming || q.alone }, lease);
+			place({ q, simple: built.text, exclusive: q.streaming || q.alone }, lease);
 			return;
 		}
 
@@ -207,35 +240,35 @@ export function Pool(options, types) {
 		if (options.scheduler) {
 			q.cost = statement.cost;
 		}
-		place({ q, statement, exclusive: !!q.cursorFn || !!q.streaming || q.alone }, lease);
+		place({ q, statement, exclusive: !!q.cursorFn || q.streaming || q.alone }, lease);
 	}
 
-	function describeOnly(q, built, lease) {
+	function describeOnly(q: Query, built: Built, lease?: Lease) {
 		const statement = {
 				name: "",
 				text: built.text,
 				oids: built.oids,
 				columns: null as Column[] | null,
 			},
-			start = (c) => {
+			start = (c: Pooled) => {
 				q.connection = c;
 				c.describe(statement, built.oids).then(
 					({ params, columns }) =>
 						q.resolve({ string: built.text, types: params, name: "", columns }),
-					(error) => q.reject(queryError(error, q, options.debug)),
+					(error: Error) => q.reject(queryError(error, q, options.debug)),
 				);
 				if (q.onwrite) {
 					q.onwrite();
 				}
 			};
 		place(
-			{ run: start, q, reject: (error) => q.reject(queryError(error, q, options.debug)) },
+			{ run: start, q, reject: (error: Error) => q.reject(queryError(error, q, options.debug)) },
 			lease,
 		);
 	}
 
-	function unbuilt(q, error, lease) {
-		error = queryError(error, q, options.debug);
+	function unbuilt(q: Query, thrown: unknown, lease?: Lease) {
+		const error = queryError(thrown, q, options.debug);
 		if (!lease || lease.released || lease.connection.closed) {
 			q.reject(error);
 			return;
@@ -248,7 +281,7 @@ export function Pool(options, types) {
 		}
 	}
 
-	function place(job, lease?) {
+	function place(job: Job, lease?: Lease) {
 		used = true;
 		const missing = !lease && retype();
 
@@ -296,7 +329,7 @@ export function Pool(options, types) {
 		drain();
 	}
 
-	function wait(job) {
+	function wait(job: Job) {
 		if (!options.queue_timeout) {
 			return job;
 		}
@@ -319,14 +352,14 @@ export function Pool(options, types) {
 		return job;
 	}
 
-	function started(job) {
+	function started(job: Job) {
 		if (job.timer) {
 			clearTimeout(job.timer);
 			job.timer = null;
 		}
 	}
 
-	function run(c, job) {
+	function run(c: Pooled, job: Job) {
 		started(job);
 		hold(c);
 
@@ -370,7 +403,7 @@ export function Pool(options, types) {
 		grow();
 	}
 
-	function copying(job) {
+	function copying(job: Job) {
 		if (!job.q || connections.size + opening < options.max || connections.size === 0) {
 			return false;
 		}
@@ -390,15 +423,15 @@ export function Pool(options, types) {
 	 *
 	 * @param c - One of `connections`, in any state.
 	 */
-	function has_room(c) {
+	function has_room(c: Pooled) {
 		return c.inflight < max_inflight && usable(c);
 	}
 
-	function pick(job) {
+	function pick(job: Job) {
 		const statement = job.statement,
 			any = !statement || !statement.name;
 
-		let best = null;
+		let best: Pooled | null = null;
 
 		for (const c of connections) {
 			const room = has_room(c);
@@ -441,7 +474,7 @@ export function Pool(options, types) {
 	 * @param job - A job that pick() would pipeline on a busy connection (so it is not a lease and
 	 *   not exclusive). needed() reads only the estimate in `job.q.cost`.
 	 */
-	function needed(job) {
+	function needed(job: Job) {
 		if (!job.q.cost || job.q.cost.est === undefined || job.q.cost.est >= notable) {
 			return true;
 		}
@@ -455,7 +488,7 @@ export function Pool(options, types) {
 		return false;
 	}
 
-	function scheduled(job) {
+	function scheduled(job: Job) {
 		const t = now(),
 			e = job.q.cost ? job.q.cost.est : undefined;
 
@@ -483,8 +516,8 @@ export function Pool(options, types) {
 			: soonest(t, 2 * e, true) || soonest(t, Infinity, false);
 	}
 
-	function soonest(t, most, heavy) {
-		let best = null,
+	function soonest(t: number, most: number, heavy: boolean) {
+		let best: Pooled | null = null,
 			value = Infinity,
 			ties = 0;
 
@@ -502,7 +535,7 @@ export function Pool(options, types) {
 		return best;
 	}
 
-	function ontimed(sample, t) {
+	function ontimed(sample: number, t: number) {
 		decay(t);
 		if (sample < slow) {
 			work.fast += sample;
@@ -511,7 +544,7 @@ export function Pool(options, types) {
 		}
 	}
 
-	function decay(t) {
+	function decay(t: number) {
 		const d = Math.exp((work.at - t) / 2000);
 		work.fast *= d;
 		work.slow *= d;
@@ -581,7 +614,7 @@ export function Pool(options, types) {
 		return true;
 	}
 
-	function opened(ready) {
+	function opened(ready: Ready) {
 		opening--;
 
 		if (signal.aborted || (ending && waiting.length === 0)) {
@@ -638,14 +671,14 @@ export function Pool(options, types) {
 	 * is ending.
 	 * @param c - an open connection
 	 */
-	function loadTypes(c) {
+	function loadTypes(c: Pooled) {
 		hold(c);
 		typesLoading = true;
 		c.loading = true;
-		types
+		void types
 			.load(
 				(text) =>
-					new Promise((resolve, fail) => {
+					new Promise<Record<string, any>[]>((resolve, fail) => {
 						const q = new Query(
 							[text],
 							[],
@@ -661,7 +694,7 @@ export function Pool(options, types) {
 				() => {
 					typesLoaded = true;
 				},
-				(error) => {
+				(error: Failure) => {
 					if (error instanceof PostgresError) {
 						// The server answered a lookup with an error: the pool goes on as if loaded
 						typesLoaded = true;
@@ -699,7 +732,7 @@ export function Pool(options, types) {
 			});
 	}
 
-	function failed(error) {
+	function failed(error: Failure) {
 		opening--;
 		if (signal.aborted) {
 			return finishing();
@@ -713,14 +746,18 @@ export function Pool(options, types) {
 		}
 	}
 
-	function attempted(error) {
+	function attempted(error: Failure) {
 		if (failingSince === null) {
 			failingSince = now();
 		}
 		retries++;
 		nextAttempt =
 			now() +
-			1000 * (typeof options.backoff === "function" ? options.backoff(retries) : options.backoff);
+			// backoff is false when it is turned off: no wait then
+			1000 *
+				(typeof options.backoff === "function"
+					? options.backoff(retries)
+					: Number(options.backoff));
 
 		const transient = !!error && (error.code === "CONNECTION_CLOSED" || error.code === "53300"),
 			expired = options.connect_timeout && now() - failingSince >= options.connect_timeout * 1000;
@@ -733,7 +770,7 @@ export function Pool(options, types) {
 		}
 	}
 
-	function reject(job, error) {
+	function reject(job: Job, error: Error) {
 		started(job);
 		if (job.lease) {
 			job.reject(error);
@@ -749,7 +786,7 @@ export function Pool(options, types) {
 	 * fires, `c` closes as soon as it has no lease and nothing in flight.
 	 * @param c - a connection that just opened
 	 */
-	function lifetime(c) {
+	function lifetime(c: Pooled) {
 		const life =
 			typeof options.max_lifetime === "function" ? options.max_lifetime() : options.max_lifetime;
 		if (!life) {
@@ -760,7 +797,7 @@ export function Pool(options, types) {
 			setTimeout(() => {
 				c.retiring = true;
 				if (c.inflight === 0 && !c.lease) {
-					c.close();
+					void c.close();
 				}
 			}, life * 1000),
 		);
@@ -772,7 +809,7 @@ export function Pool(options, types) {
 	 * @param c - the connection that the event is about, or null
 	 * @param extra - more fields for the message
 	 */
-	function event(name, c, extra?) {
+	function event(name: string, c: Pooled | null, extra?: Record<string, unknown>) {
 		if (!listened(channels.pool)) {
 			return;
 		}
@@ -799,7 +836,7 @@ export function Pool(options, types) {
 	 *   released, stopped waiting for the types, or stopped being held for a cancel request, after
 	 *   the pool has given it whatever waiting work it could
 	 */
-	function idle(c) {
+	function idle(c: Pooled) {
 		if (c.inflight || c.lease || c.closing || c.loading) {
 			return;
 		}
@@ -820,13 +857,13 @@ export function Pool(options, types) {
 		}
 	}
 
-	function hold(c) {
+	function hold(c: Pooled) {
 		if (options.unref_sockets) {
 			c.ref();
 		}
 	}
 
-	function unref(timer) {
+	function unref<T extends { unref?: () => unknown } | null | undefined>(timer: T): T {
 		if (options.unref_sockets && timer && typeof timer.unref === "function") {
 			timer.unref();
 		}
@@ -840,7 +877,7 @@ export function Pool(options, types) {
 	 * the pool's types is left alone: it gets a new timer when it next settles into idleness.
 	 * @param c - the connection whose idle timer fired
 	 */
-	function idled(c) {
+	function idled(c: Pooled) {
 		c.idleTimer = null;
 		if (c.inflight || c.lease || c.closed || c.loading) {
 			return;
@@ -854,11 +891,11 @@ export function Pool(options, types) {
 		if (left >= 1) {
 			c.idleTimer = unref(setTimeout(() => idled(c), left));
 		} else {
-			c.close();
+			void c.close();
 		}
 	}
 
-	function onready(c) {
+	function onready(c: Pooled) {
 		if (c.releasing) {
 			if (c.inflight) {
 				return;
@@ -866,12 +903,12 @@ export function Pool(options, types) {
 
 			c.releasing = false;
 			if (c.status !== "I") {
-				c.close();
+				void c.close();
 				return;
 			}
 		}
 		if (c.inflight === 0 && !c.lease && (c.retiring || (ending && waiting.length === 0))) {
-			c.close();
+			void c.close();
 			return;
 		}
 
@@ -896,7 +933,7 @@ export function Pool(options, types) {
 	 * @param orderly - whether `c` closed in an orderly way: it sent Terminate, and had nothing in
 	 *   flight when it closed
 	 */
-	function onclose(c, error, lease_error, orderly) {
+	function onclose(c: Pooled, error: Failure, lease_error: Failure | null, orderly: boolean) {
 		connections.delete(c);
 		// An orderly close is one that the pool asked for, not a failed attempt to open a connection
 		if (c.loading && !orderly && !signal.aborted) {
@@ -943,7 +980,7 @@ export function Pool(options, types) {
 		}
 	}
 
-	function onparameter(k, v) {
+	function onparameter(k: string, v: string) {
 		if (options.parameters[k] !== v) {
 			options.parameters[k] = v;
 			if (options.onparameter) {
@@ -952,7 +989,7 @@ export function Pool(options, types) {
 		}
 	}
 
-	async function acquire(kind) {
+	async function acquire(kind: string) {
 		used = true;
 		// Yield one microtask, so that a query issued just before this call reaches the pool first:
 		// Query.handle() defers its dispatch by one microtask.
@@ -988,7 +1025,7 @@ export function Pool(options, types) {
 	 * Leases connection `c` to `job`, and resolves the job's promise with the lease.
 	 * @returns the lease (whose type is `Lease`)
 	 */
-	function grant(c, job) {
+	function grant(c: Pooled, job: Job) {
 		started(job);
 		hold(c);
 		if (c.idleTimer) {
@@ -997,7 +1034,7 @@ export function Pool(options, types) {
 		}
 		let chain = Promise.resolve(),
 			released = false,
-			lost;
+			lost: (error: Error) => void;
 
 		const closed = new Promise<never>((_, fail) => (lost = fail));
 		closed.catch(() => {});
@@ -1051,7 +1088,7 @@ export function Pool(options, types) {
 				if (c.status === "I") {
 					onready(c);
 				} else {
-					c.close();
+					void c.close();
 				}
 			},
 			onclose(error) {
@@ -1066,7 +1103,7 @@ export function Pool(options, types) {
 		return x;
 	}
 
-	function cancel(q) {
+	function cancel(q: Query) {
 		const removed = waiting.remove((x) => {
 			if (x.q !== q) {
 				return false;
@@ -1087,7 +1124,7 @@ export function Pool(options, types) {
 		return Promise.resolve();
 	}
 
-	function end({ timeout = null } = {}) {
+	function end({ timeout = null }: { timeout?: number | null } = {}) {
 		if (ending) {
 			return ending;
 		}
@@ -1172,29 +1209,30 @@ export function Pool(options, types) {
 	}
 }
 
-function plain(job) {
+function plain(job: Job) {
 	return !!job.q && !job.lease && !job.exclusive && !job.run;
 }
 
-function usable(c) {
+function usable(c: Pooled) {
 	return (
 		!c.closed && !c.closing && !c.lease && !c.releasing && !c.retiring && !c.exclusive && !c.loading
 	);
 }
 
-function ended(lease) {
+function ended(lease: Lease) {
 	return Errors.generic("UNSAFE_TRANSACTION", "The " + lease.kind + " has ended");
 }
 
-export function Queue() {
-	let xs = [],
+/** A FIFO queue of T, whose shift() is O(1) */
+export function Queue<T>() {
+	let xs: T[] = [],
 		head = 0;
 
 	return {
 		get length() {
 			return xs.length - head;
 		},
-		push: (x) => xs.push(x),
+		push: (x: T) => xs.push(x),
 		peek: () => xs[head],
 		shift() {
 			const x = xs[head];
@@ -1214,7 +1252,7 @@ export function Queue() {
 			head = 0;
 			return all;
 		},
-		remove(fn) {
+		remove(fn: (x: T) => boolean) {
 			for (let i = head; i < xs.length; i++) {
 				if (fn(xs[i])) {
 					xs.splice(i, 1);
@@ -1228,17 +1266,17 @@ export function Queue() {
 
 const limit = 2000;
 
-function alone(x) {
+function alone(x: Known | Statement) {
 	return x.alone === undefined ? (x.alone = opens(x.text)) : x.alone;
 }
 
-function opens(text) {
+function opens(text: string) {
 	if (begins.test(text)) {
 		return true;
 	}
 
 	starts.lastIndex = 0;
-	let match;
+	let match: RegExpExecArray | null;
 	while ((match = starts.exec(text))) {
 		const from = match.index + 5;
 		let i = from;
@@ -1269,10 +1307,10 @@ function opens(text) {
 	return false;
 }
 
-function Statements(scheduler) {
+function Statements(scheduler: boolean) {
 	const prefix = Math.random().toString(36).slice(2, 10),
 		map = new Map<string, Statement>(),
-		templates = new WeakMap();
+		templates = new WeakMap<TemplateStringsArray | string[], Map<string, Statement>>();
 
 	let counter = 1,
 		clock = 0;
@@ -1281,7 +1319,7 @@ function Statements(scheduler) {
 
 	return { get, clear, known };
 
-	function known(text) {
+	function known(text: string) {
 		let x = texts.get(text);
 		if (x) {
 			return x;
@@ -1294,7 +1332,7 @@ function Statements(scheduler) {
 		return x;
 	}
 
-	function get(built, prepare) {
+	function get(built: Built, prepare: boolean) {
 		if (!prepare) {
 			return unnamed(built.text);
 		}
@@ -1355,7 +1393,7 @@ function Statements(scheduler) {
 	}
 
 	function evict() {
-		let oldest = null;
+		let oldest: Statement | null = null;
 		for (const x of map.values()) {
 			if (!oldest || x.used < oldest.used) {
 				oldest = x;
@@ -1365,8 +1403,8 @@ function Statements(scheduler) {
 		map.delete(oldest.key);
 	}
 
-	function set(strings) {
-		const x = new Map();
+	function set(strings: TemplateStringsArray | string[]) {
+		const x = new Map<string, Statement>();
 		templates.set(strings, x);
 		return x;
 	}

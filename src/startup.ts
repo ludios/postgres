@@ -117,6 +117,8 @@ export type Ready = {
 	attributes: { readOnly: boolean; standby: boolean };
 	host: string;
 	port: number;
+	/** The index of the host (in `options.host`) that the connection went to; open() sets it */
+	index?: number;
 	/** Sends a cancel request for the connection's backend */
 	cancel: () => ReturnType<typeof cancel>;
 };
