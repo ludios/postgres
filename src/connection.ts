@@ -74,12 +74,20 @@ export function Connection(ready, options, events) {
 			return sent.length + pending.length + settling;
 		},
 		/**
-		 * Whether the pool must send this connection nothing now: an exchange that must run alone,
-		 * such as a cursor or a stream, is in flight, or a cancel request holds the connection until
-		 * the server has handled it
+		 * Whether an exchange that must run alone, such as a cursor or a stream, is in flight, or a
+		 * cancel request holds the connection (see `held`). The pool pipelines nothing onto an
+		 * exclusive connection; a query from its lease (if it has one) is sent, and queues
 		 */
 		get exclusive() {
 			return (!!blocker && exclusive(blocker)) || cancelling > 0;
+		},
+		/**
+		 * Whether a cancel request holds the connection: until the server has handled the request,
+		 * or the request has failed, the connection writes nothing more, so that the request cannot
+		 * hit a later query (see hold())
+		 */
+		get held() {
+			return cancelling > 0;
 		},
 		get copying() {
 			return !!blocker && blocker.streaming && blocker.open;
