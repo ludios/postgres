@@ -15,6 +15,13 @@
   "engines": {
     "node": ">=22"
   },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22.18",
+      "onFail": "error"
+    }
+  },
   "scripts": {
     "test": "node tests/unit/index.ts && node tests/index.ts && node tests/simulate.ts",
     "test:unit": "node tests/unit/index.ts",
