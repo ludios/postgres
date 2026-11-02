@@ -1,6 +1,6 @@
 # Cloudflare Workers tests
 
-`worker.js` is a Worker that runs a set of checks with Postgres.js (`../../src/cf.js`) and answers with
+`worker.ts` is a Worker that runs a set of checks with Postgres.js (`../../src/cf.ts`) and answers with
 the result of each as JSON, with `failed` counting the ones that did not pass. It runs in three ways.
 
 ## 1. workerd, direct to PostgreSQL (every commit)
@@ -28,7 +28,7 @@ but not Hyperdrive itself: no pooling and no caching.
 
 ## 3. A deployed Worker through a real Hyperdrive (scheduled)
 
-The `hyperdrive` workflow runs every night and on demand. It deploys `worker.js` under a name of
+The `hyperdrive` workflow runs every night and on demand. It deploys `worker.ts` under a name of
 its own, with the Hyperdrive id swapped in, calls `/hyperdrive` on its workers.dev URL, and deletes
 the Worker again. A random token, passed as a variable and checked on every request, keeps anyone
 else from running queries through it while it exists.

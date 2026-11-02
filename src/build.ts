@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { Errors } from "./errors.js";
-import { Parameter, infer } from "./types.js";
+import { Errors } from "./errors.ts";
+import { Parameter, infer } from "./types.ts";
 
 export const isQuery = Symbol("query");
 

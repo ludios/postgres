@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "../test.js";
-import { Types } from "../../src/types.js";
+import { t } from "../test.ts";
+import { Types } from "../../src/types.ts";
 
 const types = Types({}),
 	parse = (oid, x) => types.parser(oid)(x),

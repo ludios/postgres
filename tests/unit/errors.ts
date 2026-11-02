@@ -1,7 +1,7 @@
 // @ts-nocheck
-import { t } from "../test.js";
-import { PostgresError } from "../../src/errors.js";
-import postgres from "../../src/index.js";
+import { t } from "../test.ts";
+import { PostgresError } from "../../src/errors.ts";
+import postgres from "../../src/index.ts";
 
 const here = new URL(import.meta.url).pathname;
 const offline = () => postgres({ host: "localhost", port: 1, connect_timeout: 1, max: 1 });

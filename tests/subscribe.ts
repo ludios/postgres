@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "./test.js";
-import { postgres, delay } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, delay } from "./setup.ts";
 
 t("subscribe", { timeout: 10 }, async () => {
 	const sql = postgres({

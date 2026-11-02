@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "./test.js";
-import { postgres, sql, options, delay, rel } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, sql, options, delay, rel } from "./setup.ts";
 
 t("Escapes", async () => {
 	return ['hej"hej', Object.keys((await sql`select 1 as ${sql('hej"hej')}`)[0])[0]];

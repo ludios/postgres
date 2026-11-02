@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Errors } from "./errors.js";
+import { Errors } from "./errors.ts";
 
 const number = (x) => +x,
 	bool = (x) => x === "t",

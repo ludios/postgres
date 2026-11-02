@@ -2,7 +2,7 @@
 import net from "net";
 import tls from "tls";
 import crypto from "crypto";
-import { t } from "./test.js";
+import { t } from "./test.ts";
 import {
 	postgres,
 	sql,
@@ -16,7 +16,7 @@ import {
 	pg_port,
 	second_pg_port,
 	pg_socket_dir,
-} from "./setup.js";
+} from "./setup.ts";
 
 t("Connects with no options", async () => {
 	const sql = postgres({ max: 1 });
@@ -1459,7 +1459,7 @@ t("unref_sockets lets the process exit while connections are idle", { timeout: 2
 	const script = (idle) =>
 		[
 			"const postgres = (await import(" +
-				JSON.stringify(new URL("../src/index.js", import.meta.url).href) +
+				JSON.stringify(new URL("../src/index.ts", import.meta.url).href) +
 				")).default",
 			"const sql = postgres(" +
 				JSON.stringify({ ...options, idle_timeout: 60, unref_sockets: idle }) +

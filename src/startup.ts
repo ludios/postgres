@@ -1,10 +1,10 @@
 // @ts-nocheck
 import crypto from "crypto";
 import fs from "fs";
-import * as p from "./protocol.js";
-import { Socket, secured, secureOptions } from "./socket.js";
-import { Errors } from "./errors.js";
-import { channels, active, start, finish, userName } from "./diagnostics.js";
+import * as p from "./protocol.ts";
+import { Socket, secured, secureOptions } from "./socket.ts";
+import { Errors } from "./errors.ts";
+import { channels, active, start, finish, userName } from "./diagnostics.ts";
 
 const noop = () => {};
 

@@ -1,9 +1,9 @@
 // @ts-nocheck
 import net from "net";
-import { t } from "./test.js";
-import { postgres, login, login_md5, login_scram, pg_port } from "./setup.js";
-import { open } from "../src/startup.js";
-import { Query, Frames } from "../src/protocol.js";
+import { t } from "./test.ts";
+import { postgres, login, login_md5, login_scram, pg_port } from "./setup.ts";
+import { open } from "../src/startup.ts";
+import { Query, Frames } from "../src/protocol.ts";
 
 const base = {
 	host: ["localhost"],

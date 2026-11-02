@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "./test.js";
-import { postgres, options } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, options } from "./setup.ts";
 
 t("Transform undefined", async () => {
 	const sql = postgres({ ...options, transform: { undefined: null } });

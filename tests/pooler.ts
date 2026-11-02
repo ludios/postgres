@@ -9,14 +9,14 @@ const mode = process.argv[2],
 
 if (!expected[mode])
 	throw new Error(
-		"usage: node tests/pooler.js <" +
+		"usage: node tests/pooler.ts <" +
 			Object.keys(expected)
 				.filter((x) => x !== "always" && x !== "flaky")
 				.join("|") +
 			">",
 	);
 
-const child = spawn(process.execPath, [new URL("index.js", import.meta.url).pathname], {
+const child = spawn(process.execPath, [new URL("index.ts", import.meta.url).pathname], {
 	env: {
 		...process.env,
 		POOLER_PORT: port,
@@ -42,7 +42,7 @@ function finish() {
 	finished = true;
 	clearInterval(done);
 	child.kill();
-	const failed = [...output.matchAll(/⛔️ (.+?) at ([a-z]+\.js):\d+ failed/g)].map(
+	const failed = [...output.matchAll(/⛔️ (.+?) at ([a-z]+\.ts):\d+ failed/g)].map(
 			(x) => x[2] + ": " + x[1],
 		),
 		unexpected = failed.filter((x) => !allowed.has(x)),

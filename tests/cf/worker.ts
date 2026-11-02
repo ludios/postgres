@@ -1,6 +1,6 @@
 // @ts-nocheck
 import dc from "node:diagnostics_channel";
-import postgres from "../../src/cf.js";
+import postgres from "../../src/cf.ts";
 
 const base = {
 	host: "127.0.0.1",

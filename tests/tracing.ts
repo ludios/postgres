@@ -1,8 +1,8 @@
 // @ts-nocheck
 import dc from "diagnostics_channel";
 import { AsyncLocalStorage } from "async_hooks";
-import { t } from "./test.js";
-import { postgres, options, delay, pg_port } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, options, delay, pg_port } from "./setup.ts";
 
 function record(name) {
 	const events = [],

@@ -13,7 +13,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), ".."),
 	minimum = +process.env.COVERAGE_MIN || 0;
 
 const failed = (
-	suites.length ? suites : ["tests/unit", "tests/index.js", "tests/simulate.js"]
+	suites.length ? suites : ["tests/unit/index.ts", "tests/index.ts", "tests/simulate.ts"]
 ).filter(
 	(suite) =>
 		spawnSync(process.execPath, [path.join(root, suite)], {

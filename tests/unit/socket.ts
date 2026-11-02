@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { EventEmitter } from "events";
-import { t } from "../test.js";
-import { Socket } from "../../src/socket.js";
+import { t } from "../test.ts";
+import { Socket } from "../../src/socket.ts";
 
 function fake() {
 	const x = new EventEmitter();

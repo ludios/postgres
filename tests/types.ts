@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "./test.js";
-import { postgres, sql, options, delay } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, sql, options, delay } from "./setup.ts";
 
 t("null", async () => [null, (await sql`select ${null} as x`)[0].x]);
 

@@ -1,8 +1,8 @@
 // @ts-nocheck
 import util from "util";
-import { t } from "../test.js";
-import postgres from "../../src/index.js";
-import cases from "./build.cases.js";
+import { t } from "../test.ts";
+import postgres from "../../src/index.ts";
+import cases from "./build.cases.ts";
 
 const sql = postgres({ host: "localhost", port: 1, max: 1 });
 const show = (q) => JSON.stringify([q.text, q.parameters]);

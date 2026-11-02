@@ -1,10 +1,10 @@
 // @ts-nocheck
 import Stream from "stream";
-import * as p from "./protocol.js";
-import { Errors, queryError } from "./errors.js";
-import Result from "./result.js";
-import { CLOSE } from "./query.js";
-import { now, channels, listened } from "./diagnostics.js";
+import * as p from "./protocol.ts";
+import { Errors, queryError } from "./errors.ts";
+import Result from "./result.ts";
+import { CLOSE } from "./query.ts";
+import { now, channels, listened } from "./diagnostics.ts";
 
 export const slow = 100;
 export const notable = 5;

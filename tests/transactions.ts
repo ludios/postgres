@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "./test.js";
-import { postgres, sql, options, delay, idle_timeout, pg_port } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, sql, options, delay, idle_timeout, pg_port } from "./setup.ts";
 
 t("Throws on illegal transactions", async () => {
 	const sql = postgres({ ...options, max: 2, fetch_types: false });

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { postgres, options, delay } from "./setup.js";
+import { postgres, options, delay } from "./setup.ts";
 
 const seconds = +process.argv[2] || +process.env.SOAK_SECONDS || 60,
 	started = Date.now(),

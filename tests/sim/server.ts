@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Pipe } from "./net.js";
+import { Pipe } from "./net.ts";
 
 const select =
 		/^select (\S+) as id, (\S+) as scope(?: from rows\((\S+)\))?(?: fail\((\S+)\))?(?: sleep\((\S+)\))?$/i,

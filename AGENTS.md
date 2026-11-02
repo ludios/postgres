@@ -139,16 +139,16 @@ We're reworking all of it to follow the code conventions above and to test with 
 
 Renaming anything public (see `types/index.d.ts`) breaks users of the library; ask first.
 
-The tests not yet moved to vitest use upstream's harness in `tests/test.js`: `t(name, fn)`, where `fn` returns `[expected, got]` and the test passes if `expected === got`.
+The tests not yet moved to vitest use upstream's harness in `tests/test.ts`: `t(name, fn)`, where `fn` returns `[expected, got]` and the test passes if `expected === got`.
 
 # Before committing
 
 These need no PostgreSQL server:
 
-	node tests/unit
-	node tests/simulate.js
+	node tests/unit/index.ts
+	node tests/simulate.ts
 
-The integration tests (`node tests/index.js`) start their own two PostgreSQL servers with `pg_tmp`, from `ephemeralpg`.
+The integration tests (`node tests/index.ts`) start their own two PostgreSQL servers with `pg_tmp`, from `ephemeralpg`.
 
 # Committing
 

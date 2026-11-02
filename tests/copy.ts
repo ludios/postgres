@@ -3,8 +3,8 @@ import fs from "fs";
 import crypto from "crypto";
 import { pipeline } from "stream/promises";
 import stream from "stream";
-import { t } from "./test.js";
-import { postgres, sql, options, delay, rel } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, sql, options, delay, rel } from "./setup.ts";
 
 t("Copy read", async () => {
 	const result = [];

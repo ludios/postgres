@@ -1,9 +1,9 @@
 // @ts-nocheck
 import util from "util";
-import { build, isQuery, Join, joinStrings } from "./build.js";
-import { ours } from "./errors.js";
-import { channels, active, start, finish, now, userName } from "./diagnostics.js";
-import { statement } from "./result.js";
+import { build, isQuery, Join, joinStrings } from "./build.ts";
+import { ours } from "./errors.ts";
+import { channels, active, start, finish, now, userName } from "./diagnostics.ts";
+import { statement } from "./result.ts";
 
 const origins = new WeakMap();
 

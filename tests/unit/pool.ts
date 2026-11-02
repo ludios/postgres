@@ -1,8 +1,8 @@
 // @ts-nocheck
 import v8 from "v8";
 import vm from "vm";
-import { t } from "../test.js";
-import { Queue } from "../../src/pool.js";
+import { t } from "../test.ts";
+import { Queue } from "../../src/pool.ts";
 
 const gc = globalThis.Bun
 	? () => globalThis.Bun.gc(true)

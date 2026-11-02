@@ -1,8 +1,8 @@
 // @ts-nocheck
 import fs from "fs";
 import crypto from "crypto";
-import { t } from "./test.js";
-import { postgres, sql, options, rel } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, sql, options, rel } from "./setup.ts";
 
 t("Result is array", async () => [true, Array.isArray(await sql`select 1`)]);
 
@@ -96,7 +96,7 @@ t("Include table oid and column number in column details", async () => {
 });
 
 t("Large object", async () => {
-	const file = rel("index.js"),
+	const file = rel("index.ts"),
 		md5 = crypto.createHash("md5").update(fs.readFileSync(file)).digest("hex");
 
 	const lo = await sql.largeObject();

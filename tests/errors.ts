@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "./test.js";
-import { postgres, sql, options, login_md5, rel, idle_timeout, delay } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, sql, options, login_md5, rel, idle_timeout, delay } from "./setup.ts";
 
 t("Undefined values throws", async () => {
 	let error;
@@ -165,7 +165,7 @@ t("Debug has long async stack trace", async () => {
 	return [
 		inlines ? "true" : "watyo",
 		await yo().catch((x) =>
-			inlines ? String(x.stack.includes("errors.js")) : x.stack.match(/wat|yo/g).join(""),
+			inlines ? String(x.stack.includes("errors.ts")) : x.stack.match(/wat|yo/g).join(""),
 		),
 	];
 

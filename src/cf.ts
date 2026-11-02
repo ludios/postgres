@@ -2,9 +2,9 @@
 import { connect } from "cloudflare:sockets";
 import { EventEmitter } from "node:events";
 import { Buffer } from "node:buffer";
-import postgres, { PostgresError } from "./index.js";
-import { Errors } from "./errors.js";
-import { secured, direct } from "./socket.js";
+import postgres, { PostgresError } from "./index.ts";
+import { Errors } from "./errors.ts";
+import { secured, direct } from "./socket.ts";
 
 export default function Postgres(a, b) {
 	return typeof a === "string" || !a ? postgres(a, { socket, ...b }) : postgres({ socket, ...a });

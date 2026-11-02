@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "./test.js";
-import { postgres, sql, options } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, sql, options } from "./setup.ts";
 
 const same = (xs) =>
 	xs.every(

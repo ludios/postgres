@@ -1,5 +1,5 @@
 #!/bin/sh
-# A primary on 5434 with a streaming standby on 5435, for tests/failover.js. Run as an ordinary user.
+# A primary on 5434 with a streaming standby on 5435, for tests/failover.ts. Run as an ordinary user.
 #   sh tests/failover.sh          create (if needed) and start both
 #   sh tests/failover.sh reset    stop both and delete them
 set -e

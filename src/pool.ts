@@ -1,9 +1,9 @@
 // @ts-nocheck
-import { open as startup } from "./startup.js";
-import { Connection, slow, notable } from "./connection.js";
-import { Query } from "./query.js";
-import { Errors, PostgresError, queryError } from "./errors.js";
-import { channels, listened } from "./diagnostics.js";
+import { open as startup } from "./startup.ts";
+import { Connection, slow, notable } from "./connection.ts";
+import { Query } from "./query.ts";
+import { Errors, PostgresError, queryError } from "./errors.ts";
+import { channels, listened } from "./diagnostics.ts";
 
 const begins = /\bbegin\b/i,
 	starts = /\bstart\b/gi,

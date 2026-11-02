@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { own } from "./connection.js";
+import { own } from "./connection.ts";
 
 const noop = () => {},
 	statusInterval = 10000,

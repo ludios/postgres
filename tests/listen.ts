@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "./test.js";
-import { postgres, options, delay, pg_socket_dir } from "./setup.js";
+import { t } from "./test.ts";
+import { postgres, options, delay, pg_socket_dir } from "./setup.ts";
 
 const until = async (fn, ms = 5000) => {
 	const end = Date.now() + ms;

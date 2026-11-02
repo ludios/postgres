@@ -1,12 +1,12 @@
 // @ts-nocheck
 import path from "path";
-import { Clock, Random } from "./sim/net.js";
-import { Server } from "./sim/server.js";
+import { Clock, Random } from "./sim/net.ts";
+import { Server } from "./sim/server.ts";
 
 const single = process.env.SEED !== undefined,
 	first = single ? +process.env.SEED : 1,
 	runs = single ? 1 : +process.env.RUNS || 2000,
-	modulePath = process.env.MODULE || "../src/index.js",
+	modulePath = process.env.MODULE || "../src/index.ts",
 	globals = !!process.env.GLOBALS;
 
 const postgres = (

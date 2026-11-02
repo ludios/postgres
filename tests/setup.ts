@@ -1,8 +1,8 @@
 // Model-output: Claude Opus 5.5
 // @ts-nocheck
-import { bootstrap, exec } from "./bootstrap.js";
-import { start_pg_tmp } from "./pg_tmp.js";
-import { t } from "./test.js";
+import { bootstrap, exec } from "./bootstrap.ts";
+import { start_pg_tmp } from "./pg_tmp.ts";
+import { t } from "./test.ts";
 
 if (process.env.POOLER_PORT) {
 	throw new Error(
@@ -32,7 +32,7 @@ export const second_pg_port = second.port;
 /** The directory of the Unix socket of the server at `pg_port` */
 export const pg_socket_dir = first.socket_dir;
 
-const postgres = (await import(process.env.POSTGRES_JS || "../src/index.js")).default;
+const postgres = (await import(process.env.POSTGRES_JS || "../src/index.ts")).default;
 
 export { exec, postgres };
 

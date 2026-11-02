@@ -14,15 +14,15 @@ import {
 	fromPascal,
 	fromCamel,
 	fromKebab,
-} from "./types.js";
+} from "./types.ts";
 
-import { Identifier, Builder } from "./build.js";
-import { Query, CLOSE } from "./query.js";
-import { Pool } from "./pool.js";
-import { Errors, PostgresError } from "./errors.js";
-import Subscribe from "./subscribe.js";
-import largeObject from "./large.js";
-import { channels, active, start, finish, userName } from "./diagnostics.js";
+import { Identifier, Builder } from "./build.ts";
+import { Query, CLOSE } from "./query.ts";
+import { Pool } from "./pool.ts";
+import { Errors, PostgresError } from "./errors.ts";
+import Subscribe from "./subscribe.ts";
+import largeObject from "./large.ts";
+import { channels, active, start, finish, userName } from "./diagnostics.ts";
 
 Object.assign(Postgres, {
 	PostgresError,

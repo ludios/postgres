@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "../test.js";
-import * as p from "../../src/protocol.js";
+import { t } from "../test.ts";
+import * as p from "../../src/protocol.ts";
 
 const hex = (x) => Buffer.from(x).toString("hex");
 const str = (x) => Buffer.from(x + "\0");

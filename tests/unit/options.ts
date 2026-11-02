@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { t } from "../test.js";
-import postgres from "../../src/index.js";
+import { t } from "../test.ts";
+import postgres from "../../src/index.ts";
 
 const parsed = (url, o) => {
 	const x = postgres(url, { max: 1, ...o }).options;

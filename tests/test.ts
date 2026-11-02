@@ -24,8 +24,8 @@ async function test(o, name, options, fn) {
 	typeof options !== "object" && ((fn = options), (options = {}));
 	const at = new Error().stack
 			.split("\n")
-			.map((x) => x.match("/([^/]+\\.js):([0-9]+):"))
-			.find((x) => x && x[1] !== "test.js"),
+			.map((x) => x.match("/([^/]+\\.ts):([0-9]+):"))
+			.find((x) => x && x[1] !== "test.ts"),
 		line = at ? at[1] + ":" + at[2] : "?";
 
 	await 1;

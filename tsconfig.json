@@ -15,10 +15,9 @@
 		"allowImportingTsExtensions": true,
 		"erasableSyntaxOnly": true,
 		"verbatimModuleSyntax": true,
-		// Loose for now, so that converting the .js files to .ts changes little code.
-		"strict": false,
-		// Accept the .js files that are not converted yet, without checking them.
-		"allowJs": true
+		// Loose for now, so that typing the files that were converted from .js
+		// needs few code changes.
+		"strict": false
 	},
 	"include": ["src", "tests"]
 }
