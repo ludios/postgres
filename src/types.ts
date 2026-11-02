@@ -574,9 +574,9 @@ export function parseArray(x, parse, delimiter = ",") {
 
 /**
  * Serializes array `xs` as a PostgreSQL array literal.
- * @param serialize serializes one element; a custom type's serializer may return anything, so
- *   the literal gets the text of its result
- * @param delimiter the element type's delimiter, `,` for all but box
+ * @param serialize serializes one element; a result that is not a string is converted as
+ *   `"" + result` converts it (valueOf() before toString()), as upstream postgres.js does
+ * @param delimiter the element type's `typdelim`
  * @param undefinedValue what stands in for an undefined element; if it is undefined too, an
  *   undefined element throws UNDEFINED_VALUE
  */
@@ -607,7 +607,7 @@ export function serializeArray(
 					return "NULL";
 				}
 				// oxlint-disable-next-line typescript/no-base-to-string -- see the docstring: the serializer returns unknown
-				const text = String(serialize(x));
+				const text = "" + serialize(x);
 				return '"' + text.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
 			})
 			.join(delimiter) +
