@@ -206,7 +206,7 @@ declare namespace postgres {
 		 */
 		channel_binding?: "disable" | "prefer" | "require" | undefined;
 
-		/** Most connections at a time @default 10 */
+		/** Most connections at a time @default 10, or 3 on Cloudflare Workers */
 		max?: number | undefined;
 		/** Connections kept open once the pool is used, even when idle @default 0 */
 		min?: number | undefined;

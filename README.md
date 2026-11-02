@@ -1105,7 +1105,7 @@ const sql = postgres('postgres://username:password@host:port/database', {
   ssl                  : false,         // true, prefer, require, verify-full, tls.connect options
   sslnegotiation       : null,          // 'direct' for TLS from the first byte (PostgreSQL 17+)
   channel_binding      : 'prefer',      // SCRAM-SHA-256-PLUS over TLS: 'disable', 'prefer' or 'require'
-  max                  : 10,            // Max number of connections
+  max                  : 10,            // Max number of connections (3 on Cloudflare Workers)
   min                  : 0,             // Connections kept open once the pool is used
   max_pipeline         : 100,           // Max number of queries pipelined on one connection
   scheduler            : true,          // Pipeline where a query should be done soonest (more info below)
@@ -1248,7 +1248,7 @@ await Promise.all([
 ])
 ```
 
-> When there are high amount of concurrent queries, `postgres` will open as many connections as needed up until `max` number of connections is reached. By default `max` is 10. This can be changed by setting `max` in the `postgres()` call. Example - `postgres('connectionURL', { max: 20 })`.
+> When there are high amount of concurrent queries, `postgres` will open as many connections as needed up until `max` number of connections is reached. By default `max` is 10, or 3 on Cloudflare Workers. This can be changed by setting `max` in the `postgres()` call. Example - `postgres('connectionURL', { max: 20 })`.
 
 This means that we get a much simpler story for error handling and reconnections. Queries will be sent over the wire immediately on the next available connection in the pool. Connections are automatically taken out of the pool if you start a transaction using `sql.begin()`, and automatically returned to the pool once your transaction is done.
 
