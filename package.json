@@ -21,9 +21,8 @@
     "test:integration": "node tests/index.js",
     "test:simulate": "node tests/simulate.js",
     "coverage": "node tests/coverage.js",
-    "test:types": "tsc -p types",
     "test:cf": "sh tests/cf/run.sh",
-    "typecheck": "tsc",
+    "typecheck": "tsc && tsc -p types && node node_modules/typescript5/bin/tsc -p types",
     "lint": "eslint src tests"
   },
   "files": [
@@ -37,8 +36,10 @@
   },
   "license": "Unlicense",
   "repository": "porsager/postgres",
+  "packageManager": "pnpm@11.28.7",
   "devDependencies": {
     "@types/node": "^22.20.5",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "typescript5": "npm:typescript@^5.9.3"
   }
 }
