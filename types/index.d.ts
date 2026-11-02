@@ -426,7 +426,9 @@ declare namespace postgres {
 			| "NO_COLUMNS"
 			| "QUEUE_TIMEOUT"
 			| "TYPE_NOT_FOUND"
-			| "NESTED_TRANSACTION_MODE";
+			| "NESTED_TRANSACTION_MODE"
+			| "AUTHENTICATION_INCOMPLETE"
+			| "STATEMENT_PENDING";
 		message: string;
 	}
 
