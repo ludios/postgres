@@ -22,7 +22,7 @@ let ids = 1,
 export function Connection(ready, options, events) {
 	const { socket } = ready,
 		timers = options.timers,
-		defer = timers.nextTick || process.nextTick,
+		defer = timers.nextTick || ((fn: () => void) => process.nextTick(fn)),
 		{ transform } = options,
 		sent = [],
 		pending = [],

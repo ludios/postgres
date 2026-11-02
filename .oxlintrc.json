@@ -47,7 +47,6 @@
 			// it, so that it is an error again.
 			"files": ["**/*.ts"],
 			"rules": {
-				"typescript/unbound-method": "warn",
 				"typescript/no-base-to-string": "warn",
 				"typescript/require-array-sort-compare": "warn",
 				"unicorn/prefer-string-starts-ends-with": "warn",

@@ -453,10 +453,11 @@ async function simulate(seed) {
 
 function fakeGlobals(clock) {
 	const saved = ["setTimeout", "clearTimeout", "setImmediate", "clearImmediate"].map((k) => [
-			k,
-			globalThis[k],
-		]),
-		now = performance.now;
+		k,
+		globalThis[k],
+	]);
+	// oxlint-disable-next-line typescript/unbound-method -- saved only to be put back
+	const now = performance.now;
 	saved.forEach(([k]) => (globalThis[k] = clock.timers[k]));
 	performance.now = clock.timers.now;
 	return () => {
