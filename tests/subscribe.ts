@@ -531,6 +531,7 @@ test(
 	{ timeout: 10_000 },
 	async () => {
 		const error = console.error;
+		logged = undefined;
 		console.error = (...xs) => (logged = xs[1] && xs[1].message);
 		try {
 			expect(await failing(false)).toBe("after no user now");
