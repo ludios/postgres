@@ -9,6 +9,7 @@ import {
 	idle_timeout,
 	delay,
 	port_of,
+	pg_port,
 	thrown,
 } from "./setup.ts";
 
@@ -259,6 +260,51 @@ test("Queries waiting for a connection when end() gives up connecting each get t
 		["CONNECTION_ENDED", ["a"]],
 		["CONNECTION_ENDED", ["b"]],
 	]);
+});
+
+test("A transaction whose backend is terminated mid-query rejects with that query's error", async () => {
+	const sql = postgres({ ...options, max: 1 }),
+		killer = postgres(options);
+	const error = await sql
+		.begin(async (sql) => {
+			const [{ pid }] = await sql`select pg_backend_pid() as pid`;
+			const query = failures(sql, ["a"])[0];
+			await delay(50);
+			await killer`select pg_terminate_backend(${pid}::int)`;
+			await query;
+		})
+		.catch((e) => e);
+	await killer.end();
+	await sql.end();
+	expect([error.code, error.severity, error.args]).toEqual(["57P01", "FATAL", ["a"]]);
+});
+
+test("A transaction whose connection drops mid-query rejects with that query's error", async () => {
+	const sockets = [];
+	// A proxy to the server, so that the test can drop the connection without a FATAL error
+	const proxy = net.createServer((client) => {
+		const server = net.connect(pg_port, "localhost");
+		client.pipe(server).pipe(client);
+		for (const socket of [client, server]) {
+			socket.on("error", () => {});
+			sockets.push(socket);
+		}
+	});
+	await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
+	const sql = postgres({ ...options, host: "127.0.0.1", port: port_of(proxy), max: 1 });
+	const error = await sql
+		.begin(async (sql) => {
+			const query = failures(sql, ["a"])[0];
+			await delay(50);
+			for (const socket of sockets) {
+				socket.destroy();
+			}
+			await query;
+		})
+		.catch((e) => e);
+	proxy.close();
+	await sql.end();
+	expect([error.code, error.args]).toEqual(["CONNECTION_CLOSED", ["a"]]);
 });
 
 test("Query and parameters on errorare not enumerable if debug is not set", async () => {

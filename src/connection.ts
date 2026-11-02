@@ -570,6 +570,7 @@ export function Connection(ready, options, events) {
 			ready.port,
 		);
 		closed.cause = fatal || error || undefined;
+		let head_error = null;
 		sent.splice(0).forEach((x) => {
 			x.stream && x.stream.destroy(closed);
 			if (x.own) {
@@ -578,15 +579,23 @@ export function Connection(ready, options, events) {
 			}
 			// The head's own FATAL error is copied too, because it may be `closed.cause`, which every
 			// copy of `closed` shares
-			const reason = x === head && x.error && x.error.severity === "FATAL" ? x.error : closed;
-			settleError(x, copy_error(reason));
+			const reason = x === head && x.error && x.error.severity === "FATAL" ? x.error : closed,
+				own = copy_error(reason);
+			// settleError adds x's query to `own`
+			settleError(x, own);
+			// The pool rejects the lease (if any) with the head's error instead of `closed`. Not if
+			// the head got a FATAL error that `fatal` leaves out: a FATAL error for a statement that
+			// ends a transaction (such as COMMIT), which the server may have committed.
+			if (x === head && (reason === closed || reason === fatal)) {
+				head_error = own;
+			}
 		});
 		pending.splice(0).forEach((x) => (x.own ? settle(x) : settleError(x, copy_error(closed))));
 		running.forEach((query) => query.settled || query.reject(decorate(query, copy_error(closed))));
 		running.clear();
 		open.clear();
 		resolve_closing && resolve_closing();
-		events.onclose(connection, closed);
+		events.onclose(connection, closed, head_error);
 	}
 
 	function decorate(query, error) {

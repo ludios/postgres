@@ -588,7 +588,13 @@ export function Pool(options, types) {
 		ending && waiting.length === 0 && finishing();
 	}
 
-	function onclose(c, error) {
+	/**
+	 * @param c - the connection that closed
+	 * @param error - the error that says that `c` closed (which no query's properties were added to)
+	 * @param head_error - the error that the query at the head of `c` got when `c` closed, with that
+	 *   query's properties; or null, if `c`'s lease (if any) should not get it
+	 */
+	function onclose(c, error, head_error) {
 		connections.delete(c);
 		c.loading && !signal.aborted && attempted(copy_error(error));
 		ending || replacing.push((c.index + 1) % (options.path ? 1 : options.host.length));
@@ -596,15 +602,17 @@ export function Pool(options, types) {
 		c.retired && c.retired.forEach((r) => r());
 		c.idleTimer && clearTimeout(c.idleTimer);
 		c.lifeTimer && clearTimeout(c.lifeTimer);
-		c.lease &&
-			c.lease.onclose &&
+		if (c.lease && c.lease.onclose) {
+			// The head query is the lease's own, so the lease can have its error and its details
+			const lost = head_error || error;
 			c.lease.onclose(
-				error.cause && error.cause.severity === "FATAL"
-					? error.cause
-					: error.code === "CONNECTION_DESTROYED"
+				lost.cause && lost.cause.severity === "FATAL"
+					? lost.cause
+					: lost.code === "CONNECTION_DESTROYED"
 						? Errors.connection("CONNECTION_CLOSED", options, c.host, c.port)
-						: error,
+						: lost,
 			);
+		}
 		options.onclose && options.onclose(c.id);
 		listened(channels.pool) && event("close", c, { error });
 		connections.size === 0 && opening === 0 && statements.clear();
