@@ -584,26 +584,31 @@ test(
 	"subscribe confirms its position to the server on an interval",
 	{ timeout: 10_000 },
 	async () => {
-		const { sql, done } = await replicating(),
-			seen = [],
-			sub = postgres({
-				database: options.db,
-				publications: "alltables",
-				timers: {
-					...sql.options.timers,
-					setTimeout: (fn, ms) => setTimeout(fn, ms === 10000 ? 50 : ms),
-				},
-			});
+		const { sql, done } = await replicating();
+		const sub = postgres({
+			database: options.db,
+			publications: "alltables",
+			timers: {
+				...sql.options.timers,
+				setTimeout: (fn, ms) => setTimeout(fn, ms === 10000 ? 50 : ms),
+			},
+		});
+		const seen = [];
+		// The start of the commit record of the inserted row's transaction
+		let commit_lsn;
 
-		await sub.subscribe("insert:test", (row) => seen.push(row.name));
-		// The position just after the insert, which is before its commit even while other test files
-		// write WAL (unlike pg_current_wal_lsn() after the commit)
-		const [{ lsn }] =
-			await sql`insert into test (name) values ('a') returning pg_current_wal_insert_lsn() as lsn`;
+		const { state } = await sub.subscribe("insert:test", (row, info) => {
+			seen.push(row.name);
+			commit_lsn = info.lsn;
+		});
+		await sql`insert into test (name) values ('a')`;
 		await until(() => seen.length);
 		await delay(200);
+		// confirmed_flush_lsn is always the end of a WAL record, so a confirmed_flush_lsn past the
+		// start of the commit record is at or past the end of the commit record
 		const [{ confirmed }] = await sql`
-    select bool_or(confirmed_flush_lsn >= ${lsn}::pg_lsn) as confirmed from pg_replication_slots where slot_name like 'postgresjs_%'
+    select confirmed_flush_lsn > ${commit_lsn}::pg_lsn as confirmed from pg_replication_slots
+    where active_pid = ${state.pid}
   `;
 		await sub.end();
 		try {
