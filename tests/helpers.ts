@@ -49,3 +49,16 @@ export function thrown(f: () => unknown): any {
 		{ code: "DID_NOT_THROW" },
 	);
 }
+
+/**
+ * @param fn - a cleanup, such as one that drops a table or ends a pool; what it returns is awaited
+ * @returns a resource that runs `fn` when the scope that declared it with `await using` exits,
+ * even when the scope exits by throwing
+ */
+export function defer(fn: () => unknown): AsyncDisposable {
+	return {
+		async [Symbol.asyncDispose]() {
+			await fn();
+		},
+	};
+}
