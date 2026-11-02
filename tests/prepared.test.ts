@@ -497,7 +497,7 @@ test("A late 26000 does not make the connection forget a statement prepared agai
 		);
 	await query();
 	const deallocated = sql.unsafe("deallocate all").execute();
-	let third;
+	let third: Promise<string>;
 	const first = query().catch((e) => {
 		third = code(query());
 		return e.code;
