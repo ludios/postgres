@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Replaces the message of a commit on the current branch, even while other processes commit in
+# the same working tree.
+#
+# Usage: scripts/git-reword COMMIT < NEW_MESSAGE
+#
+# `git history reword` (an experimental command, in Git 2.56) makes the new commits: COMMIT with
+# the new message, and the commits after it with new parents. It touches neither the working tree
+# nor the index. Then `git update-ref --stdin` moves the branch to the new commits, but only if
+# the branch still points where `git history` found it; otherwise, the rewording begins again, so
+# a commit made meanwhile is never lost. (On its own, if the branch moves while it reads the new
+# message, `git history reword` rewords nothing and still exits with status 0.) A `git commit`
+# that runs at the very moment the branch moves fails without changing anything, and then needs
+# running again.
+#
+# It refuses to reword a commit that another branch, a remote-tracking branch or a tag contains,
+# because they would keep the old commits.
+set -euo pipefail
+
+max_attempts=10
+
+fail() {
+	echo "git-reword: $1" >&2
+	exit 1
+}
+
+if [[ $# -ne 1 || -t 0 ]]; then
+	echo "Usage: scripts/git-reword COMMIT < NEW_MESSAGE" >&2
+	exit 2
+fi
+
+target=$(git rev-parse -q --verify --end-of-options "$1^{commit}") || fail "$1 is not a commit"
+branch=$(git symbolic-ref -q HEAD) || fail "HEAD is not on a branch"
+others=$(git for-each-ref --format='%(refname)' --contains "$target" --exclude="$branch" \
+	refs/heads refs/remotes refs/tags)
+if [[ -n $others ]]; then
+	fail "$target is also in ${others//$'\n'/, }"
+fi
+
+message=$(mktemp)
+trap 'rm -f "$message"' EXIT
+cat > "$message"
+
+for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+	# Prints `update BRANCH NEW_TIP OLD_TIP`, or nothing if the branch moved meanwhile. A comment
+	# string that no line starts with keeps the lines that start with `#`.
+	update=$(GIT_EDITOR="cp '$message'" git -c core.commentString=git-reword-comment: \
+		history reword --dry-run --update-refs=head "$target")
+	if [[ ! $update =~ ^update\ "$branch"\ ([0-9a-f]+)\ ([0-9a-f]+)$ ]]; then
+		error="git history reword printed: ${update:-nothing}"
+		continue
+	fi
+	new_tip=${BASH_REMATCH[1]}
+	old_tip=${BASH_REMATCH[2]}
+
+	# Moves the branch only if it still points to old_tip
+	if error=$(git update-ref --stdin <<< "$update" 2>&1); then
+		# Prints `OLD -> NEW SUBJECT` for COMMIT and each commit after it, newest first
+		count=$(($(git rev-list --count --ancestry-path "$target..$old_tip") + 1))
+		paste -d ' ' <(git log --format=%h -n "$count" "$old_tip") \
+			<(git log --format='%h %s' -n "$count" "$new_tip") | sed 's/ / -> /'
+		exit 0
+	fi
+done
+fail "gave up after $max_attempts attempts; the last error: $error"

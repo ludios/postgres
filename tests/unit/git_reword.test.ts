@@ -4,11 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 
-const script = path.join(import.meta.dirname, "../../scripts/git-reword.ts");
+const script = path.join(import.meta.dirname, "../../scripts/git-reword");
 
-/** The environment for git: no global or system config, and a fixed identity. */
+/**
+ * The environment for git: none of the GIT_* variables of the process that runs the tests (such as
+ * GIT_DIR or GIT_INDEX_FILE, when a git hook runs them), no global or system config, and a fixed
+ * identity.
+ */
 const env = {
-	...process.env,
+	...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_"))),
 	GIT_CONFIG_GLOBAL: "/dev/null",
 	GIT_CONFIG_NOSYSTEM: "1",
 	GIT_AUTHOR_NAME: "Author",
@@ -72,7 +76,7 @@ function make_repo(subjects: string[]) {
  * @returns The exit status of git-reword, and what it wrote to stdout and to stderr.
  */
 function reword(dir: string, target: string, message: string, extra_env = {}) {
-	return spawnSync(process.execPath, [script, target], {
+	return spawnSync(script, [target], {
 		cwd: dir,
 		env: { ...env, ...extra_env },
 		input: message,
@@ -81,14 +85,11 @@ function reword(dir: string, target: string, message: string, extra_env = {}) {
 }
 
 /**
- * @param dir The directory of the repository.
- * @param oid The full hash of a commit.
- * @returns The headers of the commit object, without its parents.
+ * @param name The name of a program.
+ * @returns The path of the program that PATH finds.
  */
-function headers_without_parents(dir: string, oid: string): string {
-	return git(dir, ["cat-file", "commit", oid])
-		.split("\n\n")[0]
-		.replace(/^parent .*\n/gm, "");
+function find_program(name: string): string {
+	return execFileSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).trim();
 }
 
 test("git-reword rewords a commit under others, leaving the index and the working tree alone", () => {
@@ -99,52 +100,69 @@ test("git-reword rewords a commit under others, leaving the index and the workin
 	const changes = () => [git(dir, ["diff", "--cached"]), git(dir, ["diff"])];
 	const changes_before = changes();
 
-	const result = reword(dir, oids[1], "Two\n\nA body.  \n\n\n");
+	const result = reword(dir, oids[1], "Two\n\n#123 is fixed.  \n\n\n");
 	expect([result.status, result.stderr]).toEqual([0, ""]);
 
 	const copies = git(dir, ["rev-list", "--reverse", "main"]).split("\n");
 	expect(copies.map((oid) => git(dir, ["log", "-1", "--format=%B", oid]))).toEqual([
 		"one",
-		"Two\n\nA body.",
+		"Two\n\n#123 is fixed.",
 		"three",
 		"four",
 	]);
 	expect(copies[0]).toBe(oids[0]);
-	// The copies keep their trees, authors and committers
-	expect(copies.map((oid) => headers_without_parents(dir, oid))).toEqual(
-		oids.map((oid) => headers_without_parents(dir, oid)),
-	);
+	// The copies keep their trees and authors
+	const tree_and_author = (oid) => git(dir, ["log", "-1", "--format=%T %an <%ae> %ad", oid]);
+	expect(copies.map(tree_and_author)).toEqual(oids.map(tree_and_author));
+	expect(result.stdout.split("\n").map((line) => line.split(" ").slice(1, 4))).toEqual([
+		["->", copies[3].slice(0, 7), "four"],
+		["->", copies[2].slice(0, 7), "three"],
+		["->", copies[1].slice(0, 7), "Two"],
+		[],
+	]);
 	expect(changes()).toEqual(changes_before);
 });
 
-test("git-reword refuses a commit that a remote-tracking branch contains", () => {
-	const { dir, oids } = make_repo(["one", "two"]);
-	git(dir, ["update-ref", "refs/remotes/origin/main", oids[0]]);
-	const result = reword(dir, oids[0], "One\n");
-	expect([result.status, result.stderr, git(dir, ["rev-parse", "main"])]).toEqual([
-		1,
-		`git-reword: ${oids[0]} is already in refs/remotes/origin/main\n`,
-		oids[1],
-	]);
-});
+test.each(["refs/heads/side", "refs/remotes/origin/main", "refs/tags/v1"])(
+	"git-reword refuses a commit that %s contains",
+	(ref) => {
+		const { dir, oids } = make_repo(["one", "two"]);
+		git(dir, ["update-ref", ref, oids[0]]);
+		const result = reword(dir, oids[0], "One\n");
+		expect([result.status, result.stderr, git(dir, ["rev-parse", "main"])]).toEqual([
+			1,
+			`git-reword: ${oids[0]} is also in ${ref}\n`,
+			oids[1],
+		]);
+	},
+);
 
-test("git-reword begins again, and loses no commit, when the branch moves meanwhile", () => {
-	const { dir, oids } = make_repo(["one", "two"]);
-	// A git that commits, as another process might, just before the first `git update-ref`
-	const bin = make_temporary_dir();
-	const real_git = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
-	fs.writeFileSync(
-		path.join(bin, "git"),
-		`#!/bin/sh
-if [ "$1" = update-ref ] && mkdir "${bin}/raced" 2>/dev/null; then
-	"${real_git}" commit -q --allow-empty -m raced
+test.each([
+	["just before git update-ref", "git", '[ "$1" = update-ref ]'],
+	["while git history reads the new message", "cp", "true"],
+])(
+	"git-reword begins again, and loses no commit, when the branch moves %s",
+	(_, program, condition) => {
+		const { dir, oids } = make_repo(["one", "two"]);
+		// A `program` that commits, as another process might, the first time that `condition` holds
+		const bin = make_temporary_dir();
+		fs.writeFileSync(
+			path.join(bin, program),
+			`#!/bin/sh
+if ${condition} && mkdir "${bin}/raced" 2>/dev/null; then
+	"${find_program("git")}" commit -q --allow-empty -m raced
 fi
-exec "${real_git}" "$@"
+exec "${find_program(program)}" "$@"
 `,
-		{ mode: 0o755 },
-	);
+			{ mode: 0o755 },
+		);
 
-	const result = reword(dir, oids[0], "One\n", { PATH: `${bin}:${process.env.PATH}` });
-	expect([result.status, result.stderr]).toEqual([0, ""]);
-	expect(git(dir, ["log", "--format=%s", "main"]).split("\n")).toEqual(["raced", "two", "One"]);
-});
+		const result = reword(dir, oids[0], "One\n", { PATH: `${bin}:${process.env.PATH}` });
+		expect([result.status, result.stderr, fs.existsSync(path.join(bin, "raced"))]).toEqual([
+			0,
+			"",
+			true,
+		]);
+		expect(git(dir, ["log", "--format=%s", "main"]).split("\n")).toEqual(["raced", "two", "One"]);
+	},
+);

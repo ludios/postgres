@@ -19,5 +19,5 @@
 		// converted from .js needs few code changes.
 		"strict": false
 	},
-	"include": ["src", "tests", "scripts", "vitest.config.ts"]
+	"include": ["src", "tests", "vitest.config.ts"]
 }
