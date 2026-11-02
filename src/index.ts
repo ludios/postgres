@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import os from "os";
 import fs from "fs";
 
@@ -23,7 +24,7 @@ import Subscribe from "./subscribe.ts";
 import largeObject from "./large.ts";
 import { channels, active, start, finish, userName } from "./diagnostics.ts";
 
-Object.assign(Postgres, {
+export default Object.assign(Postgres, {
 	PostgresError,
 	toPascal,
 	pascal,
@@ -42,7 +43,6 @@ Object.assign(Postgres, {
 	},
 });
 
-export default Postgres;
 export { PostgresError };
 
 function Postgres(a?, b?) {
@@ -91,7 +91,12 @@ function Postgres(a?, b?) {
 		pool.query(q);
 	}
 
-	function Sql(handler) {
+	/**
+	 * @param handler - called with each Query that the returned `sql` makes, to run it
+	 * @returns a new `sql`, without the properties that only some `sql`s have (such as `begin`
+	 *   or `release`), which the callers add
+	 */
+	function Sql(handler): any {
 		handler.debug = options.debug;
 		handler.options = options;
 		handler.cancel = handler.cancel || pool.cancel;
@@ -114,6 +119,9 @@ function Postgres(a?, b?) {
 
 		return sql;
 
+		function sql(strings: TemplateStringsArray, ...args: any[]): Query;
+		function sql(identifier: string): Identifier;
+		function sql(first: any, ...rest: any[]): Builder;
 		function sql(strings, ...args) {
 			return strings && Array.isArray(strings.raw)
 				? new Query(strings, args, handler)
