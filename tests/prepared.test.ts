@@ -87,9 +87,10 @@ test("Does not re-serialize json parameters when retrying on FetchPreparedStatem
 	await insert();
 	await sql`deallocate all`;
 	await insert();
-	expect((await sql`select jsonb_typeof(config) as type from test`).map((x) => x.type).join()).toBe(
-		"object,object",
-	);
+	expect((await sql`select jsonb_typeof(config) as type from test`).map((x) => x.type)).toEqual([
+		"object",
+		"object",
+	]);
 	await sql`drop table test`;
 });
 
@@ -110,7 +111,7 @@ test("Does not re-serialize boolean parameters when retrying on FetchPreparedSta
 	await insert();
 	await sql`deallocate all`;
 	await insert();
-	expect((await sql`select enabled from test`).map((x) => x.enabled).join()).toBe("true,true");
+	expect((await sql`select enabled from test`).map((x) => x.enabled)).toEqual([true, true]);
 	await sql`drop table test`;
 });
 
@@ -121,7 +122,7 @@ test("Does not re-serialize bytea parameters when retrying on RevalidateCachedQu
 	await update();
 	await sql`alter table test add column extra int`;
 	await update();
-	expect((await sql`select data from test`)[0].data.toString()).toBe("hello");
+	expect((await sql`select data from test`)[0].data).toEqual(Buffer.from("hello"));
 	await sql`drop table test`;
 });
 
@@ -131,9 +132,10 @@ test("Does not re-serialize bytea parameters when retrying on FetchPreparedState
 	await insert();
 	await sql`deallocate all`;
 	await insert();
-	expect((await sql`select data from test`).map((x) => x.data.toString()).join()).toBe(
-		"hello,hello",
-	);
+	expect((await sql`select data from test`).map((x) => x.data.toString())).toEqual([
+		"hello",
+		"hello",
+	]);
 	await sql`drop table test`;
 });
 
@@ -175,9 +177,13 @@ test("Describe a statement", async () => {
 	await sql`create table tester (name text, age int)`;
 	const r = await sql`select name, age from tester where name like $1 and age > $2`.describe();
 	try {
-		expect(`${r.types.join(",")}/${r.columns.map((c) => `${c.name}:${c.type}`).join(",")}`).toBe(
-			"25,23/name:25,age:23",
-		);
+		expect([r.types, r.columns.map((c) => [c.name, c.type])]).toEqual([
+			[25, 23],
+			[
+				["name", 25],
+				["age", 23],
+			],
+		]);
 	} finally {
 		await sql`drop table tester`;
 	}
@@ -187,7 +193,7 @@ test("Describe a statement without parameters", async () => {
 	await sql`create table tester (name text, age int)`;
 	const r = await sql`select name, age from tester`.describe();
 	try {
-		expect(`${r.types.length},${r.columns.length}`).toBe("0,2");
+		expect([r.types.length, r.columns.length]).toEqual([0, 2]);
 	} finally {
 		await sql`drop table tester`;
 	}
@@ -197,7 +203,7 @@ test("Describe a statement without columns", async () => {
 	await sql`create table tester (name text, age int)`;
 	const r = await sql`insert into tester (name, age) values ($1, $2)`.describe();
 	try {
-		expect(`${r.types.length},${r.columns.length}`).toBe("2,0");
+		expect([r.types.length, r.columns.length]).toEqual([2, 0]);
 	} finally {
 		await sql`drop table tester`;
 	}
@@ -209,7 +215,7 @@ test("Fails a stale prepared statement once when a query is piped behind it", as
 	await piped();
 	await sql`deallocate all`;
 	const error = await piped().catch((e) => e);
-	expect(error.code + "," + (await piped()).map(([{ x }]) => x).join("")).toBe("26000,12");
+	expect([error.code, (await piped()).map(([{ x }]) => x)]).toEqual(["26000", [1, 2]]);
 	await sql.end();
 });
 
@@ -230,7 +236,7 @@ test("Holds the connection while retrying a prepared statement", async () => {
 	await sql`alter table test add column extra int`;
 	const [x] = await read(1);
 	const [y] = await other;
-	expect(x.id + x.name + y.id + y.name).toBe("1a2b");
+	expect([x.id, x.name, y.id, y.name]).toEqual([1, "a", 2, "b"]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -245,7 +251,12 @@ test("Answers two stale prepared statements piped together", async () => {
 	const [error, [x]] = await Promise.all([read(1).catch((e) => e), read(2)]);
 	const [y] = await sql`select 3 as id, 'c' as name`;
 	const [z] = await read(1);
-	expect([error.code, x.id + x.name, y.id + y.name, z.id + z.name].join()).toBe("0A000,2b,3c,1a");
+	expect([error.code, x.id + x.name, y.id + y.name, z.id + z.name]).toEqual([
+		"0A000",
+		"2b",
+		"3c",
+		"1a",
+	]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -265,7 +276,7 @@ test("A stale prepared statement retried with a transaction queued behind it sta
 			})
 			.catch(() => null),
 	]);
-	expect((await sql`select name from test order by id`).map((x) => x.name).join()).toBe("a,b");
+	expect((await sql`select name from test order by id`).map((x) => x.name)).toEqual(["a", "b"]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -280,7 +291,7 @@ test("Does not give a stale prepared statement the answer of a statement piped b
 	await sql`alter table test add column extra int`;
 	const [error, [x]] = await Promise.all([select().catch((e) => e), get(2)]);
 	const [y] = await get(2);
-	expect([error.code, x.name, y.name].join()).toBe("0A000,b,b");
+	expect([error.code, x.name, y.name]).toEqual(["0A000", "b", "b"]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -297,9 +308,7 @@ test("Does not reorder writes on a reserved connection when retrying a stale pre
 		reserved`update test set name = 'b' where id = 1`,
 	]);
 	reserved.release();
-	expect(error.code + "," + (await sql`select name from test`).map((x) => x.name).join()).toBe(
-		"26000,",
-	);
+	expect([error.code, await sql`select name from test`]).toEqual(["26000", []]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -331,7 +340,7 @@ test("Stale prepared statements in a transaction returning an array of queries r
 	const [row] = await other`select * from test where id = ${1}`;
 	await sql`drop table test`;
 	await other.end();
-	expect([error, "b" in row].join()).toBe("0A000,true");
+	expect([error, "b" in row]).toEqual(["0A000", true]);
 });
 
 test("Stale prepared statement is not retried after the transaction it was pipelined in ends", async () => {
@@ -355,10 +364,10 @@ test("Stale prepared statement is not retried after the transaction it was pipel
 		),
 	);
 	reserved.release();
-	const rows = (await sql`select id, a from test order by id`).map((x) => x.id + ":" + x.a);
+	const rows = await sql`select id, a from test order by id`;
 	await sql`drop table test`;
 	await other.end();
-	expect([...results, ...rows].join()).toBe("BEGIN,INSERT,0A000,ROLLBACK,1:2");
+	expect([results, rows]).toEqual([["BEGIN", "INSERT", "0A000", "ROLLBACK"], [{ id: 1, a: 2 }]]);
 });
 
 test("prepare: false describes every time, so a changed column type is seen at once, as in v3", async () => {
@@ -370,7 +379,7 @@ test("prepare: false describes every time, so a changed column type is seen at o
 	const [b] = await insert(1);
 	await sql`alter table test alter column x type json using to_json(x)`;
 	const [c] = await insert({ a: 1 });
-	expect([a.x, b.x, c.x].join(" ")).toBe('true 1 {"a":1}');
+	expect([a.x, b.x, c.x]).toEqual(["true", "1", '{"a":1}']);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -384,8 +393,7 @@ test("A prepared statement that a changed column type no longer fits is prepared
 	const id = "6f1c2c43-6f6b-4a40-9a39-2d8f4a1f3b11";
 	const rows = [];
 	for (let i = 0; i < 3; i++) rows.push((await insert(id))[0].x);
-	const expected = [id, id, id].join();
-	expect(rows.join()).toBe(expected);
+	expect(rows).toEqual([id, id, id]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -434,7 +442,7 @@ test("A query waiting on another query's description of the same statement does 
 			out.push(...(await Promise.all([a, b])));
 		})
 		.catch(() => {});
-	expect(out.join()).toBe("25P02,2");
+	expect(out).toEqual(["25P02", 2]);
 	await sql.end();
 });
 
@@ -459,7 +467,7 @@ test("An invalid value for a prepared statement keeps the statement and leaves n
 	for (let i = 0; i < 50; i++)
 		await Promise.all([q("not-a-uuid").catch((e) => codes.add(e.code)), q(zero), q(zero), q(zero)]);
 	const after = await counts();
-	expect([...codes].join() + " " + (after <= before + 1)).toBe("22P02 true");
+	expect([[...codes], after <= before + 1]).toEqual([["22P02"], true]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -475,9 +483,7 @@ test("A connection that prepares a statement for the first time reads the column
 	await sql`alter table test add column w text default 'new'`;
 	const after = await query(sql);
 	reserved.release();
-	expect(JSON.stringify(before) + " " + JSON.stringify(after)).toBe(
-		'[{"id":1,"v":10}] [{"id":1,"v":"010","w":"new"}]',
-	);
+	expect([before, after]).toEqual([[{ id: 1, v: 10 }], [{ id: 1, v: "010", w: "new" }]]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -492,7 +498,11 @@ test("A connection that prepares a statement for the first time writes values fo
 	await insert(sql, 2, "yes");
 	await insert(reserved, 3, "no");
 	reserved.release();
-	expect((await sql`select v from test order by id`).map((x) => x.v).join()).toBe("false,yes,no");
+	expect((await sql`select v from test order by id`).map((x) => x.v)).toEqual([
+		"false",
+		"yes",
+		"no",
+	]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -548,7 +558,10 @@ test("A late 26000 does not make the connection forget a statement prepared agai
 	];
 	const after = [];
 	for (let i = 0; i < 3; i++) after.push(await code(query()));
-	expect(before.join() + " " + after.join()).toBe("ok,26000,ok,26000,ok ok,ok,ok");
+	expect([before, after]).toEqual([
+		["ok", "26000", "ok", "26000", "ok"],
+		["ok", "ok", "ok"],
+	]);
 	await sql.end();
 });
 
@@ -567,7 +580,7 @@ test("Stale statements pipelined on the pool are all run again", async () => {
 			),
 		),
 	);
-	expect(results.join()).toBe("10,10,10,10,10,10");
+	expect(results).toEqual(Array(6).fill("10"));
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -585,7 +598,7 @@ test(
 		const [{ x: y }] = await two`select ${4}::int as x`;
 		one.release();
 		two.release();
-		expect(x + " " + y).toBe("3 4");
+		expect([x, y]).toEqual([3, 4]);
 		await sql.end();
 	},
 );
@@ -600,7 +613,7 @@ test(
 			await Promise.all(Array.from({ length: 100 }, (_, j) => run(i + j)));
 		const [{ n }] = await sql`select count(*)::int as n from pg_prepared_statements`,
 			[{ x }] = await run(0);
-		expect((n <= 1001) + " " + x).toBe("true 1");
+		expect([n <= 1001, x]).toEqual([true, 1]);
 		await sql.end();
 	},
 );

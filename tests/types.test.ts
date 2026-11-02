@@ -31,32 +31,30 @@ test("infer: true types booleans, dates and arrays of them without a cast, as v3
 	const now = new Date();
 	const [x] =
 		await sql`select ${true} as a, ${false} as b, ${now} as c, ${[now, now]} as d, ${[true, false]} as e`;
-	expect([x.a, x.b, +now - x.c, +now - x.d[1], x.e.join()].join(" ")).toBe(
-		"true false 0 0 true,false",
-	);
+	expect(x).toEqual({ a: true, b: false, c: now, d: [now, now], e: [true, false] });
 	await sql.end();
 });
 
 test("infer: false leaves untyped parameters to the server, so they come back as text without a cast", async () => {
 	const sql = postgres({ ...options, infer: false });
 	const [x] = await sql`select ${true} as a, ${new Date(0)} as b`;
-	expect(typeof x.a + " " + typeof x.b).toBe("string string");
+	expect([typeof x.a, typeof x.b]).toEqual(["string", "string"]);
 	await sql.end();
 });
 
 test("Json", async () => {
 	const x = (await sql`select ${sql.json({ a: "hello", b: 42 })} as x`)[0].x;
-	expect([x.a, x.b].join()).toBe("hello,42");
+	expect([x.a, x.b]).toEqual(["hello", 42]);
 });
 
 test("implicit json", async () => {
 	const x = (await sql`select ${{ a: "hello", b: 42 }}::json as x`)[0].x;
-	expect([x.a, x.b].join()).toBe("hello,42");
+	expect([x.a, x.b]).toEqual(["hello", 42]);
 });
 
 test("implicit jsonb", async () => {
 	const x = (await sql`select ${{ a: "hello", b: 42 }}::jsonb as x`)[0].x;
-	expect([x.a, x.b].join()).toBe("hello,42");
+	expect([x.a, x.b]).toEqual(["hello", 42]);
 });
 
 test("Empty array", async () => {
@@ -64,7 +62,7 @@ test("Empty array", async () => {
 });
 
 test("String array", async () => {
-	expect((await sql`select ${"{1,2,3}"}::int[] as x`)[0].x.join("")).toBe("123");
+	expect((await sql`select ${"{1,2,3}"}::int[] as x`)[0].x).toEqual([1, 2, 3]);
 });
 
 test("Array of Integer", async () => {
@@ -84,9 +82,10 @@ test("Array of Date", async () => {
 });
 
 test("Array of Box", async () => {
-	expect((await sql`select ${"{(1,2),(3,4);(4,5),(6,7)}"}::box[] as x`)[0].x.join(";")).toBe(
-		"(3,4),(1,2);(6,7),(4,5)",
-	);
+	expect((await sql`select ${"{(1,2),(3,4);(4,5),(6,7)}"}::box[] as x`)[0].x).toEqual([
+		"(3,4),(1,2)",
+		"(6,7),(4,5)",
+	]);
 });
 
 test("Nested array n2", async () => {
@@ -105,9 +104,10 @@ test("Nested array n3", async () => {
 });
 
 test("Escape in arrays", async () => {
-	expect((await sql`select ${['Hello "you"', "c:\\windows"]}::text[] as x`)[0].x.join(",")).toBe(
-		'Hello "you",c:\\windows',
-	);
+	expect((await sql`select ${['Hello "you"', "c:\\windows"]}::text[] as x`)[0].x).toEqual([
+		'Hello "you"',
+		"c:\\windows",
+	]);
 });
 
 test("null for int", async () => {
@@ -172,8 +172,7 @@ test("bytea serializes and parses", async () => {
 	await sql`create table test (x bytea)`;
 	await sql`insert into test values (${buf})`;
 
-	const expected = buf.toString();
-	expect((await sql`select x from test`)[0].x.toString()).toBe(expected);
+	expect((await sql`select x from test`)[0].x).toEqual(buf);
 	await sql`drop table test`;
 });
 
@@ -217,9 +216,14 @@ test("Null in arrays of other types", async () => {
   `
 	)[0];
 
-	expect([x.int2, x.int4, x.bigint, x.numeric, x.bool, x.timestamptz].map(show).join()).toBe(
-		"[number:1,null],[null,number:2],[string:1,null],[string:1.5,null],[boolean:true,null,boolean:false],[date:0,null]",
-	);
+	expect([x.int2, x.int4, x.bigint, x.numeric, x.bool, x.timestamptz].map(show)).toEqual([
+		"[number:1,null]",
+		"[null,number:2]",
+		"[string:1,null]",
+		"[string:1.5,null]",
+		"[boolean:true,null,boolean:false]",
+		"[date:0,null]",
+	]);
 });
 
 test("Null in json array", async () => {
@@ -243,9 +247,10 @@ test("Null in nested arrays", async () => {
   `
 	)[0];
 
-	expect([x.ints, x.strings].map(show).join()).toBe(
-		"[[number:1,null],[null,number:4]],[[[string:a,null]],[[null,string:d e]]]",
-	);
+	expect([x.ints, x.strings].map(show)).toEqual([
+		"[[number:1,null],[null,number:4]]",
+		"[[[string:a,null]],[[null,string:d e]]]",
+	]);
 });
 
 test("Null in array of only nulls", async () => {
@@ -286,7 +291,7 @@ test("Null in array does not reach custom type parser", async () => {
 
 	const x = (await sql`select array['a', null, 'NULL']::text[] as x`)[0].x;
 	await sql.end();
-	expect(show(x) + "/" + parsed.join()).toBe("[string:A,null,string:NULL]/a,NULL");
+	expect([show(x), parsed]).toEqual(["[string:A,null,string:NULL]", ["a", "NULL"]]);
 });
 
 test("Infinity timestamp parses to Infinity", async () => {
@@ -317,9 +322,10 @@ test("Date with an offset in seconds", async () => {
 	const [{ x, y }] = await sql`
     select '1850-06-15 12:30:00+00'::timestamptz as x, '0050-06-15 12:30:00+00'::timestamptz as y
   `;
-	expect(x.toISOString() + "," + y.toISOString()).toBe(
-		"1850-06-15T12:30:00.000Z,0050-06-15T12:30:00.000Z",
-	);
+	expect([x.toISOString(), y.toISOString()]).toEqual([
+		"1850-06-15T12:30:00.000Z",
+		"0050-06-15T12:30:00.000Z",
+	]);
 	await sql.end();
 });
 
@@ -329,9 +335,10 @@ test("Domain type wrapping an array resolves to the base type serializer, for a 
 	await sql`create table test (x pg_test_domain_array)`;
 	const fresh = postgres(options);
 	try {
-		expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x.join(",")).toBe(
-			"a,b",
-		);
+		expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x).toEqual([
+			"a",
+			"b",
+		]);
 	} finally {
 		await fresh.end();
 		await sql`drop table test`;
@@ -347,9 +354,10 @@ test("Nested domain types resolve through to their base type serializer, for a d
 	await sql`create table test (x pg_test_domain_nested_child)`;
 	const fresh = postgres(options);
 	try {
-		expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x.join(",")).toBe(
-			"a,b",
-		);
+		expect((await fresh`insert into test values (${["a", "b"]}) returning x`)[0].x).toEqual([
+			"a",
+			"b",
+		]);
 	} finally {
 		await fresh.end();
 		await sql`drop table test`;
@@ -362,7 +370,7 @@ test("Built-in array types without fetch_types", async () => {
 	const sql = postgres({ ...options, fetch_types: false });
 	const [{ x, y }] = await sql`select array['a', 'b']::text[] as x, array[1, 2]::int4[] as y`;
 	const [{ z }] = await sql`select ${["c", "d"]}::text[] as z`;
-	expect([x[1], y[1], z[1]].join()).toBe("b,2,d");
+	expect([x[1], y[1], z[1]]).toEqual(["b", 2, "d"]);
 	await sql.end();
 });
 
@@ -370,7 +378,7 @@ test("Object with a type key in a jsonb array", async () => {
 	await sql`create table test (nodes jsonb[])`;
 	await sql`insert into test ${sql({ nodes: [{ type: "a", v: 1 }] })}`;
 	const [{ nodes }] = await sql`select nodes from test`;
-	expect(nodes[0].type + "," + nodes[0].v).toBe("a,1");
+	expect([nodes[0].type, nodes[0].v]).toEqual(["a", 1]);
 	await sql`drop table test`;
 });
 
@@ -382,7 +390,7 @@ test("infer: false sends a boolean to a jsonb parameter", async () => {
 
 test("infer: false sends a boolean array", async () => {
 	const sql = postgres({ ...options, infer: false });
-	expect((await sql`select ${[true, false]}::bool[] as x`)[0].x.join()).toBe("true,false");
+	expect((await sql`select ${[true, false]}::bool[] as x`)[0].x).toEqual([true, false]);
 	await sql.end();
 });
 
@@ -391,9 +399,7 @@ test("infer: false sends strings to boolean, bytea and date parameters as text",
 	await sql`create temp table shapes (a boolean, b bytea, c timestamptz, d boolean[])`;
 	await sql`insert into shapes values (${"yes"}, ${"\\x4142"}, ${"2026-10-17T12:00:00Z"}, ${["t", false]})`;
 	const [x] = await sql`select a, encode(b, 'escape') as b, c, d from shapes`;
-	expect([x.a, x.b, x.c.toISOString(), x.d].join(" ")).toBe(
-		"true AB 2026-10-17T12:00:00.000Z true,false",
-	);
+	expect(x).toEqual({ a: true, b: "AB", c: new Date("2026-10-17T12:00:00Z"), d: [true, false] });
 	await sql.end();
 });
 
@@ -422,8 +428,7 @@ test("infer: false reads a timestamp column back as the instant that was written
 	const date = new Date("2026-06-01T12:00:00.123Z");
 	await sql`insert into test values (${date}, ${[date]})`;
 	const [{ at, ats }] = await sql`select at, ats from test`;
-	const expected = date.toISOString() + " " + date.toISOString();
-	expect(at.toISOString() + " " + ats[0].toISOString()).toBe(expected);
+	expect([at, ats]).toEqual([date, [date]]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -444,7 +449,7 @@ test("Custom type serializes values the server says are of a type in its from (#
 	await sql`create temp table points (p point)`;
 	await sql`insert into points values (${[1, 2]})`;
 	const [{ p }] = await sql`select p from points`;
-	expect(p.join()).toBe("1,2");
+	expect(p).toEqual([1, 2]);
 	await sql.end();
 });
 
@@ -471,15 +476,13 @@ test("A column of a type Postgres.js does not know returns its rows as text, emp
 		many = await fresh.unsafe("select m from test_enum_rows order by m; select 1 as n");
 	await fresh.end();
 	await drop();
-	expect(
-		[
-			empty.length,
-			tagged.map((x) => x.m),
-			simple.map((x) => x.m),
-			many[0].map((x) => x.m),
-			many[1][0].n,
-		].join(" "),
-	).toBe("0 a,b a,b a,b 1");
+	expect([
+		empty.length,
+		tagged.map((x) => x.m),
+		simple.map((x) => x.m),
+		many[0].map((x) => x.m),
+		many[1][0].n,
+	]).toEqual([0, ["a", "b"], ["a", "b"], ["a", "b"], 1]);
 });
 
 test("forEach and cursors get every row of a column of a type Postgres.js does not know", async () => {
@@ -493,7 +496,7 @@ test("forEach and cursors get every row of a column of a type Postgres.js does n
 	});
 	await fresh.end();
 	await drop();
-	expect(seen.length + " " + batches.join()).toBe("3 2,1");
+	expect([seen.length, batches]).toEqual([3, [2, 1]]);
 });
 
 test("A parameter of a type Postgres.js does not know keeps its place among the queries after it", async () => {
@@ -512,7 +515,7 @@ test("A parameter of a type Postgres.js does not know keeps its place among the 
 	const [{ n }] = await fresh`select count(*)::int as n from test_enum_order`;
 	await fresh.end();
 	await drop();
-	expect(select[0].n + " " + commands.join() + " " + n).toBe("1 BEGIN,INSERT,ROLLBACK 1");
+	expect([select[0].n, commands, n]).toEqual([1, ["BEGIN", "INSERT", "ROLLBACK"], 1]);
 });
 
 test("infer: false writes a Date for a text parameter as an ISO timestamp", async () => {
@@ -525,7 +528,7 @@ test("infer: false writes a Date for a text parameter as an ISO timestamp", asyn
 test("An array in a values list is written as an array for a cast (#741)", async () => {
 	const [{ r }] =
 		await sql`select (v.r)::real[] as r from (values ${sql([[1, [1.25, 3.5]]])}) as v(id, r)`;
-	expect(r.join()).toBe("1.25,3.5");
+	expect(r).toEqual([1.25, 3.5]);
 });
 
 test("An object in a values list is written as json for a cast (#872, #765)", async () => {
@@ -538,8 +541,7 @@ test("infer: false writes a boolean array to a jsonb parameter and a bigint to n
 	const sql = postgres({ ...options, infer: false });
 	const [{ j, n }] =
 		await sql`select ${[true, false]}::jsonb as j, ${1n << 255n}::numeric(78,0)::text as n`;
-	const expected = "[true,false] " + (1n << 255n);
-	expect(JSON.stringify(j) + " " + n).toBe(expected);
+	expect([j, n]).toEqual([[true, false], String(1n << 255n)]);
 	await sql.end();
 });
 
@@ -570,7 +572,7 @@ test("A custom type given by name is looked up, with its array type (#1115)", as
   `;
 	await sql2.end();
 	await sql`drop type pair_t`;
-	expect(x.join() + " " + xs[0].join() + " " + sum).toBe("1,2 3,4 5");
+	expect([x, xs, sum]).toEqual([[1, 2], [[3, 4]], 5]);
 });
 
 test("Several custom type names that do not exist are named in one TYPE_NOT_FOUND", async () => {
@@ -608,7 +610,7 @@ test("A custom type name that does not exist rejects with TYPE_NOT_FOUND", async
 			),
 	];
 	await sql2.end();
-	expect(codes.join(" ")).toBe("TYPE_NOT_FOUND TYPE_NOT_FOUND");
+	expect(codes).toEqual(["TYPE_NOT_FOUND", "TYPE_NOT_FOUND"]);
 });
 
 test(
@@ -631,7 +633,7 @@ test(
 		const [{ x }] = await sql2`select 'a'::later_t as x`;
 		await sql2.end();
 		await sql`drop type later_t`;
-		expect(first + " " + x).toBe("TYPE_NOT_FOUND parsed a");
+		expect([first, x]).toEqual(["TYPE_NOT_FOUND", "parsed a"]);
 	},
 );
 

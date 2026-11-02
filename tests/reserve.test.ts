@@ -26,7 +26,7 @@ test("reserve connection", async () => {
 
 	if (xs[1].time - xs[2].time < 500) throw new Error("Wrong time");
 
-	expect(xs.map((x) => x.x).join("")).toBe("123");
+	expect(xs.map((x) => x.x)).toEqual([1, 2, 3]);
 });
 
 test("arrays in reserved connection", async () => {
@@ -34,7 +34,7 @@ test("arrays in reserved connection", async () => {
 	const [{ x }] = await reserved`select array[1, 2, 3] as x`;
 	reserved.release();
 
-	expect(x.join("")).toBe("123");
+	expect(x).toEqual([1, 2, 3]);
 });
 
 test("Ensure reserve on query throws proper error", async () => {
@@ -72,7 +72,7 @@ test("end() resolves when a reserved connection is released after end was called
 	const ended = sql.end();
 	await delay(10);
 	reserved.release();
-	expect((await ended.then(() => "ended")) + " " + sql.stats.connections).toBe("ended 0");
+	expect([await ended.then(() => "ended"), sql.stats.connections]).toEqual(["ended", 0]);
 });
 
 test("reserve queued behind a terminated connection", async () => {
@@ -125,7 +125,7 @@ test("Reserved connection rejects queries after its backend is terminated", asyn
 	const second = await reserved`select 2`.catch((e) => e.code);
 	reserved.release();
 	await sql.end();
-	expect(first + "," + second).toBe("CONNECTION_CLOSED,CONNECTION_CLOSED");
+	expect([first, second]).toEqual(["CONNECTION_CLOSED", "CONNECTION_CLOSED"]);
 });
 
 test("Releasing a terminated reserved connection does not return it to the pool", async () => {
@@ -193,7 +193,7 @@ test("A reserved connection released while its BEGIN is still unanswered is not 
 		),
 	];
 	const rows = (await sql`select array_agg(a order by a) as a from test`)[0].a;
-	expect(pooled + " " + leased.join() + " " + JSON.stringify(rows)).toBe("INSERT BEGIN,INSERT [2]");
+	expect([pooled, leased, rows]).toEqual(["INSERT", ["BEGIN", "INSERT"], [2]]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -214,7 +214,7 @@ test("reserve and begin after end reject with CONNECTION_ENDED", async () => {
 				(e) => e.code,
 			),
 	];
-	expect(codes.join(" ")).toBe("CONNECTION_ENDED CONNECTION_ENDED");
+	expect(codes).toEqual(["CONNECTION_ENDED", "CONNECTION_ENDED"]);
 });
 
 test("Releasing a reserved connection twice releases it once", async () => {
@@ -226,6 +226,6 @@ test("Releasing a reserved connection twice releases it once", async () => {
 		sql`select 1 as x`,
 		sql.reserve().then((r) => r`select 2 as x`.finally(r.release)),
 	]);
-	expect(a.x + " " + b.x).toBe("1 2");
+	expect([a.x, b.x]).toEqual([1, 2]);
 	await sql.end();
 });

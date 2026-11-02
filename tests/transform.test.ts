@@ -105,6 +105,6 @@ test("transform.row applies to .values() rows too, as in v3", async () => {
 		transform: { row: { from: (row) => ((row.transformed = true), row) } },
 	});
 	const [row] = await sql`select 1 as a`.values();
-	expect(row[0] + " " + row.transformed).toBe("1 true");
+	expect([row[0], row.transformed]).toEqual([1, true]);
 	await sql.end();
 });

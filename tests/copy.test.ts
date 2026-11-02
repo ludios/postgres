@@ -127,7 +127,7 @@ test("Copy from settles instead of hanging when the server rejects the data", as
     where state = 'idle in transaction (aborted)'
   `;
 
-	expect(error.code + "," + count).toBe("22P04,0");
+	expect([error.code, count]).toEqual(["22P04", 0]);
 	await sql`drop table test`;
 });
 
@@ -179,7 +179,7 @@ test(
 		const [{ ssl }] = await tls`select ssl from pg_stat_ssl where pid = pg_backend_pid()`;
 		const [expected, got] = await slowCopy(tls);
 		await tls.end();
-		expect(got + " " + ssl).toBe(expected + " true");
+		expect([got, ssl]).toEqual([expected, true]);
 	},
 );
 
@@ -222,7 +222,7 @@ test("A query on a reserved connection during its COPY is rejected and the COPY 
 	);
 	const [{ n }] = await reserved`select count(*)::int as n from test`;
 	reserved.release();
-	expect(code + " " + n).toBe("COPY_IN_PROGRESS 2");
+	expect([code, n]).toEqual(["COPY_IN_PROGRESS", 2]);
 	await sql`drop table test`;
 });
 
@@ -235,7 +235,7 @@ test("A copy from stdin writable has the count of rows copied once it finishes (
 		writable.write("1\n2\n");
 		writable.end("3\n");
 	});
-	expect(writable.count + " " + writable.command).toBe("3 COPY");
+	expect([writable.count, writable.command]).toEqual([3, "COPY"]);
 	await sql`drop table test`;
 });
 
@@ -248,7 +248,7 @@ test(
 			writable = await sql`copy test from stdin`.writable();
 		await pipeline(stream.Readable.from(Array.from({ length: 8 }, () => line)), writable);
 		const [{ n }] = await sql`select count(*)::int as n from test`;
-		expect(writable.count + " " + n).toBe("8 8");
+		expect([writable.count, n]).toEqual([8, 8]);
 		await sql`drop table test`;
 	},
 );

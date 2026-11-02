@@ -31,25 +31,29 @@ test("Tracing: a query publishes start, end, asyncStart and asyncEnd with what i
 	const { events, stop } = record("postgres:query");
 	const [{ x }] = await sql`select ${1}::int as x`;
 	stop();
-	const order = events.map((x) => x.event).join(),
+	const order = events.map((x) => x.event),
 		c = events[events.length - 1].context;
-	const expected =
-		"start,end,asyncStart,asyncEnd|select $1::int as x|SELECT|1|" +
-		sql.options.database +
-		"|true|true|true|1";
-	expect(
-		[
-			order,
-			c.query,
-			c.command,
-			c.count,
-			c.database,
-			typeof c.connection === "number" && c.port === pg_port && typeof c.host === "string",
-			c.queued <= c.sent && c.sent <= c.firstByte && c.firstByte <= c.complete,
-			c.parameters === undefined,
-			x,
-		].join("|"),
-	).toBe(expected);
+	expect([
+		order,
+		c.query,
+		c.command,
+		c.count,
+		c.database,
+		typeof c.connection === "number" && c.port === pg_port && typeof c.host === "string",
+		c.queued <= c.sent && c.sent <= c.firstByte && c.firstByte <= c.complete,
+		c.parameters === undefined,
+		x,
+	]).toEqual([
+		["start", "end", "asyncStart", "asyncEnd"],
+		"select $1::int as x",
+		"SELECT",
+		1,
+		sql.options.database,
+		true,
+		true,
+		true,
+		1,
+	]);
 	await sql.end();
 });
 
@@ -58,7 +62,7 @@ test("Tracing: parameters are only in the context with debug", async () => {
 	const { events, stop } = record("postgres:query");
 	await sql`select ${"secret"}::text as x`;
 	stop();
-	expect(events[0].context.parameters.join()).toBe("secret");
+	expect(events[0].context.parameters).toEqual(["secret"]);
 	await sql.end();
 });
 
@@ -67,11 +71,10 @@ test("Tracing: a failing query publishes error with the error, then asyncStart a
 	const { events, stop } = record("postgres:query");
 	await sql`select wat`.catch(() => {});
 	stop();
-	expect(
-		events.map((x) => x.event).join() +
-			" " +
-			events.find((x) => x.event === "error").context.error.code,
-	).toBe("start,end,error,asyncStart,asyncEnd 42703");
+	expect([
+		events.map((x) => x.event),
+		events.find((x) => x.event === "error").context.error.code,
+	]).toEqual([["start", "end", "error", "asyncStart", "asyncEnd"], "42703"]);
 	await sql.end();
 });
 
@@ -86,7 +89,7 @@ test("Tracing: start runs in the context of the code that made the query", async
 		store.run("b", async () => await sql`select 2 as b`),
 	]);
 	dc.unsubscribe("tracing:postgres:query:start", start);
-	expect(seen.sort().join()).toBe("a:select 1 as a,b:select 2 as b");
+	expect(seen.sort()).toEqual(["a:select 1 as a", "b:select 2 as b"]);
 	await sql.end();
 });
 
@@ -129,15 +132,12 @@ test("Tracing: connect publishes per attempt, with the backend pid or the error"
 	stop();
 	const ok = events.find((x) => x.event === "asyncEnd" && !x.context.error),
 		failed = events.find((x) => x.event === "error");
-	const expected = "number " + pg_port + " ECONNREFUSED 5434";
-	expect(
-		[
-			typeof ok.context.result.pid,
-			ok.context.port,
-			failed.context.error.code,
-			failed.context.port,
-		].join(" "),
-	).toBe(expected);
+	expect([
+		typeof ok.context.result.pid,
+		ok.context.port,
+		failed.context.error.code,
+		failed.context.port,
+	]).toEqual(["number", pg_port, "ECONNREFUSED", 5434]);
 	await sql.end();
 	await bad.end();
 });
@@ -154,14 +154,12 @@ test("Tracing: a transaction publishes its outcome", async () => {
 		.catch(() => {});
 	stop();
 	const done = events.filter((x) => x.event === "asyncEnd").map((x) => x.context);
-	expect(
-		[
-			done.map((x) => x.outcome).join(),
-			done[1].mode,
-			done[1].error.message,
-			typeof done[0].connection === "number",
-		].join(" "),
-	).toBe("commit,rollback read only no true");
+	expect([
+		done.map((x) => x.outcome),
+		done[1].mode,
+		done[1].error.message,
+		typeof done[0].connection === "number",
+	]).toEqual([["commit", "rollback"], "read only", "no", true]);
 	await sql.end();
 });
 
@@ -174,11 +172,10 @@ test("Tracing: the pool publishes open, lease, release, idle and close", async (
 	await sql.end();
 	stop();
 	const kinds = [...new Set(messages.map((x) => x.event))];
-	expect(
-		["open", "idle", "lease", "release", "close"].filter((x) => kinds.includes(x)).join() +
-			" " +
-			messages.every((x) => typeof x.stats.connections === "number"),
-	).toBe("open,idle,lease,release,close true");
+	expect([
+		["open", "idle", "lease", "release", "close"].filter((x) => kinds.includes(x)),
+		messages.every((x) => typeof x.stats.connections === "number"),
+	]).toEqual([["open", "idle", "lease", "release", "close"], true]);
 });
 
 test("Tracing: notices are published with their connection", async () => {
@@ -186,9 +183,10 @@ test("Tracing: notices are published with their connection", async () => {
 	const sql = postgres({ ...options, max: 1, onnotice: false });
 	await sql`do $$ begin raise notice 'hello'; end $$`;
 	stop();
-	expect(messages[0].notice.message + " " + (typeof messages[0].connection === "number")).toBe(
-		"hello true",
-	);
+	expect([messages[0].notice.message, typeof messages[0].connection === "number"]).toEqual([
+		"hello",
+		true,
+	]);
 	await sql.end();
 });
 

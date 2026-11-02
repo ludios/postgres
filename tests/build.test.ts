@@ -43,11 +43,11 @@ test("unsafe simple includes columns", async () => {
 });
 
 test("simple query using unsafe with multiple statements", async () => {
-	expect((await sql.unsafe("select 1 as x;select 2 as x")).map((x) => x[0].x).join()).toBe("1,2");
+	expect((await sql.unsafe("select 1 as x;select 2 as x")).map((x) => x[0].x)).toEqual([1, 2]);
 });
 
 test("simple query using simple() with multiple statements", async () => {
-	expect((await sql`select 1 as x;select 2 as x`.simple()).map((x) => x[0].x).join()).toBe("1,2");
+	expect((await sql`select 1 as x;select 2 as x`.simple()).map((x) => x[0].x)).toEqual([1, 2]);
 });
 
 test("big query body", async () => {
@@ -306,7 +306,10 @@ test("Supports fragments as dynamic parameters", async () => {
 		b: sql`exists(select 1 from test where b = ${true})`,
 	})}`;
 
-	expect((await sql`select * from test`.raw()).join("")).toBe("1,t2,t");
+	expect(await sql`select * from test`.raw()).toEqual([
+		[Buffer.from("1"), Buffer.from("t")],
+		[Buffer.from("2"), Buffer.from("t")],
+	]);
 	await sql`drop table test`;
 });
 

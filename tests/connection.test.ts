@@ -61,7 +61,7 @@ test("Connect using uri", async () => {
 
 test("Options from uri with special characters in user and pass", async () => {
 	const opt = postgres({ user: "öla", pass: "pass^word" }).options;
-	expect([opt.user, opt.pass].toString()).toBe("öla,pass^word");
+	expect([opt.user, opt.pass]).toEqual(["öla", "pass^word"]);
 });
 
 test("Fail with proper error on no host", async () => {
@@ -156,7 +156,7 @@ test("An ssl object without a ca builds a TLS context per connection, and with o
 		ssl.ca = [...tls.rootCertificates];
 		reserved.push(await sql.reserve());
 		reserved.forEach((x) => x.release());
-		expect([without, shared, built].join(" ")).toBe("3 4 5");
+		expect([without, shared, built]).toEqual([3, 4, 5]);
 	} finally {
 		tls.createSecureContext = create;
 		await sql.end({ timeout: 0 });
@@ -353,16 +353,14 @@ test("requests works after single connect_timeout", async () => {
 		},
 	});
 
-	expect(
-		[
-			await sql`select 1 as x`.then(
-				() => "success",
-				(x) => x.code,
-			),
-			await delay(10),
-			(await sql`select 1 as x`)[0].x,
-		].join(","),
-	).toBe("CONNECT_TIMEOUT,,1");
+	expect([
+		await sql`select 1 as x`.then(
+			() => "success",
+			(x) => x.code,
+		),
+		await delay(10),
+		(await sql`select 1 as x`)[0].x,
+	]).toEqual(["CONNECT_TIMEOUT", undefined, 1]);
 });
 
 test("Catches connection config errors", async () => {
@@ -423,8 +421,7 @@ test(
 
 		result.push((await sql`select system_identifier as x from pg_control_system()`)[0].x);
 
-		const expected = [id1, id2, id1].join(",");
-		expect(result.join(",")).toBe(expected);
+		expect(result).toEqual([id1, id2, id1]);
 	},
 );
 
@@ -437,7 +434,7 @@ test("multiple queries before connect", async () => {
 		sql`select 4 as x`,
 	]);
 
-	expect(xs.map((x) => x[0].x).join()).toBe("1,2,3,4");
+	expect(xs.map((x) => x[0].x)).toEqual([1, 2, 3, 4]);
 });
 
 test("Custom socket", async () => {
@@ -587,7 +584,7 @@ test(
 		b.close();
 		await sql.end();
 
-		expect(code + "," + (elapsed < connect_timeout * host.length + 1)).toBe("CONNECT_TIMEOUT,true");
+		expect([code, elapsed < connect_timeout * host.length + 1]).toEqual(["CONNECT_TIMEOUT", true]);
 	},
 );
 
@@ -608,7 +605,7 @@ test(
 		server.close();
 		await sql.end();
 
-		expect([x, probe].join(",")).toBe("1,1");
+		expect([x, probe]).toEqual([1, 1]);
 	},
 );
 
@@ -663,7 +660,7 @@ test("Query runs on a new connection if the backend dies while fetching array ty
 	proxy.close();
 	process.off("unhandledRejection", onunhandled);
 
-	expect([x, unhandled, killed].join(",")).toBe("1,0,true");
+	expect([x, unhandled, killed]).toEqual([1, 0, true]);
 });
 
 test("Clean closes during startup reject queries and reserves instead of reconnecting forever", async () => {
@@ -680,9 +677,12 @@ test("Clean closes during startup reject queries and reserves instead of reconne
 	await sql.end();
 	server.close();
 
-	expect([...codes, attempts < 10].join(",")).toBe(
-		"CONNECTION_CLOSED,CONNECTION_CLOSED,CONNECTION_CLOSED,true",
-	);
+	expect([...codes, attempts < 10]).toEqual([
+		"CONNECTION_CLOSED",
+		"CONNECTION_CLOSED",
+		"CONNECTION_CLOSED",
+		true,
+	]);
 });
 
 test(
@@ -716,9 +716,13 @@ test(
 		await sql.end();
 		proxy.close();
 
-		expect(
-			[error.code, waited >= 500, attempts < 10, error.query, error.parameters].join(" "),
-		).toBe("CONNECTION_CLOSED true true select $1::int as x 1");
+		expect([error.code, waited >= 500, attempts < 10, error.query, error.parameters]).toEqual([
+			"CONNECTION_CLOSED",
+			true,
+			true,
+			"select $1::int as x",
+			[1],
+		]);
 	},
 );
 
@@ -754,7 +758,7 @@ test("A clean close while fetching array types is retried when connect_timeout i
 	await sql.end();
 	proxy.close();
 
-	expect([x, closed, attempts].join(" ")).toBe("1 true 2");
+	expect([x, closed, attempts]).toEqual([1, true, 2]);
 });
 
 test("A query refused with a FATAL error rejects with the peer error instead of reconnecting forever", async () => {
@@ -782,7 +786,7 @@ test("A query refused with a FATAL error rejects with the peer error instead of 
 	server.close();
 	process.off("unhandledRejection", onunhandled);
 
-	expect([code, attempts < 10, unhandled].join(",")).toBe("08P01,true,0");
+	expect([code, attempts < 10, unhandled]).toEqual(["08P01", true, 0]);
 });
 
 test("Failed array type fetch on a live connection is not an unhandled rejection", async () => {
@@ -825,7 +829,7 @@ test("end() completes after the backend is terminated mid-query", { timeout: 500
 	const error = await query;
 	const start = Date.now();
 	await sql.end();
-	expect([error instanceof Error, Date.now() - start < 1000].join()).toBe("true,true");
+	expect([error instanceof Error, Date.now() - start < 1000]).toEqual([true, true]);
 });
 
 test("Connection end cancels a pending socket factory", async () => {
@@ -856,9 +860,12 @@ test("Connection end cancels a pending socket factory", async () => {
 		await delay(200);
 		const [{ count }] =
 			await sql`select count(*)::int as count from pg_stat_activity where application_name = ${application_name}`;
-		expect([await query, count, socket.destroyed, closes].join()).toBe(
-			"CONNECTION_DESTROYED,0,true,0",
-		);
+		expect([await query, count, socket.destroyed, closes]).toEqual([
+			"CONNECTION_DESTROYED",
+			0,
+			true,
+			0,
+		]);
 	} finally {
 		socket.destroy();
 		await client.end({ timeout: 0 });
@@ -926,7 +933,7 @@ test("Cancel query while its connection is opening", async () => {
 	const next = sql`select 2 as x`.execute();
 	open();
 	const [{ x }] = await next;
-	expect((await error).code + "," + x).toBe("57014,2");
+	expect([(await error).code, x]).toEqual(["57014", 2]);
 	await sql.end();
 });
 
@@ -977,18 +984,20 @@ test(
 			release();
 			const started = performance.now();
 			const [{ x }] = await sql`select 2 as x`;
-			results.push(
-				[
-					phase,
-					["57014", "ran"].includes(await outcome),
-					x,
-					performance.now() - started < 2000,
-				].join(" "),
-			);
+			results.push([
+				phase,
+				["57014", "ran"].includes(await outcome),
+				x,
+				performance.now() - started < 2000,
+			]);
 			await sql.end({ timeout: 0 });
 			proxy.close();
 		}
-		expect(results.join()).toBe("auth true 2 true,types true 2 true,auth true 2 true");
+		expect(results).toEqual([
+			["auth", true, 2, true],
+			["types", true, 2, true],
+			["auth", true, 2, true],
+		]);
 	},
 );
 
@@ -1009,7 +1018,7 @@ test("sql.begin works with max_pipeline: 0 and max: 1 (#1264)", async () => {
 			(x) => x,
 			(e) => e.code,
 		);
-	expect(x + " " + y).toBe("1 2");
+	expect([x, y]).toEqual([1, 2]);
 	await sql.end();
 });
 
@@ -1017,7 +1026,7 @@ test("onread: false reads through the socket stream instead of a shared buffer",
 	const sql = postgres({ ...options, onread: false, max: 1 });
 	const [{ x }] = await sql`select 1 as x`;
 	const rows = await sql`select generate_series(1, 20000) as n`;
-	expect([x, rows.length].join()).toBe("1,20000");
+	expect([x, rows.length]).toEqual([1, 20000]);
 	await sql.end();
 });
 
@@ -1029,7 +1038,7 @@ test("sql.stats is current, not a snapshot from creation", async () => {
 	const during = sql.stats;
 	await queries;
 	const after = sql.stats;
-	expect([before, during.connections, during.idle, after.idle].join(" ")).toBe("0 2 0 2");
+	expect([before, during.connections, during.idle, after.idle]).toEqual([0, 2, 0, 2]);
 	await sql.end();
 });
 
@@ -1052,9 +1061,11 @@ test(
 		raw.emit("error", new Error("half open"));
 		const start = Date.now();
 		const result = await q;
-		expect(result + " " + (Date.now() - start < 1000) + " " + (await sql`select 1 as x`)[0].x).toBe(
-			"CONNECTION_CLOSED true 1",
-		);
+		expect([result, Date.now() - start < 1000, (await sql`select 1 as x`)[0].x]).toEqual([
+			"CONNECTION_CLOSED",
+			true,
+			1,
+		]);
 		await sql.end();
 	},
 );
@@ -1228,7 +1239,7 @@ test("A cancel request on a TLS connection is sent over TLS", { timeout: 10_000 
 	);
 	await sql.end();
 	server.close();
-	expect(code + " " + firsts.join()).toBe("57014 80877103,80877103");
+	expect([code, firsts]).toEqual(["57014", [80877103, 80877103]]);
 });
 
 test("sql.close() lets a running transaction and a reserved connection finish first", async () => {
@@ -1256,7 +1267,7 @@ test("sql.close() lets a running transaction and a reserved connection finish fi
 	);
 	reserved.release();
 	await closing;
-	expect(result + " " + n + " " + after).toBe("committed 2 1");
+	expect([result, n, after]).toEqual(["committed", 2, 1]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -1279,9 +1290,7 @@ test("With several hosts every new connection tries the first host first, as in 
 		ports.push((await r`select inet_server_port() as p`)[0].p);
 	}
 	reserved.forEach((r) => r.release());
-	const first = pg_port;
-	const expected = [first, first, first].join();
-	expect(ports.join()).toBe(expected);
+	expect(ports).toEqual([pg_port, pg_port, pg_port]);
 	await sql.end();
 });
 
@@ -1323,11 +1332,11 @@ test("Falsy connection parameters are left out of the startup message, as in v3"
 test("sql.options.parsers and sql.options.serializers are objects keyed by oid", async () => {
 	const sql = postgres(options);
 	const { parsers, serializers } = sql.options;
-	expect(
-		[parsers[23]("5"), Object.keys(parsers).length > 0, typeof serializers[23] === "function"].join(
-			" ",
-		),
-	).toBe("5 true true");
+	expect([
+		parsers[23]("5"),
+		Object.keys(parsers).length > 0,
+		typeof serializers[23] === "function",
+	]).toEqual([5, true, true]);
 	await sql.end();
 });
 
@@ -1345,9 +1354,7 @@ test("Queries and transactions fail fast with the connection error while connect
 	const codes = times.filter((x, i) => i % 2 === 0);
 	const slow = times.filter((x, i) => i % 2 === 1 && i > 3 && x > 200);
 	await sql.end();
-	expect(
-		codes.every((x) => x === "ECONNREFUSED") + " x" + codes.length + ", slow " + slow.length,
-	).toBe("true x7, slow 0");
+	expect([codes, slow]).toEqual([Array(7).fill("ECONNREFUSED"), []]);
 });
 
 test("Errors from fast failures are separate objects for each query", async () => {
@@ -1356,14 +1363,12 @@ test("Errors from fast failures are separate objects for each query", async () =
 	for (let i = 0; i < 4; i++) errors.push(await sql.unsafe("select " + i).catch((e) => e));
 	await sql.end();
 	expect(
-		String(
-			new Set(errors).size === errors.length &&
-				errors.every(
-					(e, i) =>
-						e.query === "select " + i && typeof e.stack === "string" && e.code === "ECONNREFUSED",
-				),
-		),
-	).toBe("true");
+		new Set(errors).size === errors.length &&
+			errors.every(
+				(e, i) =>
+					e.query === "select " + i && typeof e.stack === "string" && e.code === "ECONNREFUSED",
+			),
+	).toBe(true);
 });
 
 test(
@@ -1393,7 +1398,7 @@ test(
 		]);
 		await sql.end();
 		await admin`drop role postgres_js_test_loading`;
-		expect(results.join()).toBe("1,reserved");
+		expect(results).toEqual([1, "reserved"]);
 		await admin.end();
 	},
 );
@@ -1454,7 +1459,7 @@ test(
 		const waited = Date.now() - start;
 		await sql.end();
 		await admin`drop role postgres_js_test_none`;
-		expect(code + " " + (waited >= 400 && waited < 4000)).toBe("53300 true");
+		expect([code, waited >= 400 && waited < 4000]).toEqual(["53300", true]);
 		await admin.end();
 	},
 );
@@ -1476,7 +1481,7 @@ test(
 				'console.log("done")',
 			].join("\n");
 		const [unref, kept] = await Promise.all([exits(script(true)), exits(script(false))]);
-		expect(unref.out + " " + unref.exited + " " + kept.exited).toBe("done true false");
+		expect([unref.out, unref.exited, kept.exited]).toEqual(["done", true, false]);
 	},
 );
 
@@ -1490,14 +1495,13 @@ test("sql and reserved connections are async disposable", async () => {
 		(e) => e.code,
 	);
 	await sql[Symbol.asyncDispose]();
-	expect(
-		released +
-			" " +
-			(await sql`select 1`.then(
-				() => "ran",
-				(e) => e.code,
-			)),
-	).toBe("UNSAFE_TRANSACTION CONNECTION_ENDED");
+	expect([
+		released,
+		await sql`select 1`.then(
+			() => "ran",
+			(e) => e.code,
+		),
+	]).toEqual(["UNSAFE_TRANSACTION", "CONNECTION_ENDED"]);
 });
 
 async function exits(source) {
@@ -1529,8 +1533,7 @@ test("user can be a function, called for each connection", async () => {
 		sql`select current_user as u, pg_sleep(0.05)`,
 		sql`select current_user as u, pg_sleep(0.05)`,
 	]);
-	const expected = login.user + " " + login.user + " 2";
-	expect(users.map((x) => x[0].u).join(" ") + " " + calls).toBe(expected);
+	expect([users.map((x) => x[0].u), calls]).toEqual([[login.user, login.user], 2]);
 	await sql.end();
 });
 
@@ -1546,7 +1549,7 @@ test(
 		await Promise.all([1, 2, 3, 4].map(() => sql`select pg_sleep(0.1)`));
 		const busy = sql.stats.connections;
 		await delay(800);
-		expect([before, opened, busy, sql.stats.connections].join(" ")).toBe("0 2 4 2");
+		expect([before, opened, busy, sql.stats.connections]).toEqual([0, 2, 4, 2]);
 		await sql.end();
 	},
 );
@@ -1616,9 +1619,7 @@ test(
 		const waited = Date.now() - start;
 		reserved.release();
 		const after = await sql`select 1 as x`;
-		expect(code + " " + (waited >= 150 && waited < 500) + " " + after[0].x).toBe(
-			"QUEUE_TIMEOUT true 1",
-		);
+		expect([code, waited >= 150 && waited < 500, after[0].x]).toEqual(["QUEUE_TIMEOUT", true, 1]);
 		await sql.end();
 	},
 );
@@ -1642,7 +1643,7 @@ test(
 			),
 		];
 		reserved.release();
-		expect(codes.join(" ")).toBe("QUEUE_TIMEOUT QUEUE_TIMEOUT");
+		expect(codes).toEqual(["QUEUE_TIMEOUT", "QUEUE_TIMEOUT"]);
 		await sql.end();
 	},
 );
@@ -1678,9 +1679,12 @@ test(
 			() => "ran",
 			(e) => e.code,
 		);
-		expect([await running, await waiting, before, (await sql`select 1 as x`)[0].x].join(" ")).toBe(
-			"57014 57014 57014 1",
-		);
+		expect([await running, await waiting, before, (await sql`select 1 as x`)[0].x]).toEqual([
+			"57014",
+			"57014",
+			"57014",
+			1,
+		]);
 		await sql.end();
 	},
 );
@@ -1692,7 +1696,7 @@ test("A parameter the server reports after startup reaches onparameter and sql.p
 			onparameter: (k, v) => k === "application_name" && seen.push(v),
 		});
 	await sql`set application_name = 'renamed'`;
-	expect(seen.join() + " " + sql.parameters.application_name).toBe("postgres.js,renamed renamed");
+	expect([seen, sql.parameters.application_name]).toEqual([["postgres.js", "renamed"], "renamed"]);
 	await sql.end();
 });
 
@@ -1702,7 +1706,7 @@ test("An empty query gives an empty result, simple or prepared", async () => {
 		await sql.unsafe("", [], { prepare: true }),
 		await sql.unsafe(" ; "),
 	];
-	expect(xs.map((x) => x.length + ":" + x.command).join()).toBe("0:null,0:null,0:null");
+	expect(xs.map((x) => [x.length, x.command])).toEqual(Array(3).fill([0, null]));
 });
 
 test(
@@ -1728,7 +1732,7 @@ test(
 			return ms;
 		};
 		const [on, off] = [await waited(true), await waited(false)];
-		expect((on < 500) + " " + (off > 800)).toBe("true true");
+		expect([on < 500, off > 800]).toEqual([true, true]);
 	},
 );
 
@@ -1740,7 +1744,7 @@ test("An identifier that looks like many comments after start does not stall the
 		() => "ran",
 		(e) => e.code,
 	);
-	expect(code + " " + (performance.now() - started < 1000)).toBe("42703 true");
+	expect([code, performance.now() - started < 1000]).toEqual(["42703", true]);
 	await sql.end();
 });
 
@@ -1761,7 +1765,7 @@ test("A NUL character in a startup parameter rejects instead of adding parameter
 		);
 		await sql.end({ timeout: 0 });
 	}
-	expect(codes.join()).toBe("NUL_CHARACTER,NUL_CHARACTER,NUL_CHARACTER");
+	expect(codes).toEqual(["NUL_CHARACTER", "NUL_CHARACTER", "NUL_CHARACTER"]);
 });
 
 test("A NUL character in query text is rejected by the server and leaves the connection usable", async () => {
@@ -1777,6 +1781,6 @@ test("A NUL character in query text is rejected by the server and leaves the con
 		),
 	];
 	const [{ x }] = await sql`select 1 as x`;
-	expect(codes.join(" ") + " " + x).toBe("08P01 08P01 1");
+	expect([codes, x]).toEqual([["08P01", "08P01"], 1]);
 	await sql.end();
 });

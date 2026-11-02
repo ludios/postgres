@@ -14,7 +14,7 @@ test("subscribe", { timeout: 10_000 }, async () => {
 	const result = [];
 
 	const { unsubscribe } = await sql.subscribe("*", (row, { command, old }) => {
-		result.push(command, row.name, row.id, old && old.name, old && old.id);
+		result.push([command, row.name, row.id, old && old.name, old && old.id]);
 	});
 
 	await sql`
@@ -33,14 +33,20 @@ test("subscribe", { timeout: 10_000 }, async () => {
 	await sql`insert into test (name) values ('Murray')`;
 	await sql`update test set name = 'Rothbard'`;
 	await sql`delete from test`;
-	await until(() => result.length === 35);
+	await until(() => result.length === 7);
 	await unsubscribe();
 	await sql`insert into test (name) values ('Oh noes')`;
 	await delay(50);
 	try {
-		expect(result.join(",")).toBe(
-			"insert,Murray,1,,,update,Rothbard,1,,,update,Rothbard,2,,1,delete,,2,,,insert,Murray,2,,,update,Rothbard,2,Murray,2,delete,Rothbard,2,,",
-		);
+		expect(result).toEqual([
+			["insert", "Murray", 1, undefined, undefined],
+			["update", "Rothbard", 1, null, null],
+			["update", "Rothbard", 2, null, 1],
+			["delete", null, 2, undefined, undefined],
+			["insert", "Murray", 2, undefined, undefined],
+			["update", "Rothbard", 2, "Murray", 2],
+			["delete", "Rothbard", 2, undefined, undefined],
+		]);
 	} finally {
 		await sql`drop table test`;
 		await sql`drop publication alltables`;
@@ -67,7 +73,7 @@ test("subscribe with transform", { timeout: 10_000 }, async () => {
 	const result = [];
 
 	const { unsubscribe } = await sql.subscribe("*", (row, { command, old }) =>
-		result.push(command, row.nameInCamel || row.id, old && old.nameInCamel),
+		result.push([command, row.nameInCamel || row.id, old && old.nameInCamel]),
 	);
 
 	await sql`
@@ -84,14 +90,19 @@ test("subscribe with transform", { timeout: 10_000 }, async () => {
 	await sql`insert into test (name_in_camel) values ('Murray')`;
 	await sql`update test set name_in_camel = 'Rothbard'`;
 	await sql`delete from test`;
-	await until(() => result.length === 18);
+	await until(() => result.length === 6);
 	await unsubscribe();
 	await sql`insert into test (name_in_camel) values ('Oh noes')`;
 	await delay(50);
 	try {
-		expect(result.join(",")).toBe(
-			"insert,Murray,,update,Rothbard,,delete,1,,insert,Murray,,update,Rothbard,Murray,delete,Rothbard,",
-		);
+		expect(result).toEqual([
+			["insert", "Murray", undefined],
+			["update", "Rothbard", null],
+			["delete", 1, undefined],
+			["insert", "Murray", undefined],
+			["update", "Rothbard", "Murray"],
+			["delete", "Rothbard", undefined],
+		]);
 	} finally {
 		await sql`drop table test`;
 		await sql`drop publication alltables`;
@@ -117,7 +128,7 @@ test("subscribe reconnects and calls onsubscribe", { timeout: 10_000 }, async ()
 
 	const { unsubscribe, sql: subscribeSql } = await sql.subscribe(
 		"*",
-		(row, { command, old }) => result.push(command, row.name || row.id, old && old.name),
+		(row, { command, old }) => result.push([command, row.name || row.id, old && old.name]),
 		() => onsubscribes++,
 		(error) => errors.push(error.code || error.message),
 	);
@@ -130,14 +141,20 @@ test("subscribe reconnects and calls onsubscribe", { timeout: 10_000 }, async ()
   `;
 
 	await sql`insert into test (name) values ('Murray')`;
-	await until(() => result.length === 3, 5000, state);
+	await until(() => result.length === 1, 5000, state);
 	await subscribeSql.close();
 	await until(() => onsubscribes === 2, 5000, state);
 	await sql`delete from test`;
-	await until(() => result.length === 6, 5000, state);
+	await until(() => result.length === 2, 5000, state);
 	await unsubscribe();
 	try {
-		expect(onsubscribes + result.join(",")).toBe("2insert,Murray,,delete,1,");
+		expect([onsubscribes, result]).toEqual([
+			2,
+			[
+				["insert", "Murray", undefined],
+				["delete", 1, undefined],
+			],
+		]);
 	} finally {
 		await sql`drop table test`;
 		await sql`drop publication alltables`;
@@ -200,7 +217,7 @@ test(
 		const [slot] =
 			await sql`select temporary, active from pg_replication_slots where slot_name = 'postgresjs_resume'`;
 		try {
-			expect(seen.join() + " " + slot.temporary + " " + slot.active).toBe("a,b,c false false");
+			expect([seen, slot.temporary, slot.active]).toEqual([["a", "b", "c"], false, false]);
 		} finally {
 			await done("postgresjs_resume");
 		}
@@ -223,7 +240,7 @@ test(
 		await until(() => seen.length === 10);
 		await sub.end();
 		try {
-			expect(seen.join()).toBe("1,2,3,4,5,6,7,8,9,10");
+			expect(seen).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 		} finally {
 			await done("postgresjs_order");
 		}
@@ -255,7 +272,7 @@ test(
 		await delay(50);
 		await sub.end();
 		try {
-			expect(seen.join() + " " + errors.join()).toBe("a,a,b not yet");
+			expect([seen, errors]).toEqual([["a", "a", "b"], ["not yet"]]);
 		} finally {
 			await done("postgresjs_retry");
 		}
@@ -287,7 +304,7 @@ test(
     select confirmed_flush_lsn > ${before}::pg_lsn as moved from pg_replication_slots where slot_name = 'postgresjs_confirm'
   `;
 		try {
-			expect(held + " " + moved).toBe("true true");
+			expect([held, moved]).toEqual([true, true]);
 		} finally {
 			await done("postgresjs_confirm");
 		}
@@ -309,16 +326,14 @@ test(
 		await sub.end();
 		const [insert, truncate] = seen;
 		try {
-			expect(
-				[
-					insert.command,
-					truncate.command,
-					truncate.relation.table,
-					truncate.restartIdentity,
-					/^[0-9A-F]+\/[0-9A-F]+$/.test(insert.lsn),
-					insert.time instanceof Date && typeof insert.xid === "number",
-				].join(" "),
-			).toBe("insert truncate test true true true");
+			expect([
+				insert.command,
+				truncate.command,
+				truncate.relation.table,
+				truncate.restartIdentity,
+				/^[0-9A-F]+\/[0-9A-F]+$/.test(insert.lsn),
+				insert.time instanceof Date && typeof insert.xid === "number",
+			]).toEqual(["insert", "truncate", "test", true, true, true]);
 		} finally {
 			await done();
 		}
@@ -349,7 +364,7 @@ test(
 		await delay(100);
 		await sub.end();
 		try {
-			expect(seen.join() + " " + subscribed).toBe("a,b 2");
+			expect([seen, subscribed]).toEqual([["a", "b"], 2]);
 		} finally {
 			await done("postgresjs_reconnect");
 		}
@@ -398,7 +413,7 @@ test(
 		process.off("warning", onwarning);
 
 		try {
-			expect(seen.subscribes + " " + result.join() + warnings.join()).toBe("13 after");
+			expect([seen.subscribes, result, warnings]).toEqual([13, ["after"], []]);
 		} finally {
 			await sql`drop table test`;
 			await sql`drop publication alltables`;
@@ -449,7 +464,7 @@ test("subscribe without publications rejects each time it is called", async () =
 	const errors = await Promise.all(
 		[1, 2].map(() => sql.subscribe("*", () => {}).catch((e) => e.message)),
 	);
-	expect(errors.join()).toBe("Missing publication names,Missing publication names");
+	expect(errors).toEqual(["Missing publication names", "Missing publication names"]);
 	await sql.end();
 });
 
@@ -471,7 +486,7 @@ test(
 		await delay(50);
 		await sub.end();
 		try {
-			expect(seen.join()).toBe("a1,b1,b2");
+			expect(seen).toEqual(["a1", "b1", "b2"]);
 		} finally {
 			await done();
 		}
@@ -565,7 +580,7 @@ test(
   `;
 		await sub.end();
 		try {
-			expect(seen.join() + " " + confirmed).toBe("a true");
+			expect([seen, confirmed]).toEqual([["a"], true]);
 		} finally {
 			await done();
 		}
@@ -588,7 +603,7 @@ test(
 			});
 
 		await sql`alter table test add column big text`;
-		await sub.subscribe("update:test", (row) => seen.push(row.name + " " + typeof row.big));
+		await sub.subscribe("update:test", (row) => seen.push([row.name, typeof row.big]));
 		await sub.subscribe(
 			"update:test",
 			() => {
@@ -602,7 +617,7 @@ test(
 		await until(() => seen.length && errors.length);
 		await sub.end();
 		try {
-			expect(seen.join() + " " + errors.join()).toBe("B undefined sync");
+			expect([seen, errors]).toEqual([[["B", "undefined"]], ["sync"]]);
 		} finally {
 			await done();
 		}
@@ -625,13 +640,11 @@ test(
 		const [row] = seen,
 			own = Object.getOwnPropertyDescriptor(row, "__proto__");
 		try {
-			expect(
-				[
-					typeof row.isAdmin,
-					Object.getPrototypeOf(row) === Object.prototype,
-					own.value.isAdmin,
-				].join(" "),
-			).toBe("undefined true true");
+			expect([
+				typeof row.isAdmin,
+				Object.getPrototypeOf(row) === Object.prototype,
+				own.value.isAdmin,
+			]).toEqual(["undefined", true, true]);
 		} finally {
 			await done();
 		}

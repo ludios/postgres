@@ -54,17 +54,17 @@ test("multiple listeners work after a reconnect", async () => {
 	try {
 		const s1 = await sql.listen(
 			"test",
-			(x) => xs.push("1", x),
+			(x) => xs.push("1" + x),
 			() => listens++,
 		);
-		await sql.listen("test", (x) => xs.push("2", x));
+		await sql.listen("test", (x) => xs.push("2" + x));
 		await sql.notify("test", "a");
-		await until(() => xs.length === 4);
+		await until(() => xs.length === 2);
 		await sql`select pg_terminate_backend(${s1.state.pid})`;
 		await until(() => listens === 2);
 		await sql.notify("test", "b");
-		await until(() => xs.length === 8);
-		expect(xs.join("")).toBe("1a2a1b2b");
+		await until(() => xs.length === 4);
+		expect(xs).toEqual(["1a", "2a", "1b", "2b"]);
 	} finally {
 		await sql.end();
 	}
@@ -148,7 +148,7 @@ test("listen keeps retrying when a reconnect attempt fails", { timeout: 20_000 }
 		await until(() => listens === 2);
 		await admin.notify("test", "a");
 		await until(() => xs.length === 1);
-		expect(listens + " " + xs[0]).toBe("2 a");
+		expect([listens, xs[0]]).toEqual([2, "a"]);
 	} finally {
 		await sql.end();
 		await admin`drop role postgres_js_test_listen`;
@@ -182,7 +182,7 @@ test("unlisten removes subscription", async () => {
 	await delay(50);
 	sql.end();
 
-	expect(xs.join("")).toBe("a");
+	expect(xs).toEqual(["a"]);
 });
 
 test("listen after unlisten", async () => {
@@ -200,24 +200,24 @@ test("listen after unlisten", async () => {
 	await until(() => xs.length === 2);
 	sql.end();
 
-	expect(xs.join("")).toBe("ac");
+	expect(xs).toEqual(["a", "c"]);
 });
 
 test("multiple listeners and unlisten one", async () => {
 	const sql = postgres(options),
 		xs = [];
 
-	await sql.listen("test", (x) => xs.push("1", x));
-	const s2 = await sql.listen("test", (x) => xs.push("2", x));
+	await sql.listen("test", (x) => xs.push("1" + x));
+	const s2 = await sql.listen("test", (x) => xs.push("2" + x));
 	await sql.notify("test", "a");
-	await until(() => xs.length === 4);
+	await until(() => xs.length === 2);
 	await s2.unlisten();
 	await sql.notify("test", "b");
-	await until(() => xs.length === 6);
+	await until(() => xs.length === 3);
 	await delay(50);
 	sql.end();
 
-	expect(xs.join("")).toBe("1a2a1b");
+	expect(xs).toEqual(["1a", "2a", "1b"]);
 });
 
 test("Listen connection closes after the last unlisten", async () => {
@@ -249,10 +249,10 @@ test("Original listen handles unsubscribe after a reconnect", async () => {
 	try {
 		const s1 = await sql.listen(
 			"test",
-			(x) => xs.push("1", x),
+			(x) => xs.push("1" + x),
 			() => ++registrations === 2 && reconnect(),
 		);
-		const s2 = await sql.listen("test", (x) => (xs.push("2", x), arrivals[x]()));
+		const s2 = await sql.listen("test", (x) => (xs.push("2" + x), arrivals[x]()));
 		await sql.notify("test", "a");
 		await a;
 		await sql`select pg_terminate_backend(${s1.state.pid})`;
@@ -268,7 +268,7 @@ test("Original listen handles unsubscribe after a reconnect", async () => {
       select count(*)::int as retained from pg_stat_activity
       where pid = ${s2.state.pid} and query ilike 'listen %'
     `;
-		expect(xs.join("") + ":" + available + ":" + retained).toBe("1a2a1b2b2c:1:0");
+		expect([xs, available, retained]).toEqual([["1a", "2a", "1b", "2b", "2c"], 1, 0]);
 	} finally {
 		await sql.end();
 	}
@@ -300,7 +300,7 @@ test("Unlisten while reconnecting keeps only the other listener", async () => {
 		await unlistened;
 		await sql.notify("test", "after");
 		await arrived;
-		expect(callbacks.join(",") + ":" + second).toBe("first:1");
+		expect([callbacks, second]).toEqual([["first"], 1]);
 	} finally {
 		await sql.end();
 	}
@@ -322,7 +322,7 @@ test("A listener that throws keeps its connection and gets the next notification
 	await until(() => got.length === 1);
 	await sql.notify("throwing", "after");
 	await until(() => got.length === 2);
-	expect(onlisten + " " + got.join()).toBe("1 throw,after");
+	expect([onlisten, got]).toEqual([1, ["throw", "after"]]);
 	await sql.end();
 });
 

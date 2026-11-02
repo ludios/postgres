@@ -18,7 +18,7 @@ test("Cursor", async () => {
 		await delay(100);
 		order.push(x.x + "b");
 	});
-	expect(order.join("")).toBe("1a1b2a2b");
+	expect(order).toEqual(["1a", "1b", "2a", "2b"]);
 });
 
 test("Unsafe cursor", async () => {
@@ -28,7 +28,7 @@ test("Unsafe cursor", async () => {
 		await delay(100);
 		order.push(x.x + "b");
 	});
-	expect(order.join("")).toBe("1a1b2a2b");
+	expect(order).toEqual(["1a", "1b", "2a", "2b"]);
 });
 
 test("Cursor custom n", async () => {
@@ -36,7 +36,7 @@ test("Cursor custom n", async () => {
 	await sql`select * from generate_series(1,20)`.cursor(10, async (x) => {
 		order.push(x.length);
 	});
-	expect(order.join(",")).toBe("10,10");
+	expect(order).toEqual([10, 10]);
 });
 
 test("Cursor custom with rest n", async () => {
@@ -44,7 +44,7 @@ test("Cursor custom with rest n", async () => {
 	await sql`select * from generate_series(1,20)`.cursor(11, async (x) => {
 		order.push(x.length);
 	});
-	expect(order.join(",")).toBe("11,9");
+	expect(order).toEqual([11, 9]);
 });
 
 test("Cursor custom with less results than batch size", async () => {
@@ -52,7 +52,7 @@ test("Cursor custom with less results than batch size", async () => {
 	await sql`select * from generate_series(1,20)`.cursor(21, async (x) => {
 		order.push(x.length);
 	});
-	expect(order.join(",")).toBe("20");
+	expect(order).toEqual([20]);
 });
 
 test("Cursor cancel", async () => {
@@ -73,7 +73,7 @@ test("Cursor throw", async () => {
 			throw new Error("watty");
 		})
 		.catch(() => order.push("err"));
-	expect(order.join("")).toBe("1aerr");
+	expect(order).toEqual(["1a", "err"]);
 });
 
 test("Cursor error", async () => {
@@ -93,7 +93,7 @@ test("Multiple Cursors", async () => {
 		}),
 	]);
 
-	expect(result.join(",")).toBe("1,2,3,4,101,102,103,104");
+	expect(result).toEqual([1, 2, 3, 4, 101, 102, 103, 104]);
 });
 
 test("Cursor as async iterator", async () => {
@@ -104,7 +104,7 @@ test("Cursor as async iterator", async () => {
 		order.push(x.x + "b");
 	}
 
-	expect(order.join("")).toBe("1a1b2a2b");
+	expect(order).toEqual(["1a", "1b", "2a", "2b"]);
 });
 
 test("Cursor as async iterator with break", async () => {
@@ -116,7 +116,7 @@ test("Cursor as async iterator with break", async () => {
 		break;
 	}
 
-	expect(order.join("")).toBe("1a1b");
+	expect(order).toEqual(["1a", "1b"]);
 });
 
 test("Async Iterator Unsafe cursor", async () => {
@@ -126,27 +126,27 @@ test("Async Iterator Unsafe cursor", async () => {
 		await delay(10);
 		order.push(x.x + "b");
 	}
-	expect(order.join("")).toBe("1a1b2a2b");
+	expect(order).toEqual(["1a", "1b", "2a", "2b"]);
 });
 
 test("Async Iterator Cursor custom n", async () => {
 	const order = [];
 	for await (const x of sql`select * from generate_series(1,20)`.cursor(10)) order.push(x.length);
 
-	expect(order.join(",")).toBe("10,10");
+	expect(order).toEqual([10, 10]);
 });
 
 test("Async Iterator Cursor custom with rest n", async () => {
 	const order = [];
 	for await (const x of sql`select * from generate_series(1,20)`.cursor(11)) order.push(x.length);
 
-	expect(order.join(",")).toBe("11,9");
+	expect(order).toEqual([11, 9]);
 });
 
 test("Async Iterator Cursor custom with less results than batch size", async () => {
 	const order = [];
 	for await (const x of sql`select * from generate_series(1,20)`.cursor(21)) order.push(x.length);
-	expect(order.join(",")).toBe("20");
+	expect(order).toEqual([20]);
 });
 
 test("forEach has result as second argument", async () => {
@@ -166,7 +166,7 @@ test("concurrent cursors", async () => {
 			.flat(),
 	);
 
-	expect(xs.join("")).toBe("12233445566778");
+	expect(xs).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8]);
 });
 
 test("concurrent cursors multiple connections", async () => {
@@ -181,7 +181,7 @@ test("concurrent cursors multiple connections", async () => {
 			.flat(),
 	);
 
-	expect(xs.sort().join("")).toBe("12233445566778");
+	expect(xs.sort((a, b) => a - b)).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8]);
 });
 
 test("Async iterator cursor surfaces an error arriving between batches", async () => {
@@ -213,7 +213,7 @@ test(
 				batches.push(rows.map((r) => r.x));
 				return new Promise((r) => (release = r));
 			});
-			const done = cursor.then(() => JSON.stringify(batches)),
+			const done = cursor.then(() => batches),
 				until = async (fn) => {
 					while (!fn()) await delay(5);
 				},
@@ -231,7 +231,14 @@ test(
 			release();
 			out.push((await q)[0].a, await done);
 		});
-		expect(out.join(" ")).toBe("value [[1,2],[3,4],[5,6]]");
+		expect(out).toEqual([
+			"value",
+			[
+				[1, 2],
+				[3, 4],
+				[5, 6],
+			],
+		]);
 		await sql.end();
 	},
 );
@@ -252,7 +259,14 @@ test(
 		const [{ a }] = await reserved`select 'q1' as a`;
 		await cursor;
 		reserved.release();
-		expect(a + " " + JSON.stringify(batches)).toBe("q1 [[1,2],[3,4],[5,6]]");
+		expect([a, batches]).toEqual([
+			"q1",
+			[
+				[1, 2],
+				[3, 4],
+				[5, 6],
+			],
+		]);
 		await sql.end();
 	},
 );
@@ -280,7 +294,7 @@ test(
 			.catch((e) => e.code);
 		const outlived = await cursor.catch((e) => e.code);
 		const [{ n }] = await sql`select count(*)::int as n from test`;
-		expect([first, second, n, outlived !== undefined].join(" ")).toBe("22012 committed 2 true");
+		expect([first, second, n, outlived !== undefined]).toEqual(["22012", "committed", 2, true]);
 		await sql`drop table test`;
 		await sql.end();
 	},
@@ -299,9 +313,11 @@ test("A pool cursor whose parameter serializer returns a number rejects and free
 				() => "ok",
 				(e) => e.name,
 			);
-	expect([await run(), await run(), (await sql`select 1 as x`)[0].x].join()).toBe(
-		"TypeError,TypeError,1",
-	);
+	expect([await run(), await run(), (await sql`select 1 as x`)[0].x]).toEqual([
+		"TypeError",
+		"TypeError",
+		1,
+	]);
 	await sql.end();
 });
 
@@ -316,14 +332,13 @@ test("A transaction waits for a cursor it did not await before it commits", asyn
 		cursor.catch(() => {});
 		await delay(10);
 	});
-	expect(
-		(await cursor.then(
+	expect([
+		await cursor.then(
 			() => "ok",
 			(e) => e.code,
-		)) +
-			" " +
-			batches.join(),
-	).toBe("ok 1,2,3,4");
+		),
+		batches,
+	]).toEqual(["ok", [1, 2, 3, 4]]);
 });
 
 test("A transaction that returns right after starting a cursor still lets the cursor finish", async () => {
@@ -335,14 +350,13 @@ test("A transaction that returns right after starting a cursor still lets the cu
 		});
 		cursor.catch(() => {});
 	});
-	expect(
-		(await cursor.then(
+	expect([
+		await cursor.then(
 			() => "ok",
 			(e) => e.code,
-		)) +
-			" " +
-			batches.join(),
-	).toBe("ok 1,2,3");
+		),
+		batches,
+	]).toEqual(["ok", [1, 2, 3]]);
 });
 
 test("A pool cursor whose callback throws on the last batch rejects and frees the connection", async () => {
@@ -355,7 +369,7 @@ test("A pool cursor whose callback throws on the last batch rejects and frees th
 			() => "resolved",
 			(e) => e.message,
 		);
-	expect(error + " " + (await sql`select 1 as x`)[0].x).toBe("last 1");
+	expect([error, (await sql`select 1 as x`)[0].x]).toEqual(["last", 1]);
 	await sql.end();
 });
 
@@ -380,7 +394,7 @@ test("A pool cursor whose column parser throws rejects and frees the connection"
 			() => "resolved",
 			(e) => e.message,
 		);
-	expect(error + " " + (await sql`select 1 as x`)[0].x).toBe("parser 1");
+	expect([error, (await sql`select 1 as x`)[0].x]).toEqual(["parser", 1]);
 	await sql.end();
 });
 
@@ -397,7 +411,7 @@ test("A reserved cursor whose callback throws on the last batch rejects and leav
 		);
 	const [{ x }] = await reserved`select 1 as x`;
 	reserved.release();
-	expect(error + " " + x).toBe("last 1");
+	expect([error, x]).toEqual(["last", 1]);
 	await sql.end();
 });
 
@@ -427,7 +441,7 @@ test(
 		const [second, outcome] = await outlives(() => {
 			throw new Error("late");
 		});
-		expect(second + " " + outcome).toBe("committed late");
+		expect([second, outcome]).toEqual(["committed", "late"]);
 	},
 );
 
@@ -436,10 +450,17 @@ test(
 	{ timeout: 10_000 },
 	async () => {
 		const [second, outcome] = await outlives((sql) => sql.CLOSE);
-		expect(second + " " + outcome).toBe("committed 25P02");
+		expect([second, outcome]).toEqual(["committed", "25P02"]);
 	},
 );
 
+/**
+ * Run a cursor that aborts its own query from its first callback.
+ * @param sql - the sql to run the query on: the pool, a reserved connection, or a transaction
+ * @param how - "signal" to abort through an AbortSignal, or "cancel" to call query.cancel()
+ * @returns the cursor's outcome ("resolved", or the code it rejected with), and how many times its
+ * callback ran
+ */
 async function aborted(sql, how) {
 	const controller = new AbortController(),
 		query = sql`select generate_series(1, 10) as x`;
@@ -455,7 +476,7 @@ async function aborted(sql, how) {
 			() => "resolved",
 			(e) => e.code,
 		);
-	return outcome + " " + calls;
+	return [outcome, calls];
 }
 
 test("Aborting a pool cursor while its callback runs stops it with 57014", async () => {
@@ -465,7 +486,7 @@ test("Aborting a pool cursor while its callback runs stops it with 57014", async
 		await aborted(sql, "cancel"),
 		(await sql`select 1 as x`)[0].x,
 	];
-	expect(outcomes.join(" ")).toBe("57014 1 57014 1 1");
+	expect(outcomes).toEqual([["57014", 1], ["57014", 1], 1]);
 	await sql.end();
 });
 
@@ -475,7 +496,7 @@ test("Cancelling a reserved cursor while its callback runs stops it with 57014",
 	const outcome = await aborted(reserved, "cancel"),
 		[{ x }] = await reserved`select 1 as x`;
 	reserved.release();
-	expect(outcome + " " + x).toBe("57014 1 1");
+	expect([outcome, x]).toEqual([["57014", 1], 1]);
 	await sql.end();
 });
 
@@ -485,7 +506,7 @@ test("Aborting a cursor in a transaction stops it with 57014, which rejects the 
 	const outcome = await sql
 		.begin(async (sql) => (inside = await aborted(sql, "signal")))
 		.catch((e) => e.code);
-	expect(inside + " " + outcome).toBe("57014 1 57014");
+	expect([inside, outcome]).toEqual([["57014", 1], "57014"]);
 	await sql.end();
 });
 
@@ -503,7 +524,7 @@ test("Aborting a cursor used as an async iterator stops it with 57014", async ()
 	} catch (e) {
 		outcome = e.code;
 	}
-	expect(outcome + " " + batches).toBe("57014 1");
+	expect([outcome, batches]).toEqual(["57014", 1]);
 });
 
 test("A cursor waits for the callback of its last batch, and rejects if it does", async () => {
@@ -520,13 +541,18 @@ test("A cursor waits for the callback of its last batch, and rejects if it does"
 					() => "resolved",
 					(e) => e.message,
 				);
-			return seen.join() + " " + outcome;
+			return [seen, outcome];
 		};
 	const outcomes = [await last(sql), await last(sql, true)],
 		reserved = await sql.reserve();
 	outcomes.push(await last(reserved), await last(reserved, true));
 	reserved.release();
-	expect(outcomes.join("|")).toBe("1,3 resolved|1,3 last|1,3 resolved|1,3 last");
+	expect(outcomes).toEqual([
+		[[1, 3], "resolved"],
+		[[1, 3], "last"],
+		[[1, 3], "resolved"],
+		[[1, 3], "last"],
+	]);
 	await sql.end();
 });
 
@@ -540,6 +566,6 @@ test("A reserved cursor whose callback throws at once rejects and leaves the con
 		.catch((e) => e.message);
 	const [{ x }] = await reserved`select 1 as x`;
 	reserved.release();
-	expect(error + " " + x).toBe("at once 1");
+	expect([error, x]).toEqual(["at once", 1]);
 	await sql.end();
 });

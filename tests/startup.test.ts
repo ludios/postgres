@@ -26,9 +26,12 @@ const server = (fn) =>
 
 test("Startup reaches ReadyForQuery", async () => {
 	const { status, backend, parameters, rest } = await session();
-	expect([status, backend.pid > 0, parameters.client_encoding, rest.length].join()).toBe(
-		"I,true,UTF8,0",
-	);
+	expect([status, backend.pid > 0, parameters.client_encoding, rest.length]).toEqual([
+		"I",
+		true,
+		"UTF8",
+		0,
+	]);
 });
 
 test("Startup with md5", async () => {
@@ -53,7 +56,7 @@ test("Startup with ssl: prefer", async () => {
 
 test("Startup rejects with the server error", async () => {
 	const error = await session({ database: "nope" }).catch((e) => e);
-	expect(error.name + "," + error.severity).toBe("PostgresError,FATAL");
+	expect([error.name, error.severity]).toEqual(["PostgresError", "FATAL"]);
 });
 
 test("Startup rejects with the socket error", async () => {
@@ -71,7 +74,7 @@ test("Startup rejects after connect_timeout", async () => {
 	const start = Date.now();
 	const code = await session({ port: [port_of(x)], connect_timeout: 0.2 }).catch((e) => e.code);
 	x.close();
-	expect(code + "," + (Date.now() - start < 1000)).toBe("CONNECT_TIMEOUT,true");
+	expect([code, Date.now() - start < 1000]).toEqual(["CONNECT_TIMEOUT", true]);
 });
 
 test("Startup rejects on a clean close", async () => {
@@ -102,7 +105,7 @@ test("Cancel reaches the backend", async () => {
 	await ready.cancel();
 	await new Promise((r) => setTimeout(r, 100));
 	ready.socket.end();
-	expect(types.join("")).toBe("TEZ");
+	expect(types).toEqual(["T", "E", "Z"]);
 });
 
 const message = (type, body) => {
@@ -204,9 +207,11 @@ test("Startup destroys a TCP connection still in progress when connect_timeout p
 		connect_timeout: 0.2,
 	}).catch((e) => e.code);
 	net.connect = connect;
-	expect(code + " " + sockets.length + " " + sockets.every((x) => x.destroyed)).toBe(
-		"CONNECT_TIMEOUT 1 true",
-	);
+	expect([code, sockets.length, sockets.every((x) => x.destroyed)]).toEqual([
+		"CONNECT_TIMEOUT",
+		1,
+		true,
+	]);
 });
 
 const refused = async (auth, options?) => {
@@ -257,7 +262,7 @@ test("Startup asks the server for its state when it does not report it, for targ
 		target_session_attrs: "standby",
 	});
 	x.close();
-	expect(attributes.readOnly + " " + attributes.standby).toBe("true true");
+	expect([attributes.readOnly, attributes.standby]).toEqual([true, true]);
 });
 
 test("Startup reads the password file as libpq does, and ignores what it can not use", async () => {
@@ -329,14 +334,12 @@ test("Startup with SCRAM-SHA-256-PLUS over TLS when channel_binding is require",
 });
 
 test("channel_binding: require rejects a connection without TLS, or authenticated without SCRAM", async () => {
-	expect(
-		[
-			await session({ ...login_scram, channel_binding: "require" }).catch((e) => e.code),
-			await session({ ...login_md5, ssl: "require", channel_binding: "require" }).catch(
-				(e) => e.code,
-			),
-		].join(" "),
-	).toBe("CHANNEL_BINDING_REQUIRED CHANNEL_BINDING_REQUIRED");
+	expect([
+		await session({ ...login_scram, channel_binding: "require" }).catch((e) => e.code),
+		await session({ ...login_md5, ssl: "require", channel_binding: "require" }).catch(
+			(e) => e.code,
+		),
+	]).toEqual(["CHANNEL_BINDING_REQUIRED", "CHANNEL_BINDING_REQUIRED"]);
 });
 
 test("channel_binding: disable and prefer connect over TLS and without it", async () => {
@@ -345,7 +348,7 @@ test("channel_binding: disable and prefer connect over TLS and without it", asyn
 		for (const ssl of [false, "require"])
 			statuses.push((await session({ ...login_scram, ssl, channel_binding })).status);
 	}
-	expect(statuses.join()).toBe("I,I,I,I");
+	expect(statuses).toEqual(["I", "I", "I", "I"]);
 });
 
 const header = (type, length) => {
@@ -365,7 +368,7 @@ test("A message with an invalid length during startup rejects with PROTOCOL_ERRO
 		codes.push(await session({ port: [port_of(x)] }).catch((e) => e.code));
 		x.close();
 	}
-	expect(codes.join()).toBe("PROTOCOL_ERROR,PROTOCOL_ERROR,PROTOCOL_ERROR,PROTOCOL_ERROR");
+	expect(codes).toEqual(["PROTOCOL_ERROR", "PROTOCOL_ERROR", "PROTOCOL_ERROR", "PROTOCOL_ERROR"]);
 });
 
 test("A message with an invalid length after startup rejects the query and closes the connection", async () => {
@@ -405,7 +408,5 @@ test("channel_binding: require sends no password when the server asks for cleart
 		);
 		x.close();
 	}
-	expect(codes.join() + " " + received.length).toBe(
-		"CHANNEL_BINDING_REQUIRED,CHANNEL_BINDING_REQUIRED 0",
-	);
+	expect([codes, received]).toEqual([["CHANNEL_BINDING_REQUIRED", "CHANNEL_BINDING_REQUIRED"], []]);
 });

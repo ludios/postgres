@@ -159,10 +159,10 @@ test("Transaction rejects with rethrown error", async () => {
 test("Parallel transactions", async () => {
 	await sql`create table test (a int)`;
 	expect(
-		(await Promise.all([sql.begin((sql) => sql`select 1`), sql.begin((sql) => sql`select 1`)]))
-			.map((x) => x.count)
-			.join(""),
-	).toBe("11");
+		(await Promise.all([sql.begin((sql) => sql`select 1`), sql.begin((sql) => sql`select 1`)])).map(
+			(x) => x.count,
+		),
+	).toEqual([1, 1]);
 	await sql`drop table test`;
 });
 
@@ -178,10 +178,8 @@ test("Transactions array", async () => {
 	await sql`create table test (a int)`;
 
 	expect(
-		(await sql.begin((sql) => [sql`select 1`.then((x) => x), sql`select 1`]))
-			.map((x) => x.count)
-			.join(""),
-	).toBe("11");
+		(await sql.begin((sql) => [sql`select 1`.then((x) => x), sql`select 1`])).map((x) => x.count),
+	).toEqual([1, 1]);
 	await sql`drop table test`;
 });
 
@@ -199,10 +197,10 @@ test("Transaction waits", async () => {
 	});
 
 	expect(
-		(await Promise.all([sql.begin((sql) => sql`select 1`), sql.begin((sql) => sql`select 1`)]))
-			.map((x) => x.count)
-			.join(""),
-	).toBe("11");
+		(await Promise.all([sql.begin((sql) => sql`select 1`), sql.begin((sql) => sql`select 1`)])).map(
+			(x) => x.count,
+		),
+	).toEqual([1, 1]);
 	await sql`drop table test`;
 });
 
@@ -364,7 +362,7 @@ test("Transaction rejects when the server rolls back the commit", async () => {
 			() => "rejected",
 		);
 	const [{ status }] = await sql`select pg_xact_status(${xid}::xid8) as status`;
-	expect(result + "," + status).toBe("rejected,aborted");
+	expect([result, status]).toEqual(["rejected", "aborted"]);
 	await sql.end();
 });
 
@@ -381,7 +379,7 @@ test("Caught error inside a transaction still rejects it", async () => {
 			() => "rejected",
 		);
 	const [{ count }] = await sql`select count(*)::int from test`;
-	expect(result + "," + count).toBe("rejected,0");
+	expect([result, count]).toEqual(["rejected", 0]);
 	await sql`drop table test`;
 });
 
@@ -467,7 +465,7 @@ test("Undefined value in a transaction returning an array of queries rejects", a
 	const count = (await sql`select count(*)::int from test`)[0].count;
 	await sql`drop table test`;
 	await sql.end();
-	expect([error, count].join()).toBe("UNDEFINED_VALUE,0");
+	expect([error, count]).toEqual(["UNDEFINED_VALUE", 0]);
 });
 
 test("Undefined value aborts a pipelined transaction on a reserved connection", async () => {
@@ -492,7 +490,14 @@ test("Undefined value aborts a pipelined transaction on a reserved connection", 
 	const count = (await sql`select count(*)::int from test`)[0].count;
 	await sql`drop table test`;
 	await sql.end();
-	expect([...results, count].join()).toBe("BEGIN,INSERT,UNDEFINED_VALUE,25P02,ROLLBACK,0");
+	expect([...results, count]).toEqual([
+		"BEGIN",
+		"INSERT",
+		"UNDEFINED_VALUE",
+		"25P02",
+		"ROLLBACK",
+		0,
+	]);
 });
 
 test("Parameter failing to serialize aborts a pipelined transaction on a reserved connection", async () => {
@@ -517,7 +522,7 @@ test("Parameter failing to serialize aborts a pipelined transaction on a reserve
 	const count = (await sql`select count(*)::int from test`)[0].count;
 	await sql`drop table test`;
 	await sql.end();
-	expect([...results, count].join()).toBe("BEGIN,INSERT,RangeError,25P02,ROLLBACK,0");
+	expect([...results, count]).toEqual(["BEGIN", "INSERT", "RangeError", "25P02", "ROLLBACK", 0]);
 });
 
 test("Does not reject leftover begin onclose after commit", async () => {
@@ -589,9 +594,13 @@ test("Disconnect rejects queued transaction queries and allows reconnect", async
 
 		const results = await Promise.allSettled(queries);
 		const [{ x }] = await sql`select 1 as x`;
-		expect([error.code, ...results.map((x) => x.status), x].join(",")).toBe(
-			"57P01,rejected,rejected,rejected,1",
-		);
+		expect([error.code, ...results.map((x) => x.status), x]).toEqual([
+			"57P01",
+			"rejected",
+			"rejected",
+			"rejected",
+			1,
+		]);
 	} finally {
 		await sql.end({ timeout: 0 });
 	}
@@ -676,7 +685,7 @@ test("Savepoint names are quoted", async () => {
 		);
 	});
 	const [{ injected }] = await sql`select to_regclass('test_injected') is not null as injected`;
-	expect((await sql`select count(*)::int as n from test`)[0].n + " " + injected).toBe("2 false");
+	expect([(await sql`select count(*)::int as n from test`)[0].n, injected]).toEqual([2, false]);
 	await sql`drop table test`;
 });
 
@@ -686,7 +695,7 @@ test("A prepared transaction name cannot close its quote", async () => {
 	const [{ gid }] = await sql`select gid from pg_prepared_xacts where gid like 'tx%'`;
 	await sql.unsafe("rollback prepared '" + gid.replace(/'/g, "''") + "'");
 	const [{ injected }] = await sql`select to_regclass('test_injected') is not null as injected`;
-	expect(String(injected)).toBe("false");
+	expect(injected).toBe(false);
 });
 
 test("An unsafe begin is rejected and rolled back, and the queries behind it get their own answers", async () => {
@@ -698,16 +707,16 @@ test("An unsafe begin is rejected and rolled back, and the queries behind it get
 			(e) => e.code,
 		),
 		sql`insert into test values (1) returning a`.then(
-			(x) => x.command + ":" + x[0].a,
+			(x) => [x.command, x[0].a],
 			(e) => e.code,
 		),
 		sql`select 'third' as x`.then(
-			(x) => x.command + ":" + x[0].x,
+			(x) => [x.command, x[0].x],
 			(e) => e.code,
 		),
 	]);
 	const [{ n }] = await sql`select count(*)::int as n from test`;
-	expect(results.join() + " " + n).toBe("UNSAFE_TRANSACTION,INSERT:1,SELECT:third 1");
+	expect([results, n]).toEqual([["UNSAFE_TRANSACTION", ["INSERT", 1], ["SELECT", "third"]], 1]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -733,9 +742,9 @@ test("A begin hidden behind a comment runs alone, rolls back and leaves the quer
 	reserved.release();
 	const [{ n }] = await sql`select count(*)::int as n from test`;
 	const after = await Promise.all([sql`select 1 as x`, sql`select 2 as x`]).then((x) =>
-		x.map((r) => r[0].x).join(),
+		x.map((r) => r[0].x),
 	);
-	expect(results.join() + " " + n + " " + after).toBe("UNSAFE_TRANSACTION,INSERT,SELECT 1 1,2");
+	expect([results, n, after]).toEqual([["UNSAFE_TRANSACTION", "INSERT", "SELECT"], 1, [1, 2]]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -753,24 +762,21 @@ test("A begin used again runs alone again, whether tagged, unsafe, prepared or n
 	for (let i = 0; i < 2; i++) {
 		for (const begin of begins) {
 			results.push(
-				(
-					await Promise.all([
-						begin().then(
-							(x) => x.command,
-							(e) => e.code,
-						),
-						sql`insert into test values (1) returning a`.then(
-							(x) => x.command,
-							(e) => e.code,
-						),
-					])
-				).join(":"),
+				await Promise.all([
+					begin().then(
+						(x) => x.command,
+						(e) => e.code,
+					),
+					sql`insert into test values (1) returning a`.then(
+						(x) => x.command,
+						(e) => e.code,
+					),
+				]),
 			);
 		}
 	}
 	const [{ n }] = await sql`select count(*)::int as n from test`;
-	const expected = Array(8).fill("UNSAFE_TRANSACTION:INSERT").join() + " 8";
-	expect(results.join() + " " + n).toBe(expected);
+	expect([results, n]).toEqual([Array(8).fill(["UNSAFE_TRANSACTION", "INSERT"]), 8]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -785,7 +791,7 @@ test("A script with its own BEGIN and COMMIT in one simple query runs on the poo
 		.unsafe("select 1; begin; insert into test values (2); commit")
 		.then((x) => x.map((r) => r.command).join());
 	const [{ n }] = await sql`select count(*)::int as n from test`;
-	expect(commands + " " + after + " " + n).toBe("BEGIN,INSERT,COMMIT SELECT,BEGIN,INSERT,COMMIT 2");
+	expect([commands, after, n]).toEqual(["BEGIN,INSERT,COMMIT", "SELECT,BEGIN,INSERT,COMMIT", 2]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -802,7 +808,7 @@ test("A query that leaves a transaction open on the pool is rejected and rolled 
 	const check = postgres(options);
 	const [{ n }] = await check`select count(*)::int as n from test`;
 	try {
-		expect(opened + " " + n).toBe("UNSAFE_TRANSACTION 4");
+		expect([opened, n]).toEqual(["UNSAFE_TRANSACTION", 4]);
 	} finally {
 		await check`drop table test`;
 		await check.end();
@@ -831,7 +837,7 @@ test("A caught query that cannot be built aborts a transaction opened by hand on
 	const commit = await reserved`commit`;
 	reserved.release();
 	const [{ n }] = await sql`select count(*)::int as n from test`;
-	expect(bad + " " + commit.command + " " + n).toBe("UNDEFINED_VALUE ROLLBACK 0");
+	expect([bad, commit.command, n]).toEqual(["UNDEFINED_VALUE", "ROLLBACK", 0]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -842,7 +848,7 @@ test("A query that cannot be built on a reserved connection outside a transactio
 	const bad = await reserved`select ${undefined} as x`.catch((e) => e.code);
 	const [{ x }] = await reserved`select 1 as x`;
 	reserved.release();
-	expect(bad + " " + x).toBe("UNDEFINED_VALUE 1");
+	expect([bad, x]).toEqual(["UNDEFINED_VALUE", 1]);
 	await sql.end();
 });
 
@@ -878,7 +884,7 @@ test("A nested sql.begin with a different mode throws, the same mode is allowed"
 				(e) => e.code,
 			),
 	]);
-	expect(codes.join()).toBe("NESTED_TRANSACTION_MODE,ran");
+	expect(codes).toEqual(["NESTED_TRANSACTION_MODE", "ran"]);
 });
 
 test("A nested sql.begin can not be prepared", async () => {
@@ -949,7 +955,7 @@ test("sql.rollback() rolls back without throwing, and begin resolves with the re
 		return "value";
 	});
 	const [{ n }] = await sql`select count(*)::int as n from test`;
-	expect(result + " " + n).toBe("value 0");
+	expect([result, n]).toEqual(["value", 0]);
 	await sql`drop table test`;
 });
 
@@ -978,9 +984,11 @@ test("Queries, savepoints and nested begins after sql.rollback() are not sent an
 		})
 		.catch((e) => e.code);
 	const [{ n }] = await sql`select count(*)::int as n from test`;
-	expect(codes.join() + " " + outcome + " " + n).toBe(
-		"TRANSACTION_ROLLED_BACK,TRANSACTION_ROLLED_BACK,TRANSACTION_ROLLED_BACK TRANSACTION_ROLLED_BACK 0",
-	);
+	expect([codes, outcome, n]).toEqual([
+		Array(3).fill("TRANSACTION_ROLLED_BACK"),
+		"TRANSACTION_ROLLED_BACK",
+		0,
+	]);
 	await sql`drop table test`;
 });
 
@@ -997,7 +1005,7 @@ test("sql.rollback() comes after the queries already made, and the connection is
 	const [{ n }] = await sql`select count(*)::int as n from test`,
 		[{ status }] =
 			await sql`select state as status from pg_stat_activity where pid = pg_backend_pid()`;
-	expect(same + " " + n + " " + status).toBe("true 0 active");
+	expect([same, n, status]).toEqual([true, 0, "active"]);
 	await sql`drop table test`;
 	await sql.end();
 });
@@ -1014,7 +1022,7 @@ test("A transaction ended by transaction_timeout rejects with the FATAL error in
 			await sql`select pg_sleep(2)`;
 		})
 		.catch((e) => e);
-	expect(error.code + " " + error.severity).toBe("25P04 FATAL");
+	expect([error.code, error.severity]).toEqual(["25P04", "FATAL"]);
 	await timed.end();
 });
 
@@ -1035,7 +1043,7 @@ test("A transaction whose backend is terminated mid-query rejects with the FATAL
 			await query;
 		})
 		.catch((e) => e);
-	expect(error.code + " " + error.severity).toBe("57P01 FATAL");
+	expect([error.code, error.severity]).toEqual(["57P01", "FATAL"]);
 	await killer.end();
 	await sql.end();
 });
@@ -1054,9 +1062,12 @@ test("A transaction terminated between statements rejects with the FATAL error, 
 		})
 		.catch((e) => e);
 	const later = await next;
-	expect([error.code, error.severity, later.code, later.cause && later.cause.code].join(" ")).toBe(
-		"57P01 FATAL CONNECTION_CLOSED 57P01",
-	);
+	expect([error.code, error.severity, later.code, later.cause && later.cause.code]).toEqual([
+		"57P01",
+		"FATAL",
+		"CONNECTION_CLOSED",
+		"57P01",
+	]);
 	await killer.end();
 	await sql.end();
 });
@@ -1095,6 +1106,6 @@ test(
 			await killer.end();
 			await sql.end();
 		}
-		expect(outcomes.join()).toBe("57P01 57P01,57P01 57P01");
+		expect(outcomes).toEqual(["57P01 57P01", "57P01 57P01"]);
 	},
 );

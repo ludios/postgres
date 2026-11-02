@@ -241,7 +241,7 @@ test("A query that fails to encode leaves the connection usable", async () => {
 		},
 	}}::json`.catch((e) => e.message);
 	const [{ x }] = await sql`select 1 as x`;
-	expect([error, huge, x].join()).toBe("wat,json,1");
+	expect([error, huge, x]).toEqual(["wat", "json", 1]);
 	await sql.end();
 });
 
@@ -293,15 +293,13 @@ test("A PostgresError has its fields and its message in JSON (#767)", async () =
 	await sql`create table test (x int check (x > 0))`;
 	const error = await sql`insert into test values (-1)`.catch((e) => e);
 	const json = JSON.parse(JSON.stringify(error));
-	expect(
-		[
-			json.name,
-			json.code,
-			json.constraint_name,
-			json.table_name,
-			json.message.includes("check constraint"),
-		].join(" "),
-	).toBe("PostgresError 23514 test_x_check test true");
+	expect([
+		json.name,
+		json.code,
+		json.constraint_name,
+		json.table_name,
+		json.message.includes("check constraint"),
+	]).toEqual(["PostgresError", "23514", "test_x_check", "test", true]);
 	await sql`drop table test`;
 });
 
