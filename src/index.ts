@@ -501,6 +501,37 @@ function Listen(options) {
 	}
 
 	/**
+	 * Forgets a channel that has no listeners left, and ends the listener connection if no channel
+	 * remains.
+	 * @param channel - the channel
+	 * @param name - the channel's name
+	 * @param failed - whether the channel's latest LISTEN failed, so that the server has nothing to
+	 *   UNLISTEN, and a retry of the LISTEN may be pending
+	 */
+	async function retire(channel, name, failed) {
+		if (channels.get(name) === channel) {
+			channels.delete(name);
+		}
+		clearTimeout(channel.timer);
+		const x = sql;
+		if (closing || !x) {
+			return;
+		}
+
+		if (!failed) {
+			await x`unlisten ${x.unsafe('"' + name.replace(/"/g, '""') + '"')}`.catch((e) => {
+				if (!/^CONNECTION_/.test(e.code)) {
+					throw e;
+				}
+			});
+		}
+		if (channels.size === 0 && sql === x) {
+			sql = null;
+			await x.end();
+		}
+	}
+
+	/**
 	 * Listens on a channel, on the listener connection, which is opened if there is none.
 	 * @param name - the channel's name
 	 * @param fn - called with the payload of each notification on the channel
@@ -529,7 +560,7 @@ function Listen(options) {
 		} catch (error) {
 			channel.listeners.delete(listener);
 			if (channel.listeners.size === 0) {
-				channels.delete(name);
+				await retire(channel, name, true);
 			}
 			throw error;
 		}
@@ -544,26 +575,8 @@ function Listen(options) {
 				return;
 			}
 
-			if (channels.get(name) === channel) {
-				channels.delete(name);
-			}
-			// The retry of a failed LISTEN, if one is pending, is for nobody now
-			clearTimeout(channel.timer);
-			const x = sql;
-
-			if (closing || !x) {
-				return;
-			}
-
-			await x`unlisten ${x.unsafe('"' + name.replace(/"/g, '""') + '"')}`.catch((e) => {
-				if (!/^CONNECTION_/.test(e.code)) {
-					throw e;
-				}
-			});
-			if (channels.size === 0 && sql === x) {
-				sql = null;
-				await x.end();
-			}
+			// A pending retry means that the latest LISTEN failed
+			await retire(channel, name, channel.timer !== null);
 		}
 	}
 }

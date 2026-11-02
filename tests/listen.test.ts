@@ -442,7 +442,7 @@ test("A listener that joins while a reconnect's LISTEN is in flight gets onliste
 	}
 });
 
-test("The last unlisten during an outage clears the channel's retry timer", async () => {
+test("The last unlisten during an outage clears the retry timer and sends no UNLISTEN", async () => {
 	// The timers that `sql` has set and has neither cleared nor run yet
 	const pending = new Set(),
 		timers = {
@@ -463,8 +463,10 @@ test("The last unlisten during an outage clears the channel's retry timer", asyn
 			now: () => performance.now(),
 		};
 	// The proxy drops its second connection as soon as the client sends a LISTEN on it
-	let dropped = false;
+	let dropped = false,
+		connections = 0;
 	const proxy = await proxy_to_server((x, connection, client, server) => {
+			connections = connection;
 			if (connection === 2 && x.includes('listen "test"')) {
 				dropped = true;
 				server.destroy();
@@ -484,5 +486,6 @@ test("The last unlisten during an outage clears the channel's retry timer", asyn
 		await sql.end();
 		proxy.close();
 	}
-	expect(pending.size).toBe(0);
+	// No third connection: the LISTEN failed, so there was nothing to UNLISTEN
+	expect([pending.size, connections]).toEqual([0, 2]);
 });
