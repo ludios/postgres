@@ -101,7 +101,7 @@ function Postgres(a?, b?) {
 	}
 
 	/**
-	 * @param handler - called with each Query that the returned `sql` makes, to run it
+	 * @param handle - called with each Query that the returned `sql` makes, to run it
 	 * @returns a new `sql`, without the properties that only some `sql`s have (such as `begin`
 	 *   or `release`), which the callers add
 	 */
