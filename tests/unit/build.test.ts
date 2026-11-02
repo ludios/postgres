@@ -61,8 +61,7 @@ test("Transform undefined to null", async () => {
 
 test("Inspect hides text and parameters without debug", async () => {
 	const x = util.inspect(sql`select ${"secret"} as x`);
-	expect(x).not.toContain("secret");
-	expect(x).not.toContain("select $1");
+	expect(x).toBe("Query {}");
 });
 
 test("Inspect shows text and parameters with debug", async () => {

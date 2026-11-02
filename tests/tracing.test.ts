@@ -103,15 +103,15 @@ test("Tracing: start runs in the context of the code that made the query", async
 test("Tracing: a store bound to start is current while the query is dispatched", async () => {
 	const sql = postgres({ ...options, max: 1 }),
 		store = new AsyncLocalStorage(),
-		channel = dc.tracingChannel<unknown, { queued: number }>("postgres:query"),
+		channel = dc.tracingChannel<unknown, { query: string }>("postgres:query"),
 		seen = [],
 		end = () => seen.push(store.getStore());
-	channel.start.bindStore(store, (context) => "span for " + context.queued.toFixed(0).length);
+	channel.start.bindStore(store, (context) => "span for " + context.query);
 	dc.subscribe("tracing:postgres:query:end", end);
 	await sql`select 1`;
 	channel.start.unbindStore(store);
 	dc.unsubscribe("tracing:postgres:query:end", end);
-	expect(seen).toEqual([expect.stringMatching(/^span for \d+$/)]);
+	expect(seen).toEqual(["span for select 1"]);
 	await sql.end();
 });
 
