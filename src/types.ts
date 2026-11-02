@@ -128,6 +128,102 @@ function boolean(x, i) {
 	return x[i] === 116;
 }
 
+/**
+ * @param x - the bytes
+ * @param i - where the digits start in `x`
+ * @param n - how many digits to read
+ * @returns the number that the `n` ASCII digits at `x[i]` make, or -1 if one of them is no digit
+ */
+function digits(x, i, n) {
+	let v = 0;
+	for (const end = i + n; i < end; i++) {
+		const d = x[i] - 48;
+		if (!(d >= 0 && d <= 9)) {
+			return -1;
+		}
+		v = v * 10 + d;
+	}
+	return v;
+}
+
+/**
+ * Reads a date or a timestamp in the ISO format that PostgreSQL sends with DateStyle ISO, from
+ * the year 1000 to 9999: `2024-12-31`, or `2024-12-31 23:59:59.123456` (with any number of
+ * fractional digits, or none), which with `zoned` ends with an offset from UTC, `+01` or `-05:30`.
+ *
+ * @param x - the bytes
+ * @param start - where the value starts in `x`
+ * @param end - where the value ends in `x`
+ * @param zoned - whether the value ends with an offset from UTC, as a timestamptz does; without
+ *   one, the value is read as UTC
+ * @returns the milliseconds since 1970-01-01 UTC, with the fraction of a millisecond cut off, as
+ *   the text parsers do; or NaN for any other text (such as BC, infinity, a year before 1000 or
+ *   after 9999, or an offset with seconds), which only the text parsers read
+ */
+function iso_time(x, start, end, zoned) {
+	const year = digits(x, start, 4),
+		month = digits(x, start + 5, 2),
+		day = digits(x, start + 8, 2);
+	if (end - start < 10 || year < 1000 || x[start + 4] !== 45 || x[start + 7] !== 45) {
+		return NaN;
+	}
+	if (month < 1 || day < 1) {
+		return NaN;
+	}
+	if (end - start === 10) {
+		return zoned ? NaN : Date.UTC(year, month - 1, day);
+	}
+
+	if (end - start < 19 || x[start + 10] !== 32 || x[start + 13] !== 58 || x[start + 16] !== 58) {
+		return NaN;
+	}
+	const hour = digits(x, start + 11, 2),
+		minute = digits(x, start + 14, 2),
+		second = digits(x, start + 17, 2);
+	if (hour < 0 || minute < 0 || second < 0) {
+		return NaN;
+	}
+
+	let i = start + 19,
+		ms = 0;
+	if (i < end && x[i] === 46) {
+		i++;
+		for (let scale = 100; i < end && x[i] >= 48 && x[i] <= 57; i++) {
+			ms += (x[i] - 48) * scale;
+			scale = Math.floor(scale / 10);
+		}
+	}
+
+	let offset = 0;
+	if (zoned) {
+		const sign = x[i],
+			rest = end - i,
+			hours = rest === 3 || rest === 6 ? digits(x, i + 1, 2) : -1,
+			minutes = rest === 6 && x[i + 3] === 58 ? digits(x, i + 4, 2) : rest === 3 ? 0 : -1;
+		if ((sign !== 43 && sign !== 45) || hours < 0 || minutes < 0) {
+			return NaN;
+		}
+		offset = (sign === 45 ? -1 : 1) * (hours * 60 + minutes);
+		i = end;
+	}
+
+	return i === end
+		? Date.UTC(year, month - 1, day, hour, minute, second, ms) - offset * 60_000
+		: NaN;
+}
+
+/** Decodes a timestamptz from the bytes of its text, as parseTimestamptz parses the text */
+function timestamptz(x, start, end) {
+	const t = iso_time(x, start, end, true);
+	return Number.isNaN(t) ? parseTimestamptz(x.toString("latin1", start, end)) : new Date(t);
+}
+
+/** Decodes a date, or a timestamp read as UTC, from the bytes of its text, as parseDate parses the text */
+function utc_time(x, start, end) {
+	const t = iso_time(x, start, end, false);
+	return Number.isNaN(t) ? parseDate(x.toString("latin1", start, end)) : new Date(t);
+}
+
 const shaped = (is, serialize) => (x) => (is(x) ? serialize(x) : string(x));
 
 const shapedTypes = {
@@ -184,12 +280,26 @@ export function Types(options: Record<string, any> = {}) {
 		return typeof type === "string" ? (oids.get(type) ?? 0) : type;
 	}
 
+	/**
+	 * @param oid - the type of a column
+	 * @param parse - the parser that the column's values get, as text
+	 * @returns a function `(x, start, end) => value` that gives what `parse` would, but straight
+	 *   from the bytes of the text in `x`; or null, if only `parse` can read the values
+	 */
 	function decoder(oid, parse) {
-		return parse === number && (oid === 21 || oid === 23 || oid === 26)
-			? integer
-			: parse === bool && oid === 16
-				? boolean
-				: null;
+		if (parse === number && (oid === 21 || oid === 23 || oid === 26)) {
+			return integer;
+		}
+		if (parse === bool && oid === 16) {
+			return boolean;
+		}
+		if (parse === parseTimestamptz && oid === 1184) {
+			return timestamptz;
+		}
+		if (parse === parseDate && (oid === 1114 || oid === 1082)) {
+			return utc_time;
+		}
+		return null;
 	}
 
 	function register(xs: Record<string, PostgresType> | PostgresType[]) {

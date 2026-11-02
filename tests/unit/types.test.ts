@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import * as fc from "fast-check";
 import { Types } from "../../src/types.ts";
 
 const types = Types({}),
@@ -272,4 +273,151 @@ test("A custom type named __proto__ resolves to its OID", async () => {
 	const run = async (text) => (text.includes("t.typname in") ? [row] : []);
 	await custom.load(run);
 	expect([custom.resolve("__proto__"), custom.parser(99999)("x")]).toEqual([99999, "p:x"]);
+});
+
+const pad = (n, width) => String(n).padStart(width, "0");
+
+/**
+ * @param t - an instant, in milliseconds since 1970-01-01 UTC
+ * @param micros - the microseconds that the instant has after its millisecond, 0 to 999
+ * @param offset - the offset from UTC in seconds, for a timestamptz; or null, for a timestamp
+ * @returns the text that PostgreSQL sends for the timestamp with DateStyle ISO, in a time zone
+ *   with the offset `offset`
+ */
+function iso(t, micros, offset) {
+	const d = new Date(t + (offset ?? 0) * 1000),
+		year = d.getUTCFullYear(),
+		fraction = (pad(d.getUTCMilliseconds(), 3) + pad(micros, 3)).replace(/0+$/, "");
+	let text =
+		pad(year > 0 ? year : 1 - year, 4) +
+		"-" +
+		pad(d.getUTCMonth() + 1, 2) +
+		"-" +
+		pad(d.getUTCDate(), 2) +
+		" " +
+		pad(d.getUTCHours(), 2) +
+		":" +
+		pad(d.getUTCMinutes(), 2) +
+		":" +
+		pad(d.getUTCSeconds(), 2) +
+		(fraction ? "." + fraction : "");
+	if (offset !== null) {
+		const abs = Math.abs(offset),
+			minutes = Math.floor(abs / 60) % 60,
+			seconds = abs % 60;
+		text +=
+			(offset < 0 ? "-" : "+") +
+			pad(Math.floor(abs / 3600), 2) +
+			(minutes || seconds ? ":" + pad(minutes, 2) : "") +
+			(seconds ? ":" + pad(seconds, 2) : "");
+	}
+	return year > 0 ? text : text + " BC";
+}
+
+/**
+ * @param text - the text of a value
+ * @returns the bytes of `text` between digits of other values, where a decoder that reads past the
+ *   value would find them, and where `text` starts and ends in those bytes
+ */
+function embedded(text) {
+	return { x: Buffer.from("12345" + text + "67890", "latin1"), start: 5, end: 5 + text.length };
+}
+
+/** The types of a pool with the default `infer: false`, which reads a timestamp as UTC */
+const utc_types = Types({ infer: false });
+
+/**
+ * @param oid - the type of the value
+ * @param text - the text of the value
+ * @returns the value that the decoder of `utc_types` for `oid` gives for the bytes of `text`
+ */
+function decoded(oid, text) {
+	const { x, start, end } = embedded(text);
+	return utc_types.decoder(oid, utc_types.parser(oid))(x, start, end);
+}
+
+const instants = fc.date({
+		min: new Date(Date.UTC(-500, 0, 1)),
+		max: new Date(Date.UTC(12000, 0, 1)),
+		noInvalidDate: true,
+	}),
+	offsets = fc.oneof(
+		fc.integer({ min: -15, max: 15 }).map((h) => h * 3600),
+		fc.integer({ min: -15 * 60, max: 15 * 60 }).map((m) => m * 60),
+		fc.integer({ min: -15 * 3600, max: 15 * 3600 }),
+	),
+	micros = fc.integer({ min: 0, max: 999 });
+
+test("Decode timestamptz, timestamp and date from the bytes as their text parsers do", async () => {
+	fc.assert(
+		fc.property(instants, micros, offsets, (t, us, offset) => {
+			const zoned = iso(t.getTime(), us, offset),
+				plain = iso(t.getTime(), us, null),
+				day = plain.replace(/ \d\d:\d\d:\d\d(\.\d+)?/, "");
+			expect([decoded(1184, zoned), decoded(1114, plain), decoded(1082, day)]).toEqual([
+				utc_types.parser(1184)(zoned),
+				utc_types.parser(1114)(plain),
+				utc_types.parser(1082)(day),
+			]);
+		}),
+		{ numRuns: 5000 },
+	);
+});
+
+test("Decode the timestamps of the years 1000 to 9999 without their text", async () => {
+	fc.assert(
+		fc.property(
+			fc.date({
+				min: new Date(Date.UTC(1000, 0, 2)),
+				max: new Date(Date.UTC(9999, 11, 30)),
+				noInvalidDate: true,
+			}),
+			micros,
+			offsets.filter((x) => x % 60 === 0),
+			(t, us, offset) => {
+				const zoned = embedded(iso(t.getTime(), us, offset)),
+					plain = embedded(iso(t.getTime(), us, null));
+				// The decoders read these without the text, so that turning them into text throws
+				for (const { x } of [zoned, plain]) {
+					x.toString = () => {
+						throw new Error("read as text");
+					};
+				}
+				expect([
+					utc_types.decoder(1184, utc_types.parser(1184))(zoned.x, zoned.start, zoned.end),
+					utc_types.decoder(1114, utc_types.parser(1114))(plain.x, plain.start, plain.end),
+				]).toEqual([t, t]);
+			},
+		),
+		{ numRuns: 2000 },
+	);
+});
+
+test("Decode infinity, BC, years past 9999 and offsets in seconds through the text parsers", async () => {
+	// 44 BC is the year -43, as there is no year 0
+	const bc = new Date(Date.UTC(2000, 2, 15, 12));
+	bc.setUTCFullYear(-43);
+	expect([
+		decoded(1184, "infinity"),
+		decoded(1114, "-infinity"),
+		decoded(1082, "infinity"),
+		decoded(1184, "0044-03-15 12:00:00+00 BC"),
+		decoded(1082, "10000-01-01"),
+		decoded(1184, "1900-01-01 00:00:00+00:19:32"),
+		decoded(1184, "0999-12-31 23:59:59.5+00"),
+	]).toEqual([
+		Infinity,
+		-Infinity,
+		Infinity,
+		bc,
+		new Date(Date.UTC(10000, 0, 1)),
+		new Date(Date.UTC(1900, 0, 1) - (19 * 60 + 32) * 1000),
+		new Date(Date.UTC(999, 11, 31, 23, 59, 59, 500)),
+	]);
+});
+
+test("Read a timestamp as local time with its text parser, which has no decoder", async () => {
+	expect([Types({ infer: true }).decoder(1114, Types({ infer: true }).parser(1114))]).toEqual([
+		null,
+	]);
 });
