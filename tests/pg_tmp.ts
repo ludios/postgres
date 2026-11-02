@@ -79,9 +79,8 @@ async function write_certificate(dir, env) {
  *
  * pg_tmp checks every `check_interval` seconds whether a client is connected, and the first check
  * that finds no client stops the server and deletes its directory. So the server is gone within
- * about `check_interval` seconds after this process exits; but in a run of more than
- * `check_interval` seconds, a check can find no client during a pause between tests, and stop the
- * server before the run ends.
+ * about `check_interval` seconds after its last client disconnects; a caller that needs the server
+ * during a longer time without clients (e.g. between tests) must keep a session open.
  *
  * @returns {Promise<{ port: number, socket_dir: string }>} the server's port (on localhost), and the
  *   directory of its Unix socket
