@@ -99,6 +99,7 @@ The open issues and pull requests were triaged into 33 correctness bugs, each wi
 - `null` in arrays (#1258), `Infinity` (#728), years below 100 and offsets in seconds (#1185).
 - `PostgresError` from a plain message (#703) and writable stacks (#1227).
 - Keywords next to helpers and fragments (#1221).
+- A custom type in `options.types` can be named `name`, `length`, `arguments` or `caller`; v3's `postgres()` threw a TypeError for these names when it was loaded as an ES module. A custom type named `__proto__` no longer replaces the prototype of `sql.types`.
 - `end()` stops connection attempts under way and settles every query; a reserved connection is never stranded.
 - Array and domain types are fetched once per pool, on its first connection; if that query fails with a server error the pool carries on without them instead of asking again for every query.
 - COPY under back-pressure no longer stalls, and COPY TO STDOUT to a slow consumer is no slower with the shared read buffer than without it.

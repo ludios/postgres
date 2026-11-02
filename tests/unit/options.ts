@@ -108,7 +108,10 @@ test("A custom type can have the name of a property of functions, such as name o
 	const names = ["name", "length", "arguments", "caller", "__proto__"],
 		type = { to: 19, from: [19], parse: (x) => x, serialize: (x) => x },
 		sql = postgres({ max: 1, types: Object.fromEntries(names.map((name) => [name, type])) });
-	expect(names.map((name) => sql.types[name]("x").type).join()).toBe("19,19,19,19,19");
+	const prototype = Object.getPrototypeOf(sql.types) === Function.prototype;
+	expect(names.map((name) => sql.types[name]("x").type).join() + " " + prototype).toBe(
+		"19,19,19,19,19 true",
+	);
 });
 
 test("The removed casing transforms throw when read, and Object.assign does not copy them", async () => {
