@@ -76,13 +76,24 @@ export async function server_major() {
 }
 
 /**
- * Terminates a backend of the server at `pg_port`, through `sql` (so that a test needs no pool of
- * its own for this).
- * @param pid - the process ID of the backend, which `pg_backend_pid()` or a query's
- *   `state.pid` gives
+ * The pool that the helpers below use, so that a test that leaves `sql` reserved or busy does not
+ * delay them
+ */
+const helper_pool = postgres(options);
+
+/**
+ * Sends a backend of the server at `pg_port` the signal to terminate. Does not wait for the backend
+ * to exit, or for its client to see the connection close.
+ * @param pid - the process ID of the backend (from `pg_backend_pid()`, or the `state.pid` of a
+ *   result or of `listen()`)
+ * @throws if no backend of that server has the process ID `pid`
  */
 export async function terminate(pid: number) {
-	await sql`select pg_terminate_backend(${pid}::int)`;
+	const [{ terminated }] =
+		await helper_pool`select pg_terminate_backend(${pid}::int) as terminated`;
+	if (!terminated) {
+		throw new Error("No backend of the server at port " + pg_port + " has the process ID " + pid);
+	}
 }
 
 const reset = postgres({ ...options, onnotice: () => {} });

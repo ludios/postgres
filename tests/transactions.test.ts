@@ -1107,7 +1107,8 @@ test(
 						.then((x) => (settled(x), x)),
 				)
 				.catch((e) => e.code);
-			await terminate(await pid);
+			const backend = await pid;
+			await terminate(backend);
 			const outer = await root;
 			release();
 			outcomes.push([outer, await child]);
