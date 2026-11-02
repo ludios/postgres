@@ -553,7 +553,8 @@ function Listen(options) {
 	 * @param name - the channel's name
 	 * @param fn - called with the payload of each notification on the channel
 	 * @param onlisten - called once the channel is listening, and again each time it is listening
-	 *   again, after its connection closed
+	 *   again, after its connection closed. If the first call throws, listen() removes the listener
+	 *   and rejects with the error.
 	 * @returns the channel's `state` (see `channels`) and `unlisten()`, which removes this listener
 	 */
 	async function listen(name, fn, onlisten) {
@@ -593,7 +594,13 @@ function Listen(options) {
 			throw error;
 		}
 		if (onlisten) {
-			onlisten();
+			try {
+				onlisten();
+			} catch (error) {
+				// As when the LISTEN fails, a listen() that rejects leaves no listener behind
+				await unlisten();
+				throw error;
+			}
 		}
 
 		return { state: channel.state, unlisten };
