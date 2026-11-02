@@ -90,7 +90,7 @@ export function Pool(options, types) {
 
 	const pool = {
 		query,
-		lease,
+		acquire,
 		cancel,
 		end,
 		close,
@@ -155,7 +155,7 @@ export function Pool(options, types) {
 
 	function describeOnly(q, built, lease) {
 		const statement = { name: "", text: built.text, oids: built.oids, columns: null },
-			run = (c) => {
+			start = (c) => {
 				q.connection = c;
 				c.describe(statement, built.oids).then(
 					({ params, columns }) =>
@@ -166,7 +166,10 @@ export function Pool(options, types) {
 					q.onwrite();
 				}
 			};
-		place({ run, q, reject: (error) => q.reject(queryError(error, q, options.debug)) }, lease);
+		place(
+			{ run: start, q, reject: (error) => q.reject(queryError(error, q, options.debug)) },
+			lease,
+		);
 	}
 
 	function unbuilt(q, error, lease) {
@@ -462,12 +465,12 @@ export function Pool(options, types) {
 			if (opening || !waiting.length || retryTimer || [...connections].some((x) => x.loading)) {
 				return;
 			}
-			const wait = nextAttempt - now();
-			if (wait > 0) {
+			const remaining = nextAttempt - now();
+			if (remaining > 0) {
 				retryTimer = setTimeout(() => {
 					retryTimer = null;
 					grow();
-				}, wait);
+				}, remaining);
 			} else {
 				connect();
 			}
@@ -580,7 +583,7 @@ export function Pool(options, types) {
 		types
 			.load(
 				(text) =>
-					new Promise((resolve, reject) => {
+					new Promise((resolve, fail) => {
 						const q = new Query(
 							[text],
 							[],
@@ -588,7 +591,7 @@ export function Pool(options, types) {
 							{ simple: true },
 						);
 						q.executed = true;
-						q.then(resolve, reject);
+						q.then(resolve, fail);
 						c.simple(q, text);
 					}),
 			)
@@ -887,7 +890,7 @@ export function Pool(options, types) {
 		}
 	}
 
-	async function lease(kind) {
+	async function acquire(kind) {
 		used = true;
 		await 1;
 		if (ending) {
@@ -903,9 +906,15 @@ export function Pool(options, types) {
 			throw missing;
 		}
 
-		return new Promise<Lease>((resolve, reject) => {
+		return new Promise<Lease>((resolve, fail) => {
 			waiting.push(
-				wait({ lease: true, kind, resolve, reject, queued: listened(channels.pool) ? now() : 0 }),
+				wait({
+					lease: true,
+					kind,
+					resolve,
+					reject: fail,
+					queued: listened(channels.pool) ? now() : 0,
+				}),
 			);
 			drain();
 		});
@@ -926,7 +935,7 @@ export function Pool(options, types) {
 			released = false,
 			lost;
 
-		const closed = new Promise((_, reject) => (lost = reject));
+		const closed = new Promise((_, fail) => (lost = fail));
 		closed.catch(() => {});
 
 		const x = {

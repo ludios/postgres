@@ -677,7 +677,7 @@ test("Query runs on a new connection if the backend dies while fetching array ty
 	});
 	const sql = postgres({ ...options, host: proxy.host, port: proxy.port });
 	const x = await sql`select 1 as x`.then(
-		([x]) => x.x,
+		([row]) => row.x,
 		(e) => e.code,
 	);
 	// Ended before the check, not by `await using` after it, so that the check also counts the
@@ -763,7 +763,7 @@ test("A clean close while fetching array types is retried when connect_timeout i
 		connect_timeout: 0,
 	});
 	const x = await sql`select 1 as x`.then(
-		([x]) => x.x,
+		([row]) => row.x,
 		(e) => e.code,
 	);
 
@@ -1029,10 +1029,10 @@ test("Connection end cancels the first listen attempt", async () => {
 		connect_timeout: 30,
 		socket: () => socket.connect(port_of(server), "127.0.0.1"),
 	});
-	const listening = sql.listen("end_connecting", () => {}).catch((x) => x.code);
+	const listened = sql.listen("end_connecting", () => {}).catch((x) => x.code);
 	await sql.end();
 	await closed;
-	expect(await listening).toBe("CONNECTION_DESTROYED");
+	expect(await listened).toBe("CONNECTION_DESTROYED");
 });
 
 test("Cancel query while its connection is opening", async () => {
@@ -1129,7 +1129,7 @@ test("sql.begin works with max_pipeline: 0 and max: 1 (#1264)", async () => {
 	const x = await sql
 		.begin((sql) => sql`select 1 as x`)
 		.then(
-			(x) => x[0].x,
+			(rows) => rows[0].x,
 			(e) => e.code,
 		);
 	const y = await sql
@@ -1138,7 +1138,7 @@ test("sql.begin works with max_pipeline: 0 and max: 1 (#1264)", async () => {
 			return (await sql`select 2 as y`)[0].y;
 		})
 		.then(
-			(x) => x,
+			(result) => result,
 			(e) => e.code,
 		);
 	expect([x, y]).toEqual([1, 2]);
@@ -1500,7 +1500,7 @@ test("A failed connection attempt does not give up on queries a connection still
 	});
 	const results = await Promise.all([
 		sql`select 1 as x`.then(
-			(x) => x[0].x,
+			(rows) => rows[0].x,
 			(e) => e.code,
 		),
 		sql.reserve().then(
@@ -1645,7 +1645,7 @@ test("sql and reserved connections are async disposable, and disposing sql waits
 		(e) => e.code,
 	);
 	const running = sql`select pg_sleep(0.1), 1 as x`.then(
-		([x]) => x.x,
+		([row]) => row.x,
 		(e) => e.code,
 	);
 	await sql[Symbol.asyncDispose]();

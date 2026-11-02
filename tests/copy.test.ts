@@ -305,7 +305,7 @@ test("Canceling a copy to stdout whose readable was destroyed in a transaction s
 			await query.cancel();
 			await sql`select 1`;
 		})
-		.catch((error) => error);
+		.catch((e) => e);
 	const [{ x }] = await sql`select 1 as x`;
 	expect([error.code, x]).toEqual(["25P02", 1]);
 });
@@ -398,8 +398,8 @@ test("Destroying a copy to stdout in a transaction only drops the rest, which ke
 			await sql`copy (select i, case when i > 5000 then pg_sleep(0.01)::text end from generate_series(1, 5100) i) to stdout`.readable();
 		await new Promise((resolve) => readable.once("data", resolve));
 		readable.destroy();
-		const [{ x }] = await sql`select 1 as x`;
-		return x;
+		const [{ x: one }] = await sql`select 1 as x`;
+		return one;
 	});
 	expect(x).toBe(1);
 });
@@ -457,8 +457,8 @@ test("Canceling a copy from stdin before it starts fails its query with 57014", 
 	// The server would hold back the cancel request while it waits for COPY data
 	const cancelled = query.cancel(),
 		error = await writable.then(
-			(writable) => new Promise((resolve) => writable.on("error", resolve)),
-			(error) => error,
+			(sink) => new Promise((resolve) => sink.on("error", resolve)),
+			(e) => e,
 		);
 	await Promise.all([cancelled, head]);
 	expect(error.code).toBe("57014");

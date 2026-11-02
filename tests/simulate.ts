@@ -204,16 +204,16 @@ async function simulate(seed) {
 
 	return { violations, trace, scenario: name };
 
-	function expect(name, id, scope, rows?) {
+	function expect(kind, id, scope, rows?) {
 		return (xs) => {
 			if (rows !== undefined && xs.length !== rows) {
-				violations.push(name + " " + id + " got " + xs.length + " rows, expected " + rows);
+				violations.push(kind + " " + id + " got " + xs.length + " rows, expected " + rows);
 			}
 			xs.forEach(
 				(x) =>
 					(x.id !== id || x.scope !== scope) &&
 					violations.push(
-						name +
+						kind +
 							" " +
 							id +
 							" of scope " +
@@ -229,7 +229,7 @@ async function simulate(seed) {
 					x.shape !== 1 &&
 					x.shape !== "b" &&
 					violations.push(
-						name +
+						kind +
 							" " +
 							id +
 							" read its row by another description: shape " +
@@ -240,13 +240,13 @@ async function simulate(seed) {
 		};
 	}
 
-	function settle(name, id, promise) {
-		log("start " + name + " " + id);
+	function settle(kind, id, promise) {
+		log("start " + kind + " " + id);
 		const x = Promise.resolve(promise)
 			.then(
-				() => log("done " + name + " " + id),
+				() => log("done " + kind + " " + id),
 				(e) => {
-					log("fail " + name + " " + id + " " + (e && (e.code || e.message)));
+					log("fail " + kind + " " + id + " " + (e && (e.code || e.message)));
 					if (
 						!e ||
 						!e.code ||
@@ -255,7 +255,7 @@ async function simulate(seed) {
 						e.code === "STATEMENT_PENDING"
 					) {
 						violations.push(
-							name + " " + id + " failed inside the client: " + ((e && e.stack) || e),
+							kind + " " + id + " failed inside the client: " + ((e && e.stack) || e),
 						);
 					}
 				},
@@ -334,12 +334,12 @@ async function simulate(seed) {
 	}
 
 	function scoped(sql, scope) {
-		const kinds = [...Array(random.int(1, 4))].map(() =>
+		const chosen = [...Array(random.int(1, 4))].map(() =>
 			random.pick(["query", "rows", "fail", "syntax", "sleep", "unsafe", "cursor"]),
 		);
 		return random.chance(0.5)
-			? Promise.all(kinds.map((k) => query(sql, k, scope)))
-			: kinds.reduce((p, k) => p.then(() => query(sql, k, scope)), Promise.resolve());
+			? Promise.all(chosen.map((k) => query(sql, k, scope)))
+			: chosen.reduce((p, k) => p.then(() => query(sql, k, scope)), Promise.resolve());
 	}
 
 	function operation(kind) {

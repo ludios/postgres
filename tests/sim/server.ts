@@ -148,7 +148,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			}
 
 			sessions.add(x);
-			peak = Math.max(peak, [...sessions].filter((x) => x.end.writable).length);
+			peak = Math.max(peak, [...sessions].filter((s) => s.end.writable).length);
 			end.write(
 				Buffer.concat([
 					msg("R", i32(0)),
@@ -242,7 +242,7 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				}
 				portals.set(portal, {
 					p,
-					values: values.map((x) => (x === null ? null : x.toString())),
+					values: values.map((v) => (v === null ? null : v.toString())),
 					row: 0,
 				});
 				reply(msg("2"));
@@ -502,9 +502,9 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 			reply(error("ERROR", code, message));
 		}
 
-		function reply(x) {
+		function reply(bytes) {
 			if (!gone) {
-				end.write(x);
+				end.write(bytes);
 			}
 		}
 
@@ -523,14 +523,16 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				return null;
 			}
 
-			const [, id, scope, rows = null, fail = null, sleep = null] = m.map(
-				(x) => x && x.replace(/::int$/, ""),
+			const [, id, scope, rows = null, failure = null, sleep = null] = m.map(
+				(group) => group && group.replace(/::int$/, ""),
 			);
 			const params = Math.max(
 				0,
-				...[id, scope, rows, fail, sleep].filter((x) => x && x[0] === "$").map((x) => +x.slice(1)),
+				...[id, scope, rows, failure, sleep]
+					.filter((v) => v && v[0] === "$")
+					.map((v) => +v.slice(1)),
 			);
-			return { select: true, params, id, scope, rows, fail, sleep };
+			return { select: true, params, id, scope, rows, fail: failure, sleep };
 		}
 	}
 }

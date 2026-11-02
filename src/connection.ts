@@ -129,8 +129,8 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function schedule(now?) {
-		if (now || out.length >= 65536) {
+	function schedule(at_once?) {
+		if (at_once || out.length >= 65536) {
 			return flush();
 		}
 
@@ -443,8 +443,8 @@ export function Connection(ready, options, events) {
 		run(x, name);
 	}
 
-	function parse(x, name, text, oids) {
-		p.parse(out, name, text, oids);
+	function parse(x, name, query_text, oids) {
+		p.parse(out, name, query_text, oids);
 		x.parses.push(name);
 	}
 
@@ -499,24 +499,24 @@ export function Connection(ready, options, events) {
 	function serialize(oids, built, cache) {
 		const serializers = cache.serializers || (cache.serializers = oids.map(events.serializer)),
 			values = built.values,
-			out = new Array(values.length);
+			serialized = new Array(values.length);
 
 		for (let i = 0; i < values.length; i++) {
-			out[i] = values[i] === null ? null : serializers[i](values[i]);
+			serialized[i] = values[i] === null ? null : serializers[i](values[i]);
 			if (
-				out[i] !== null &&
-				out[i] !== undefined &&
-				typeof out[i] !== "string" &&
-				!(out[i] instanceof Uint8Array)
+				serialized[i] !== null &&
+				serialized[i] !== undefined &&
+				typeof serialized[i] !== "string" &&
+				!(serialized[i] instanceof Uint8Array)
 			) {
 				// A serializer must return a string or bytes. For anything else, Buffer.byteLength
 				// throws here, where the error is this query's, instead of the writer corrupting the
 				// wire later
-				Buffer.byteLength(out[i]);
+				Buffer.byteLength(serialized[i]);
 			}
 		}
 
-		return out;
+		return serialized;
 	}
 
 	function transaction() {
@@ -561,10 +561,10 @@ export function Connection(ready, options, events) {
 
 	function describe(statement, oids) {
 		return new Promise((resolve, reject) => {
-			const x = Exchange("describe", null, connection.lease, (x) => {
+			const x = Exchange("describe", null, connection.lease, (item) => {
 				p.parse(out, "", statement.text, oids);
 				p.describe(out, "S", "");
-				sync(x);
+				sync(item);
 			});
 			x.resolve = resolve;
 			x.reject = reject;
@@ -573,10 +573,10 @@ export function Connection(ready, options, events) {
 	}
 
 	function simple(query, sql) {
-		const x = Exchange("simple", query, connection.lease, (x) => {
+		const x = Exchange("simple", query, connection.lease, (item) => {
 			debug(sql, [], []);
 			p.query(out, sql);
-			x.synced = true;
+			item.synced = true;
 		});
 		x.text = sql;
 		x.results = [];
@@ -698,7 +698,7 @@ export function Connection(ready, options, events) {
 			return Promise.resolve();
 		}
 
-		const x = sent.find((x) => x.query === query);
+		const x = sent.find((item) => item.query === query);
 		// A local exchange wrote nothing, and fails with its own error
 		if (!x || x.kind === "local") {
 			return Promise.resolve();
@@ -831,9 +831,9 @@ export function Connection(ready, options, events) {
 			// The head's own FATAL error is copied too, because it may be `closed.cause`, which every
 			// copy of `closed` shares
 			const reason = x === head && x.error && x.error.severity === "FATAL" ? x.error : closed,
-				own = copy_error(reason);
-			// settleError adds x's query to `own`
-			settleError(x, own);
+				copied = copy_error(reason);
+			// settleError adds x's query to `copied`
+			settleError(x, copied);
 			// Otherwise the lease rejects with the head's error, the head being the lease's own query.
 			// Not with a FATAL error for a statement that ends a transaction (such as COMMIT), which
 			// the server may have committed: then the lease rejects with `closed`, whose cause it is.
@@ -842,7 +842,7 @@ export function Connection(ready, options, events) {
 				lease_error === null &&
 				(reason === closed || (reason === fatal && !x.ends))
 			) {
-				lease_error = own;
+				lease_error = copied;
 			}
 		});
 		pending.splice(0).forEach((x) => (x.own ? settle(x) : settleError(x, copy_error(closed))));
@@ -867,9 +867,9 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	function debug(text, values, oids) {
+	function debug(query_text, values, oids) {
 		if (typeof options.debug === "function") {
-			options.debug(connection.id, text, values, oids);
+			options.debug(connection.id, query_text, values, oids);
 		}
 	}
 
@@ -966,9 +966,9 @@ export function Connection(ready, options, events) {
 					break;
 			}
 		} catch (error) {
-			const x = sent[0];
-			if (x) {
-				fail(x, error);
+			const item = sent[0];
+			if (item) {
+				fail(item, error);
 			} else {
 				abandon(error);
 			}
@@ -1072,7 +1072,7 @@ export function Connection(ready, options, events) {
 			item.reader = Rows(columns);
 		}
 		const shape = item.reader,
-			fast = raw !== true && read(shape, !!raw, text, from),
+			fast = raw !== true && read(shape, !!raw, from),
 			n = columns.length,
 			result = item.result;
 
@@ -1084,38 +1084,38 @@ export function Connection(ready, options, events) {
 			let i = start + 7;
 			for (let j = 0; j < n; j++) {
 				const length = (x[i] << 24) | (x[i + 1] << 16) | (x[i + 2] << 8) | x[i + 3],
-					column = columns[j];
+					col = columns[j];
 				i += 4;
 				let value = null;
 				if (length !== -1) {
 					value =
 						raw === true
 							? Buffer.from(x.subarray(i, i + length))
-							: column.decode
-								? column.decode(x, i, i + length)
-								: column.parser
-									? column.parser(text(x, i, i + length))
+							: col.decode
+								? col.decode(x, i, i + length)
+								: col.parser
+									? col.parser(text(x, i, i + length))
 									: text(x, i, i + length);
 					i += length;
 				}
 				if (from) {
-					value = from(value, column);
+					value = from(value, col);
 				}
 				if (raw) {
 					row[j] = value;
-				} else if (column.name === "__proto__") {
-					own(row, column.name, value);
+				} else if (col.name === "__proto__") {
+					own(row, col.name, value);
 				} else {
-					row[column.name] = value;
+					row[col.name] = value;
 				}
 			}
 		}
 
-		const out = transform.row.from ? transform.row.from(row) : row;
+		const transformed = transform.row.from ? transform.row.from(row) : row;
 		if (query.forEachFn) {
-			query.forEachFn(out, result);
+			query.forEachFn(transformed, result);
 		} else {
-			result[result.length] = out;
+			result[result.length] = transformed;
 		}
 	}
 
@@ -1904,11 +1904,11 @@ function Rows(columns) {
 	return state;
 }
 
-function read(state, array, text, from) {
-	const key = array ? "array" : "object";
+function read(state, array, from) {
+	const kind = array ? "array" : "object";
 
-	if (state[key] !== null) {
-		return state[key];
+	if (state[kind] !== null) {
+		return state[kind];
 	}
 
 	if (!state.compilable || ++state.seen < after) {
@@ -1916,14 +1916,14 @@ function read(state, array, text, from) {
 	}
 
 	try {
-		return (state[key] = compile(state.columns, array, text, from));
+		return (state[kind] = compile(state.columns, array, from));
 	} catch {
 		compiles = state.compilable = false;
 		return null;
 	}
 }
 
-function compile(columns, array, text, from) {
+function compile(columns, array, from) {
 	const locals = [],
 		body = ["let l = 0"],
 		at = "x, i, i + l";

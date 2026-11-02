@@ -389,7 +389,7 @@ function located() {
 
 function trim(stack) {
 	const lines = stack.split("\n"),
-		i = lines.findIndex((x, i) => i > 0 && !ours(x));
+		i = lines.findIndex((line, j) => j > 0 && !ours(line));
 
 	return i === -1 ? stack : lines.slice(0, i + 1).join("\n");
 }

@@ -129,7 +129,7 @@ test("Point type", async () => {
 					x
 						.slice(1, -1)
 						.split(",")
-						.map((x) => +x),
+						.map((s) => +s),
 			},
 		},
 	});
@@ -151,7 +151,7 @@ test("Point type array", async () => {
 					x
 						.slice(1, -1)
 						.split(",")
-						.map((x) => +x),
+						.map((s) => +s),
 			},
 		},
 	});
@@ -486,7 +486,7 @@ test("A parameter of a type Postgres.js does not know keeps its place among the 
 		fresh`begin`,
 		fresh`insert into test_enum_order values (${"b"})`,
 		fresh`rollback`,
-	]).then((x) => x.map((x) => x.command));
+	]).then((results) => results.map((r) => r.command));
 	const [{ n }] = await fresh`select count(*)::int as n from test_enum_order`;
 	expect([select[0].n, commands, n]).toEqual([1, ["BEGIN", "INSERT", "ROLLBACK"], 1]);
 });

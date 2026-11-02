@@ -22,8 +22,8 @@ const base = {
 	...login,
 };
 
-const session = async (options?) => {
-	const ready = await open({ ...base, ...options });
+const session = async (overrides?) => {
+	const ready = await open({ ...base, ...overrides });
 	ready.socket.end();
 	return ready;
 };
@@ -208,7 +208,7 @@ test("Startup with a throwing onnotice still connects", async () => {
 			throw new Error("nope");
 		},
 	}).then(
-		(x) => x.status,
+		(opened) => opened.status,
 		(e) => e.message,
 	);
 	expect(status).toBe("I");
@@ -234,7 +234,7 @@ test("Startup destroys a TCP connection still in progress when connect_timeout p
 	expect([code, sockets.map((x) => x.destroyed)]).toEqual(["CONNECT_TIMEOUT", [true]]);
 });
 
-const refused = async (auth, options?) => {
+const refused = async (auth, overrides?) => {
 	const x = await fake((socket, type) => {
 		if (type === "startup") {
 			socket.write(message("R", auth));
@@ -246,7 +246,7 @@ const refused = async (auth, options?) => {
 		}
 	});
 	await using _close = defer(() => x.close());
-	const code = await session({ port: [port_of(x)], user: "u", pass: "p", ...options }).catch(
+	const code = await session({ port: [port_of(x)], user: "u", pass: "p", ...overrides }).catch(
 		(e) => e.code,
 	);
 	return code;
@@ -310,7 +310,7 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 	});
 	await using _close = defer(() => x.close());
 	const port = port_of(x),
-		login = (passfile) =>
+		log_in = (passfile) =>
 			session({
 				host: ["localhost"],
 				port: [port],
@@ -329,10 +329,10 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 		].join("\n"),
 	);
 	fs.chmodSync(file, 0o600);
-	await login(file);
-	await login(dir);
-	await login(path.join(dir, "missing"));
-	await login(null);
+	await log_in(file);
+	await log_in(dir);
+	await log_in(path.join(dir, "missing"));
+	await log_in(null);
 	expect(sent).toEqual(["a:b\\c:d", "", "", ""]);
 });
 

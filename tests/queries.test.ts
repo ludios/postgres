@@ -132,7 +132,7 @@ test("Large object", async () => {
 
 	const out = crypto.createHash("md5");
 	await new Promise((r) =>
-		lo.readable().then((x) => x.on("data", (x) => out.update(x)).on("end", r)),
+		lo.readable().then((stream) => stream.on("data", (chunk) => out.update(chunk)).on("end", r)),
 	);
 
 	expect(out.digest("hex")).toBe(md5);
@@ -198,7 +198,7 @@ test("Undefined value in a pipelined query rejects only that query", async () =>
 		[sql`select pg_sleep(0.1), 1 as x`, sql`select ${undefined} as x`, sql`select 3 as x`].map(
 			(x) =>
 				x.then(
-					([x]) => x.x,
+					([row]) => row.x,
 					(e) => e.code,
 				),
 		),
@@ -217,7 +217,7 @@ test("Undefined value in a pipelined cursor rejects only that query", async () =
 			sql`select 3 as x`,
 		].map((x) =>
 			x.then(
-				(x) => (x.length ? x[0].x : x.command),
+				(result) => (result.length ? result[0].x : result.command),
 				(e) => e.code,
 			),
 		),
@@ -237,7 +237,7 @@ test("Too many parameters in a pipelined query rejects only that query", async (
 			sql`select 4 as x`,
 		].map((x) =>
 			x.then(
-				([x]) => x.x,
+				([row]) => row.x,
 				(e) => e.code,
 			),
 		),
@@ -256,7 +256,7 @@ test("Parameter failing to serialize in a pipelined cursor rejects only that que
 			sql`select 3 as x`,
 		].map((x) =>
 			x.then(
-				(x) => (x.length ? x[0].x : x.command),
+				(result) => (result.length ? result[0].x : result.command),
 				(e) => e.name,
 			),
 		),
@@ -270,7 +270,7 @@ test("Cancel piped query with a query piped behind it", async () => {
 	const last = sql`select pg_sleep(0.5)`.execute();
 	const query = sql`select pg_sleep(2) as dig`;
 	setTimeout(() => query.cancel(), 100);
-	const [error, [{ x }]] = await Promise.all([query.catch((x) => x), sql`select 1 as x`]);
+	const [error, [{ x }]] = await Promise.all([query.catch((e) => e), sql`select 1 as x`]);
 	await last;
 	expect([error.code, x]).toEqual(["57014", 1]);
 });

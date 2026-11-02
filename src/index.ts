@@ -105,10 +105,10 @@ function Postgres(a?, b?) {
 	 * @returns a new `sql`, without the properties that only some `sql`s have (such as `begin`
 	 *   or `release`), which the callers add
 	 */
-	function Sql(handler): any {
-		handler.debug = options.debug;
-		handler.options = options;
-		handler.cancel = handler.cancel || pool.cancel;
+	function Sql(handle): any {
+		handle.debug = options.debug;
+		handle.options = options;
+		handle.cancel = handle.cancel || pool.cancel;
 
 		Object.assign(sql, {
 			types: typed,
@@ -127,7 +127,7 @@ function Postgres(a?, b?) {
 		function sql(first: any, ...rest: any[]): Builder;
 		function sql(strings, ...args) {
 			return strings && Array.isArray(strings.raw)
-				? new Query(strings, args, handler)
+				? new Query(strings, args, handle)
 				: typeof strings === "string" && !args.length
 					? new Identifier(
 							options.transform.column.to ? options.transform.column.to(strings) : strings,
@@ -135,15 +135,15 @@ function Postgres(a?, b?) {
 					: new Builder(strings, args);
 		}
 
-		function unsafe(string, args = [], options = {}) {
+		function unsafe(string, args = [], query_options = {}) {
 			if (arguments.length === 2 && !Array.isArray(args)) {
-				options = args;
+				query_options = args;
 				args = [];
 			}
-			return new Query([string], args, handler, {
+			return new Query([string], args, handle, {
 				prepare: false,
-				...options,
-				simple: "simple" in options ? options.simple : args.length === 0,
+				...query_options,
+				simple: "simple" in query_options ? query_options.simple : args.length === 0,
 			});
 		}
 
@@ -151,9 +151,9 @@ function Postgres(a?, b?) {
 			return await sql`select pg_notify(${channel}, ${"" + payload})`;
 		}
 
-		function file(path, args = [], options = {}) {
+		function file(path, args = [], query_options = {}) {
 			if (arguments.length === 2 && !Array.isArray(args)) {
-				options = args;
+				query_options = args;
 				args = [];
 			}
 			const fileHandler = (query) =>
@@ -163,18 +163,18 @@ function Postgres(a?, b?) {
 						return;
 					}
 					query.strings = [string];
-					handler(query);
+					handle(query);
 				});
-			Object.assign(fileHandler, handler);
+			Object.assign(fileHandler, handle);
 			return new Query([], args, fileHandler, {
-				...options,
-				simple: "simple" in options ? options.simple : args.length === 0,
+				...query_options,
+				simple: "simple" in query_options ? query_options.simple : args.length === 0,
 			});
 		}
 	}
 
 	async function reserve() {
-		const lease = await pool.lease("reserve"),
+		const lease = await pool.acquire("reserve"),
 			reserved = Sql(Object.assign((q) => lease.send(q), { cancel: pool.cancel }));
 
 		reserved.release = () => lease.release();
@@ -221,7 +221,7 @@ function Postgres(a?, b?) {
 	}
 
 	async function transaction(mode, fn, context) {
-		const lease = await pool.lease("transaction");
+		const lease = await pool.acquire("transaction");
 
 		let savepoints = 0,
 			prepare = null;
@@ -243,7 +243,7 @@ function Postgres(a?, b?) {
 			lease.release();
 		}
 
-		async function scope(fn, name?, inside?, above = () => false) {
+		async function scope(body, name?, inside?, above = () => false) {
 			let uncaught,
 				result,
 				rolled = null,
@@ -290,7 +290,7 @@ function Postgres(a?, b?) {
 			}
 			try {
 				result = await new Promise((resolve, reject) => {
-					const x = fn(scoped);
+					const x = body(scoped);
 					Promise.resolve(Array.isArray(x) ? Promise.all(x) : x).then(resolve, reject);
 				});
 				if (uncaught && !stopped()) {
@@ -347,21 +347,21 @@ function Postgres(a?, b?) {
 
 			return result;
 
-			function savepoint(name, fn?) {
-				if (name && Array.isArray(name.raw)) {
+			function savepoint(label, callback?) {
+				if (label && Array.isArray(label.raw)) {
 					return savepoint((sql) => sql.apply(sql, arguments));
 				}
 
 				if (arguments.length === 1) {
-					fn = name;
-					name = null;
+					callback = label;
+					label = null;
 				}
-				return scope(fn, "s" + savepoints++ + (name ? "_" + name : ""), false, stopped);
+				return scope(callback, "s" + savepoints++ + (label ? "_" + label : ""), false, stopped);
 			}
 
-			async function nested(inner, fn) {
-				if (!fn) {
-					fn = inner;
+			async function nested(inner, callback) {
+				if (!callback) {
+					callback = inner;
 					inner = "";
 				}
 
@@ -372,7 +372,7 @@ function Postgres(a?, b?) {
 					);
 				}
 
-				return scope(fn, "s" + savepoints++, true, stopped);
+				return scope(callback, "s" + savepoints++, true, stopped);
 			}
 		}
 	}
@@ -381,15 +381,15 @@ function Postgres(a?, b?) {
 		const q = new Query(
 			[text],
 			[],
-			Object.assign((q) => lease.send(q), { options, cancel: pool.cancel }),
+			Object.assign((query) => lease.send(query), { options, cancel: pool.cancel }),
 			{ simple: true },
 		);
 		return q.execute();
 	}
 
-	async function end(options?) {
+	async function end(end_options?) {
 		await Promise.all([listener.end(), subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : null]);
-		return pool.end(options);
+		return pool.end(end_options);
 	}
 
 	function close() {
@@ -438,7 +438,7 @@ function Listen(options) {
 		 * since; `retries`, how many of the LISTENs that relisten() sent have failed in a row; and
 		 * `timer`, the timer of the next retry of a failed LISTEN, if one is pending.
 		 */
-		channels = new Map();
+		channel_by_name = new Map();
 	let sql = null,
 		// The promise that end() returns (null until end() is called)
 		closing = null;
@@ -446,7 +446,7 @@ function Listen(options) {
 	return {
 		listen,
 		end() {
-			channels.forEach((channel) => clearTimeout(channel.timer));
+			channel_by_name.forEach((channel) => clearTimeout(channel.timer));
 			if (!closing) {
 				closing = sql ? sql.end({ timeout: 0 }) : Promise.resolve();
 			}
@@ -476,15 +476,15 @@ function Listen(options) {
 					// that await it, and makes relisten() retry if the LISTEN was its own. A channel
 					// that waits to retry is on its way already. A second chain of retries would send a
 					// second LISTEN, call each onlisten twice, and leave a timer that end() cannot clear.
-					channels.forEach((channel, name) => {
+					channel_by_name.forEach((channel, name) => {
 						if (channel.listening) {
 							relisten(channel, name);
 						}
 					});
 				},
 				onnotify(channel, payload) {
-					if (channels.has(channel)) {
-						[...channels.get(channel).listeners].forEach((l) => l.fn(payload));
+					if (channel_by_name.has(channel)) {
+						[...channel_by_name.get(channel).listeners].forEach((l) => l.fn(payload));
 					}
 				},
 			});
@@ -538,20 +538,20 @@ function Listen(options) {
 				});
 			},
 			() => {
-				if (closing || channels.get(name) !== channel) {
+				if (closing || channel_by_name.get(name) !== channel) {
 					return;
 				}
 
 				channel.retries++;
-				const seconds =
+				const delay_seconds =
 					typeof options.backoff === "function"
 						? options.backoff(channel.retries)
 						: options.backoff;
 				channel.timer = setTimeout(() => {
-					if (!closing && channels.get(name) === channel) {
+					if (!closing && channel_by_name.get(name) === channel) {
 						relisten(channel, name);
 					}
-				}, seconds * 1000);
+				}, delay_seconds * 1000);
 			},
 		);
 	}
@@ -565,8 +565,8 @@ function Listen(options) {
 	 *   UNLISTEN, and a retry of the LISTEN may be pending
 	 */
 	async function retire(channel, name, failed) {
-		if (channels.get(name) === channel) {
-			channels.delete(name);
+		if (channel_by_name.get(name) === channel) {
+			channel_by_name.delete(name);
 		}
 		clearTimeout(channel.timer);
 		const x = sql;
@@ -581,7 +581,7 @@ function Listen(options) {
 				}
 			});
 		}
-		if (channels.size === 0 && sql === x) {
+		if (channel_by_name.size === 0 && sql === x) {
 			sql = null;
 			await x.end();
 		}
@@ -594,7 +594,7 @@ function Listen(options) {
 	 * @param onlisten - called once the channel is listening, and again each time it is listening
 	 *   again, after its connection closed. If the first call throws, listen() removes the listener
 	 *   and rejects with the error.
-	 * @returns the channel's `state` (see `channels`) and `unlisten()`, which removes this listener
+	 * @returns the channel's `state` (see `channel_by_name`) and `unlisten()`, which removes this listener
 	 */
 	async function listen(name, fn, onlisten) {
 		if (closing) {
@@ -602,7 +602,7 @@ function Listen(options) {
 		}
 
 		const listener = { fn, onlisten };
-		let channel = channels.get(name);
+		let channel = channel_by_name.get(name);
 		if (!channel) {
 			channel = {
 				listeners: new Set(),
@@ -614,7 +614,7 @@ function Listen(options) {
 			};
 			// Not stored if the LISTEN cannot be sent, which connection() may throw for
 			send_listen(channel, name);
-			channels.set(name, channel);
+			channel_by_name.set(name, channel);
 		} else if (channel.timer !== null) {
 			// The channel's latest LISTEN failed, and the channel waits to send it again. Sending it
 			// now makes this listen() await a new attempt, instead of rejecting with the failed
@@ -1178,12 +1178,13 @@ function hosts(o, query, url, env) {
 	]);
 }
 
-function split(x, decoded = (x) => x) {
+function split(x, decoded = (s) => s) {
 	return x
 		.split(",")
 		.filter(Boolean)
-		.map((x) => {
-			const m = x.match(/^\[([^\]]*)\](?::(\d*))?$/) || x.match(/^([^:]*)(?::(\d*))?$/) || [x, x];
+		.map((item) => {
+			const m = item.match(/^\[([^\]]*)\](?::(\d*))?$/) ||
+				item.match(/^([^:]*)(?::(\d*))?$/) || [item, item];
 			return [decoded(m[1]), m[2] ? +m[2] : null];
 		});
 }

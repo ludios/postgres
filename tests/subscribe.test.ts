@@ -337,7 +337,7 @@ test("subscribe with a persistent slot reconnects after the server ends it, with
 });
 
 test("subscribe does not pile up listeners across reconnects (#1087)", async () => {
-	const until = async (fn) => {
+	const wait_for = async (fn) => {
 		while (!fn()) {
 			await delay(20);
 		}
@@ -372,11 +372,11 @@ test("subscribe does not pile up listeners across reconnects (#1087)", async () 
 	for (let i = 1; i <= 12; i++) {
 		const before = seen.subscribes;
 		await subscribe_sql.close();
-		await until(() => seen.subscribes !== before);
+		await wait_for(() => seen.subscribes !== before);
 	}
 
 	await sql`insert into test (name) values ('after')`;
-	await until(() => result.length);
+	await wait_for(() => result.length);
 	await unsubscribe();
 	expect([seen.subscribes, result, warnings]).toEqual([13, ["after"], []]);
 }, 20_000);

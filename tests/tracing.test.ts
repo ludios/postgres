@@ -42,7 +42,7 @@ test("Tracing: a query publishes start, end, asyncStart and asyncEnd with what i
 	const { events, stop } = record("postgres:query");
 	const [{ x }] = await sql`select ${1}::int as x`;
 	stop();
-	const order = events.map((x) => x.event),
+	const order = events.map((e) => e.event),
 		c = events[events.length - 1].context;
 	expect([
 		order,

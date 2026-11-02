@@ -111,27 +111,27 @@ function wrap(socket, host) {
 			return !!socket.secure || !!socket.negotiated;
 		},
 		certificate() {
-			const x = typeof socket.getPeerCertificate === "function" && socket.getPeerCertificate();
-			return (x && x.raw) || null;
+			const cert = typeof socket.getPeerCertificate === "function" && socket.getPeerCertificate();
+			return (cert && cert.raw) || null;
 		},
-		write: (data) => !closed && socket.write(data),
+		write: (chunk) => !closed && socket.write(chunk),
 		upgrade,
 		pause: () => socket.pause(),
 		resume: () => socket.resume(),
 		ref: () => socket.ref && socket.ref(),
 		unref: () => socket.unref && socket.unref(),
-		end(data) {
+		end(chunk) {
 			if (!closed) {
-				if (data) {
-					socket.end(data);
+				if (chunk) {
+					socket.end(chunk);
 				} else {
 					socket.end();
 				}
 			}
 		},
-		destroy(error?) {
-			if (error && !failure) {
-				failure = error;
+		destroy(reason?) {
+			if (reason && !failure) {
+				failure = reason;
 			}
 			socket.destroy();
 		},

@@ -323,7 +323,7 @@ test("Stale prepared statement is not retried after the transaction it was pipel
 			reserved`commit`,
 		].map((x) =>
 			x.then(
-				(x) => x.command,
+				(result) => result.command,
 				(e) => e.code,
 			),
 		),

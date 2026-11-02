@@ -357,7 +357,7 @@ export default function Subscribe(postgres, options) {
 	function report(error, subscriber?) {
 		const handlers = subscriber
 			? [subscriber.onerror]
-			: [...subscribers.values()].flatMap((x) => [...x].map((x) => x.onerror));
+			: [...subscribers.values()].flatMap((subs) => [...subs].map((s) => s.onerror));
 
 		const listeners = handlers.filter(Boolean);
 		if (listeners.length) {

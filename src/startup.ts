@@ -3,7 +3,13 @@ import fs from "fs";
 import * as p from "./protocol.ts";
 import { Socket, secured, secureOptions } from "./socket.ts";
 import { Errors } from "./errors.ts";
-import { channels, active, start, finish, userName } from "./diagnostics.ts";
+import {
+	channels,
+	active,
+	start as trace_start,
+	finish as trace_finish,
+	userName,
+} from "./diagnostics.ts";
 
 const noop = (..._: any[]) => {};
 
@@ -70,11 +76,11 @@ function traced(options, host, port, signal) {
 		sslnegotiation: options.sslnegotiation || "postgres",
 	};
 	let promise;
-	start(channels.connect, context, () => (promise = attempt(options, host, port, signal)));
+	trace_start(channels.connect, context, () => (promise = attempt(options, host, port, signal)));
 
 	return promise.then(
 		(ready) => {
-			finish(channels.connect, context, null, {
+			trace_finish(channels.connect, context, null, {
 				pid: ready.backend.pid,
 				status: ready.status,
 				readOnly: ready.attributes.readOnly,
@@ -83,7 +89,7 @@ function traced(options, host, port, signal) {
 			return ready;
 		},
 		(error) => {
-			finish(channels.connect, context, error);
+			trace_finish(channels.connect, context, error);
 			throw error;
 		},
 	);
@@ -171,7 +177,7 @@ function attempt(options, host, port, signal) {
 		}
 
 		function startup(user, database) {
-			return new Promise((resolve, reject) => {
+			return new Promise((succeed, refuse) => {
 				const stored = () =>
 						pgpass(options.passfile, options.path ? "localhost" : host, port, database, user) || "",
 					auth = Auth({
@@ -183,7 +189,7 @@ function attempt(options, host, port, signal) {
 					parameters = {},
 					backend = { pid: null, secret: null },
 					frames = p.Frames(frame, false, (error) => {
-						reject(error);
+						refuse(error);
 						socket.destroy();
 					}),
 					rows = [];
@@ -205,16 +211,16 @@ function attempt(options, host, port, signal) {
 						} else if (type === K) {
 							Object.assign(backend, p.backendKeyData(x, start));
 						} else if (type === E) {
-							reject(Errors.postgres(p.error(x, start, end)));
+							refuse(Errors.postgres(p.error(x, start, end)));
 						} else if (type === N) {
 							notice(p.error(x, start, end));
 						} else if (type === D) {
 							rows.push(x.toString("utf8", start + 11, start + 11 + x.readInt32BE(start + 7)));
 						} else if (type === Z) {
-							settled(p.readyForQuery(x, start), Buffer.from(x.subarray(end)));
+							once_authenticated(p.readyForQuery(x, start), Buffer.from(x.subarray(end)));
 						}
 					} catch (error) {
-						reject(error);
+						refuse(error);
 					}
 				}
 
@@ -233,12 +239,12 @@ function attempt(options, host, port, signal) {
 				function authenticate(x) {
 					authing = authing.then(() => auth(x)).then((reply) => reply && socket.write(reply));
 					authing.catch((error) => {
-						reject(error);
+						refuse(error);
 						socket.destroy();
 					});
 				}
 
-				function settled(x, rest) {
+				function once_authenticated(x, rest) {
 					authing.then(
 						() => ready(x, rest),
 						() => {},
@@ -247,7 +253,7 @@ function attempt(options, host, port, signal) {
 
 				function ready(x, rest) {
 					if (!auth.authenticated) {
-						reject(
+						refuse(
 							Errors.generic(
 								"AUTHENTICATION_INCOMPLETE",
 								"The server was ready before it accepted the authentication",
@@ -271,7 +277,7 @@ function attempt(options, host, port, signal) {
 					frames.pause();
 					socket.ondata = () => {};
 					socket.pause();
-					resolve({
+					succeed({
 						socket,
 						rest,
 						backend,
@@ -450,15 +456,15 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 		return p.SASL(plus ? "SCRAM-SHA-256-PLUS" : "SCRAM-SHA-256", header + "n=*,r=" + nonce);
 	}
 
-	function proceed(x, pass) {
+	function proceed(x, password_text) {
 		const res = x
 				.toString("utf8", 9)
 				.split(",")
-				.reduce((acc, x) => {
-					acc[x[0]] = x.slice(2);
+				.reduce((acc, attr) => {
+					acc[attr[0]] = attr.slice(2);
 					return acc;
 				}, {}),
-			key = sha256(pass + "\0" + res.s + "\0" + res.i).toString("base64");
+			key = sha256(password_text + "\0" + res.s + "\0" + res.i).toString("base64");
 
 		if (!res.r.startsWith(nonce)) {
 			throw Errors.generic(
@@ -471,7 +477,10 @@ function Auth({ user, pass, binding = "prefer", socket }) {
 			if (salted.size >= 64) {
 				salted.delete(salted.keys().next().value);
 			}
-			salted.set(key, crypto.pbkdf2Sync(pass, Buffer.from(res.s, "base64"), +res.i, 32, "sha256"));
+			salted.set(
+				key,
+				crypto.pbkdf2Sync(password_text, Buffer.from(res.s, "base64"), +res.i, 32, "sha256"),
+			);
 		}
 
 		const saltedPassword = salted.get(key),
@@ -575,14 +584,14 @@ const digests = {
 function endpoint(certificate) {
 	try {
 		const x = Buffer.from(certificate),
-			algorithm = signature(x);
+			algorithm = signature_algorithm(x);
 		return algorithm ? crypto.createHash(algorithm).update(x).digest() : null;
 	} catch {
 		return null;
 	}
 }
 
-function signature(x) {
+function signature_algorithm(x) {
 	const certificate = der(x, 0),
 		tbs = der(x, certificate.body),
 		algorithm = der(x, tbs.end),

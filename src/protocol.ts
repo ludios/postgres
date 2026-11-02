@@ -105,7 +105,7 @@ export function Writer(size = 16384) {
 	}
 }
 
-const own = Writer(1024);
+const scratch = Writer(1024);
 
 const S = 83,
 	H = 72,
@@ -160,12 +160,12 @@ export const Run = one(run);
 function one(fn) {
 	return (...xs) => {
 		try {
-			fn(own, ...xs);
-		} catch (error) {
-			own.truncate(0);
-			throw error;
+			fn(scratch, ...xs);
+		} catch (thrown) {
+			scratch.truncate(0);
+			throw thrown;
 		}
-		return own.take();
+		return scratch.take();
 	};
 }
 
@@ -250,7 +250,7 @@ export function Frames(onframe, shared = false, onerror = null) {
 			}
 
 			chunks.push(shared && (paused || owning) ? own(x) : x);
-			run();
+			pump();
 		},
 		get paused() {
 			return paused;
@@ -270,7 +270,7 @@ export function Frames(onframe, shared = false, onerror = null) {
 		},
 		resume() {
 			paused = false;
-			run();
+			pump();
 		},
 	};
 
@@ -296,7 +296,7 @@ export function Frames(onframe, shared = false, onerror = null) {
 		}
 	}
 
-	function run() {
+	function pump() {
 		if (running) {
 			return;
 		}
@@ -327,12 +327,12 @@ export function Frames(onframe, shared = false, onerror = null) {
 		chunks.length = 0;
 		data = part = null;
 		at = filled = 0;
-		const error = Object.assign(
+		const failure = Object.assign(
 			new Error("The server sent a message with an invalid length (" + length + ")"),
 			{ code: "PROTOCOL_ERROR" },
 		);
 		if (onerror) {
-			onerror(error);
+			onerror(failure);
 		}
 		return true;
 	}

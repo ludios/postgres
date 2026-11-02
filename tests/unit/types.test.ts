@@ -191,10 +191,10 @@ test("Array NULL with the box ; delimiter", async () => {
 
 test("Array parser is not called for NULL", async () => {
 	const parsed = [],
-		types = Types({
+		custom = Types({
 			types: { text: { to: 25, from: [25], serialize: (x) => x, parse: (x) => parsed.push(x) } },
 		});
-	types.parser(1009)('{a,NULL,"NULL"}');
+	custom.parser(1009)('{a,NULL,"NULL"}');
 	expect(parsed).toEqual(["a", "NULL"]);
 });
 

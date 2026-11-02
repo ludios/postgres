@@ -19,9 +19,9 @@ export class Identifier extends NotTagged {
 	/** The identifier, escaped and quoted. */
 	declare value: string;
 
-	constructor(value) {
+	constructor(identifier) {
 		super();
-		this.value = escapeIdentifier(value);
+		this.value = escapeIdentifier(identifier);
 	}
 }
 
@@ -107,7 +107,7 @@ function part(before, x, o, after = "") {
 					: x instanceof Identifier
 						? x.value
 						: Array.isArray(x) && isFragment(x[0])
-							? x.reduce((acc, x) => acc + " " + fragment(x, o), "")
+							? x.reduce((acc, f) => acc + " " + fragment(f, o), "")
 							: value(x, o);
 }
 
@@ -157,9 +157,9 @@ export function value(x, o) {
 }
 
 const builders = {
-	values,
+	values: values_list,
 	in: (first, rest, o) => {
-		const x = values(first, rest, o);
+		const x = values_list(first, rest, o);
 		return x === "()" ? "(null)" : x;
 	},
 	select,
@@ -335,13 +335,13 @@ function insert_into(words, sql, i) {
 	return target && previous(sql, i) === "insert";
 }
 
-function valuesBuilder(first, columns, o) {
+function valuesBuilder(first, picked, o) {
 	return first
-		.map((row) => "(" + columns.map((x) => part("values", row[x], o)).join(",") + ")")
+		.map((row) => "(" + picked.map((x) => part("values", row[x], o)).join(",") + ")")
 		.join(",");
 }
 
-function values(first, rest, o) {
+function values_list(first, rest, o) {
 	const rows =
 			Array.isArray(first) &&
 			first.length > 0 &&

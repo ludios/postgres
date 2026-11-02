@@ -305,7 +305,7 @@ test("Ensure transactions throw if connection is closed dwhile there is no query
 			await new Promise((r) => setTimeout(r, 200));
 			return sql`select 1`;
 		})
-		.catch((x) => x);
+		.catch((e) => e);
 	expect(x.code).toBe("CONNECTION_CLOSED");
 });
 
@@ -375,8 +375,8 @@ test("Transaction at pipeline boundary is reserved", async () => {
 	const x = await sql
 		.begin((sql) => sql`select 1 as x`)
 		.then(
-			(x) => x[0].x,
-			(x) => x.code,
+			(rows) => rows[0].x,
+			(e) => e.code,
 		);
 	await Promise.all(inflight);
 	expect(x).toBe(1);
@@ -387,8 +387,8 @@ test("Transaction is reserved with pipelining disabled", async () => {
 	const x = await sql
 		.begin((sql) => sql`select 1 as x`)
 		.then(
-			(x) => x[0].x,
-			(x) => x.code,
+			(rows) => rows[0].x,
+			(e) => e.code,
 		);
 	expect(x).toBe(1);
 });
@@ -452,7 +452,7 @@ test("Undefined value aborts a pipelined transaction on a reserved connection", 
 			reserved`commit`,
 		].map((x) =>
 			x.then(
-				(x) => x.command,
+				(result) => result.command,
 				(e) => e.code,
 			),
 		),
@@ -482,7 +482,7 @@ test("Parameter failing to serialize aborts a pipelined transaction on a reserve
 			reserved`commit`,
 		].map((x) =>
 			x.then(
-				(x) => x.command,
+				(result) => result.command,
 				(e) => e.code || e.name,
 			),
 		),
@@ -553,7 +553,7 @@ test("Disconnect rejects queued transaction queries and allows reconnect", async
 
 	const results = await Promise.allSettled(queries);
 	const [{ x }] = await sql`select 1 as x`;
-	expect([error.code, ...results.map((x) => x.status), x]).toEqual([
+	expect([error.code, ...results.map((r) => r.status), x]).toEqual([
 		"57P01",
 		"rejected",
 		"rejected",
@@ -725,11 +725,11 @@ test("A begin used again runs alone again, whether tagged, unsafe, prepared or n
 			results.push(
 				await Promise.all([
 					begin().then(
-						(x) => x.command,
+						(result) => result.command,
 						(e) => e.code,
 					),
 					sql`insert into test values (1) returning a`.then(
-						(x) => x.command,
+						(result) => result.command,
 						(e) => e.code,
 					),
 				]),

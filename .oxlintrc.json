@@ -72,6 +72,10 @@
 		// A function returns a value on every path, or on none: `return f();` in
 		// a function that returns nothing hides that f()'s value is dropped.
 		"typescript/consistent-return": "error",
+		// https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-shadow.html
+		// Except the `sql` of `sql.begin(async (sql) => ...)`, which is how the
+		// queries of a transaction are written.
+		"no-shadow": ["error", { "allow": ["sql"] }],
 		// https://oxc.rs/docs/guide/usage/linter/rules/unicorn/consistent-function-scoping.html
 		// A function that closes over nothing goes at module level, where it is
 		// plainly independent of the state of the function it was nested in.

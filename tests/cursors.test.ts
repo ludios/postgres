@@ -167,7 +167,9 @@ test("concurrent cursors", async () => {
 	await Promise.all(
 		[...Array(7)]
 			.map((x, i) => [
-				sql`select ${i}::int as a, generate_series(1, 2) as x`.cursor(([x]) => xs.push(x.a + x.x)),
+				sql`select ${i}::int as a, generate_series(1, 2) as x`.cursor(([row]) =>
+					xs.push(row.a + row.x),
+				),
 			])
 			.flat(),
 	);
@@ -182,7 +184,9 @@ test("concurrent cursors multiple connections", async () => {
 	await Promise.all(
 		[...Array(7)]
 			.map((x, i) => [
-				sql`select ${i}::int as a, generate_series(1, 2) as x`.cursor(([x]) => xs.push(x.a + x.x)),
+				sql`select ${i}::int as a, generate_series(1, 2) as x`.cursor(([row]) =>
+					xs.push(row.a + row.x),
+				),
 			])
 			.flat(),
 	);
