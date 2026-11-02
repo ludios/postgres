@@ -829,6 +829,61 @@ test("A FATAL error with the severity only in the S field rejects the query and 
 	expect([query, begin]).toEqual(["08P01", "08P01"]);
 });
 
+/**
+ * @param answer - `(socket, text) => void` answers a simple query, whose message has `text`
+ * @returns a server that accepts a connection's startup, and answers each simple query after it
+ *   with `answer`
+ */
+function answering(answer) {
+	return listening(
+		net.createServer((socket) => {
+			let started = false;
+			socket.on("error", () => socket.destroy());
+			socket.on("data", (x) => {
+				if (started) {
+					answer(socket, x.toString("latin1"));
+				} else {
+					started = true;
+					socket.write(authenticated);
+				}
+			});
+		}),
+	);
+}
+
+/** The answer to BEGIN: CommandComplete, and ReadyForQuery in a transaction block */
+const began = Buffer.concat([
+	backendMessage("C", Buffer.from("BEGIN\0")),
+	backendMessage("Z", Buffer.from("T")),
+]);
+
+test("A transaction rejects with the FATAL error that answers a query of it that could not be serialized", async () => {
+	const server = await answering((socket, text) => {
+		if (text.includes("could not be built")) {
+			socket.end(errorResponse("FATAL", "57P01"));
+		} else {
+			socket.write(began);
+		}
+	});
+	await using _close = defer(() => server.close());
+	await using pool = postgres({
+		...options,
+		host: "127.0.0.1",
+		port: port_of(server),
+		fetch_types: false,
+	});
+	const unserializable = {
+		toJSON() {
+			throw new Error("unserializable");
+		},
+	};
+	const error = await pool
+		.begin((tx) => tx`select ${tx.typed(unserializable, 25)}`)
+		.catch((e) => e);
+
+	expect([error.code, error.severity]).toEqual(["57P01", "FATAL"]);
+});
+
 test("Failed array type fetch on a live connection is not an unhandled rejection", async () => {
 	let unhandled = 0;
 

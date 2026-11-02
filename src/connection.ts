@@ -878,6 +878,10 @@ export function Connection(ready, options, events) {
 			}
 			if (x.own) {
 				settle(x);
+				// The lease (if any) rejects with the FATAL error that answered its head, as below
+				if (x === head && lease_error === null && x.error === fatal && !x.ends) {
+					lease_error = x.error;
+				}
 				return;
 			}
 			// The head's own FATAL error is copied too, because it may be `closed.cause`, which every
