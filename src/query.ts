@@ -82,7 +82,7 @@ export class Query extends Promise<any> {
 		const kept = [...items].filter((x) => x !== false && x !== null && x !== undefined),
 			joined = new Query(joinStrings, [new Join(this, kept)], this.handler);
 
-		Reflect.defineProperty(joined, "length", { value: kept.length });
+		void Object.defineProperty(joined, "length", { value: kept.length });
 		return joined;
 	}
 
