@@ -494,10 +494,13 @@ export function Pool(options, types) {
 			expired = options.connect_timeout && now() - failingSince >= options.connect_timeout * 1000;
 
 		failure = !transient || expired ? { error } : null;
-		stuck() &&
-			opening === 0 &&
-			(failure || ending) &&
-			waiting.take().forEach((job, i) => reject(job, i ? copy_error(error) : error));
+		if (stuck() && opening === 0 && (failure || ending)) {
+			// Each job gets a copy (the first job too), so that queryError never adds a query's
+			// properties or stack to `failure.error`, which later fail-fast jobs get copies of
+			for (const job of waiting.take()) {
+				reject(job, copy_error(error));
+			}
+		}
 	}
 
 	function reject(job, error) {
