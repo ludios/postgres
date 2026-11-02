@@ -470,6 +470,58 @@ function Listen(options) {
 	}
 }
 
+/** The options that are numbers, which `read_option` reads from a string such as `"30"`. */
+const numeric_options = [
+	"max",
+	"min",
+	"max_pipeline",
+	"idle_timeout",
+	"queue_timeout",
+	"connect_timeout",
+	"max_lifetime",
+	"backoff",
+	"keep_alive",
+];
+
+/**
+ * Reads an option from the first of these places that sets it: the options object, the query of
+ * the url, and the environment variable named `PG` followed by the option's name in upper case.
+ *
+ * @param k     - the name of the option
+ * @param d     - the value of the option when none of the places sets it
+ * @param o     - the options object given to `postgres()`
+ * @param query - the parameters in the query of the url, by name
+ * @param env   - the environment variables
+ * @returns the value of the option, where `disable` and `false` in the url are `false`, and a
+ *          string for a numeric option is the number it is written as
+ */
+function read_option(k, d, o, query, env) {
+	const variable = "PG" + k.toUpperCase();
+	let value, source;
+	if (k in o && o[k] !== undefined) {
+		value = o[k];
+		source = "The option " + k;
+	} else if (k in query) {
+		value = query[k] === "disable" || query[k] === "false" ? false : query[k];
+		source = "The url parameter " + k;
+	} else if (env[variable]) {
+		value = env[variable];
+		source = "The environment variable " + variable;
+	} else {
+		return d;
+	}
+
+	if (typeof value !== "string" || !numeric_options.includes(k)) {
+		return value;
+	}
+	if (!/^\d+(\.\d+)?$/.test(value)) {
+		throw new Error(
+			source + " must be a non-negative decimal number, but it is " + JSON.stringify(value),
+		);
+	}
+	return +value;
+}
+
 function parseOptions(a, b) {
 	if (a && a.shared) return a;
 
@@ -491,16 +543,6 @@ function parseOptions(a, b) {
 		(o.idle_timeout = o.timeout));
 	query.sslrootcert === "system" && (query.ssl = "verify-full");
 
-	const ints = [
-		"idle_timeout",
-		"connect_timeout",
-		"max_lifetime",
-		"max_pipeline",
-		"backoff",
-		"keep_alive",
-		"min",
-		"queue_timeout",
-	];
 	const defaults = {
 		max: globalThis.Cloudflare ? 3 : 10,
 		min: 0,
@@ -540,18 +582,9 @@ function parseOptions(a, b) {
 			(typeof user === "function" ? null : user),
 		user: user,
 		pass: o.pass || o.password || url.url.password || env.PGPASSWORD || "",
-		...Object.entries(defaults).reduce((acc, [k, d]) => {
-			const value =
-				k in o && o[k] !== undefined
-					? o[k]
-					: k in query
-						? query[k] === "disable" || query[k] === "false"
-							? false
-							: query[k]
-						: env["PG" + k.toUpperCase()] || d;
-			acc[k] = typeof value === "string" && ints.includes(k) ? +value : value;
-			return acc;
-		}, {}),
+		...Object.fromEntries(
+			Object.entries(defaults).map(([k, d]) => [k, read_option(k, d, o, query, env)]),
+		),
 		connection: {
 			application_name: env.PGAPPNAME || "postgres.js",
 			...o.connection,

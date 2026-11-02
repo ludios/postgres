@@ -165,3 +165,47 @@ test("The scheduler is on by default, and off with scheduler: false, scheduler=f
 		postgres({ max: 1 }).options.scheduler,
 	]).toEqual([true, false, false, false]);
 });
+
+test("A numeric option written as text is a number, from the url, a PG variable or the options", async () => {
+	process.env.PGMAX_PIPELINE = "7";
+	let read;
+	try {
+		const x = postgres("postgres://u@h/db?max=1&connect_timeout=2.5", {
+			idle_timeout: "60",
+		}).options;
+		read = [x.max, x.connect_timeout, x.idle_timeout, x.max_pipeline, x.scheduler];
+	} finally {
+		delete process.env.PGMAX_PIPELINE;
+	}
+	expect(read).toEqual([1, 2.5, 60, 7, false]);
+});
+
+test("A numeric option written as anything but a non-negative decimal number throws, naming its source", async () => {
+	const thrown = (f) => {
+		try {
+			f();
+		} catch (e) {
+			return e.message;
+		}
+	};
+	const must = " must be a non-negative decimal number, but it is ";
+	process.env.PGCONNECT_TIMEOUT = "30s";
+	let from_variable;
+	try {
+		from_variable = thrown(() => postgres({ max: 1 }));
+	} finally {
+		delete process.env.PGCONNECT_TIMEOUT;
+	}
+	const texts = ["abc", "", " 1", "-1", "1e3", "0x10", ".5", "Infinity"];
+	expect([
+		from_variable,
+		thrown(() => postgres({ max: 1, idle_timeout: "abc" })),
+		...texts.map((x) =>
+			thrown(() => postgres("postgres://u@h/db?backoff=" + encodeURIComponent(x), { max: 1 })),
+		),
+	]).toEqual([
+		"The environment variable PGCONNECT_TIMEOUT" + must + '"30s"',
+		"The option idle_timeout" + must + '"abc"',
+		...texts.map((x) => "The url parameter backoff" + must + JSON.stringify(x)),
+	]);
+});

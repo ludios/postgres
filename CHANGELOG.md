@@ -27,6 +27,7 @@ The README has an [upgrade guide](./README.md#upgrading-from-v3), with a query t
 - **An unknown authentication type rejects** with `AUTH_TYPE_NOT_IMPLEMENTED` instead of waiting for the connect timeout.
 - **A replication error with no `onerror` is logged.** When the `sql.subscribe` stream fails and none of its subscriptions has an `onerror`, the error goes to `console.error` before the stream reconnects; v3 dropped it. Pass `onerror` to handle or silence it.
 - **`infinity` timestamps** are `Infinity` and `-Infinity`, both ways, instead of an invalid `Date`.
+- **A numeric option given as text must be a non-negative decimal number**, such as `30` or `0.5`, whether the text is in the url (`?connect_timeout=30`), in a `PG` environment variable (`PGCONNECT_TIMEOUT=30`) or in the options object (`connect_timeout: '30'`). Otherwise `postgres()` throws an error that names the option and where its text came from. v3 read other text, such as `30s`, as `NaN`, and `NaN` turned off a timeout option without saying so. `max` given as text is now a number too, so `?max=1` and `PGMAX=1` act like `max: 1`; v3 kept `max` as a string.
 - **TypeScript:** the types are an ES module with a default export and named types (`import postgres, { type Sql } from 'postgres'`). A reserved connection is no longer typed as having `begin` and `end`, which it never had.
 
 ### New
