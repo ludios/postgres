@@ -399,7 +399,7 @@ export function Types(
 				from.forEach((oid) => (parsers[oid] = x.parse));
 			}
 			if (x.serialize) {
-				serializers[x.to] = x.serialize;
+				serializers[x.to as number] = x.serialize;
 				from.forEach((oid) => (serializers[oid] = x.serialize));
 			}
 		});
@@ -622,7 +622,7 @@ export function serializeArray(
 	serialize: Serializer = string,
 	delimiter = ",",
 	undefinedValue?: unknown,
-) {
+): string {
 	return (
 		"{" +
 		xs

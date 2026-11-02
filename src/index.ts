@@ -56,8 +56,8 @@ export default Object.assign(Postgres, {
 	BigInt: {
 		to: 20,
 		from: [20],
-		parse: (x) => BigInt(x),
-		serialize: (x) => x.toString(),
+		parse: (x: string) => BigInt(x),
+		serialize: (x: bigint) => x.toString(),
 	},
 });
 
@@ -479,7 +479,7 @@ function Listen(options: Options) {
 		// Channel name → channel
 		channel_by_name = new Map<string, Channel>();
 	// The listener connection: a pool of one connection, opened when a channel is listened on
-	let sql: any = null,
+	let sql: postgres.Sql | null = null,
 		// The promise that end() returns (null until end() is called)
 		closing: Promise<unknown> | null = null;
 
