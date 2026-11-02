@@ -26,6 +26,35 @@
 		"**/dist/**"
 	],
 
+	"overrides": [
+		{
+			// The code that came from upstream breaks these rules, so they are
+			// warnings until it is cleaned up. Delete a rule from this list once
+			// no code breaks it, so that it is an error again.
+			"files": ["**/*.ts"],
+			"rules": {
+				"typescript/no-floating-promises": "warn",
+				"no-unused-expressions": "warn",
+				"typescript/no-useless-default-assignment": "warn",
+				"typescript/unbound-method": "warn",
+				"typescript/await-thenable": "warn",
+				"no-async-promise-executor": "warn",
+				"typescript/no-base-to-string": "warn",
+				"unicorn/no-new-array": "warn",
+				"unicorn/no-thenable": "warn",
+				"promise/no-callback-in-promise": "warn",
+				"unicorn/no-unnecessary-await": "warn",
+				"typescript/require-array-sort-compare": "warn",
+				"typescript/no-implied-eval": "warn",
+				"unicorn/prefer-string-starts-ends-with": "warn",
+				"typescript/no-redundant-type-constituents": "warn",
+				"typescript/no-misused-spread": "warn",
+				"no-constant-condition": "warn",
+				"no-constant-binary-expression": "warn"
+			}
+		}
+	],
+
 	"rules": {
 		"typescript/no-floating-promises": "error",
 		"import/no-cycle": ["error", { "maxDepth": 8 }],
