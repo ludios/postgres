@@ -1955,6 +1955,7 @@ function compile(columns, array, from) {
 			: "return {" + columns.map((c, j) => key(c.name) + ":v" + j).join(",") + "}",
 	);
 
+	// oxlint-disable-next-line typescript/no-implied-eval -- compiles the reader of one row shape from the code above
 	return new Function(
 		"c",
 		"text",

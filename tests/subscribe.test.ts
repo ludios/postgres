@@ -505,7 +505,7 @@ test("subscribe confirms its position to the server on an interval", async () =>
 		publications: "alltables",
 		timers: {
 			...sql.options.timers,
-			setTimeout: (fn, ms) => setTimeout(fn, ms === 10000 ? 50 : ms),
+			setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms === 10000 ? 50 : ms),
 		},
 	});
 	const seen = [];
