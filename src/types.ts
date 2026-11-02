@@ -1,6 +1,16 @@
 // Model-output: Claude Opus 5.5
 import { Errors } from "./errors.ts";
 
+/** How to parse and serialize a PostgreSQL type, as in `options.types` */
+export type PostgresType = {
+	/** The OID that values of this type are sent as, or the type's name (looked up when the pool starts) */
+	to: number | string;
+	/** The OIDs (or type names) whose values `parse` parses */
+	from?: number | string | Array<number | string>;
+	serialize?: (value: any) => unknown;
+	parse?: (raw: any) => any;
+};
+
 const number = (x) => +x,
 	bool = (x) => x === "t",
 	json = (x) => JSON.parse(x),
@@ -132,7 +142,7 @@ const shapedTypes = {
 	},
 };
 
-export function Types(options = {}) {
+export function Types(options: Record<string, any> = {}) {
 	const parsers = {},
 		serializers = {},
 		elements = {},
@@ -144,7 +154,7 @@ export function Types(options = {}) {
 	register(options.infer === false ? shapedTypes : types);
 	Object.assign(parsers, dates);
 	options.infer === false && (parsers[1114] = parseDate);
-	const custom = Object.values(options.types || {}),
+	const custom = Object.values<PostgresType>(options.types || {}),
 		named = custom.filter((x) => [x.to].concat(x.from || []).some((y) => typeof y === "string")),
 		oids = {};
 
@@ -176,7 +186,7 @@ export function Types(options = {}) {
 				: null;
 	}
 
-	function register(xs) {
+	function register(xs: Record<string, PostgresType> | PostgresType[]) {
 		Object.values(xs).forEach((x) => {
 			const from = [].concat(x.from || []);
 			x.parse && from.forEach((oid) => (parsers[oid] = x.parse));

@@ -34,7 +34,7 @@ export function port_of(server: net.Server): number {
 export const idle_timeout = 1;
 
 /** The role without a password that tests/bootstrap.ts creates */
-export const login = {
+export const login: { user: string; pass?: string } = {
 	user: "postgres_js_test",
 };
 

@@ -15,6 +15,7 @@ import {
 	fromCamel,
 	fromKebab,
 } from "./types.ts";
+import type { PostgresType } from "./types.ts";
 
 import { Identifier, Builder } from "./build.ts";
 import { Query, CLOSE } from "./query.ts";
@@ -103,7 +104,7 @@ function Postgres(a?, b?) {
 
 		const typed = (value, type) => new Parameter(value, type);
 
-		Object.entries(options.types).forEach(
+		Object.entries<PostgresType>(options.types).forEach(
 			([name, type]) => (typed[name] = (x) => new Parameter(x, type.to)),
 		);
 
@@ -477,7 +478,10 @@ function parseOptions(a, b) {
 	const env = process.env,
 		o = (!a || typeof a === "string" ? b : a) || {},
 		url = parseUrl(a),
-		query = [...url.url.searchParams].reduce((a, [b, c]) => ((a[b] = c), a), {}),
+		query = [...url.url.searchParams].reduce<Record<string, string>>(
+			(a, [b, c]) => ((a[b] = c), a),
+			{},
+		),
 		targets = hosts(o, query, url, env),
 		port = o.port || query.port || env.PGPORT || 5432,
 		user = o.user || o.username || url.url.username || env.PGUSERNAME || env.PGUSER || osUsername();
@@ -522,7 +526,7 @@ function parseOptions(a, b) {
 		target_session_attrs: null,
 	};
 
-	const options = {
+	const options: Record<string, any> = {
 		host: targets.map((x) => x[0]),
 		port: Array.isArray(port)
 			? port

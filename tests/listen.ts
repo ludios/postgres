@@ -98,7 +98,7 @@ test("listen and notify with upper case", async () => {
 
 test("listen reconnects", async () => {
 	const sql = postgres(options),
-		resolvers = {},
+		resolvers: Record<string, (value?: unknown) => void> = {},
 		a = new Promise((r) => (resolvers.a = r)),
 		b = new Promise((r) => (resolvers.b = r));
 
@@ -237,7 +237,7 @@ test("Listen connection closes after the last unlisten", async () => {
 test("Original listen handles unsubscribe after a reconnect", async () => {
 	const sql = postgres(options),
 		xs = [],
-		arrivals = {},
+		arrivals: Record<string, (value?: unknown) => void> = {},
 		a = new Promise((r) => (arrivals.a = r)),
 		b = new Promise((r) => (arrivals.b = r)),
 		c = new Promise((r) => (arrivals.c = r));
