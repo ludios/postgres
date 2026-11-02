@@ -8,6 +8,7 @@ import {
 	pg_port,
 	port_of,
 	server_major,
+	terminate,
 } from "./setup.ts";
 
 test("Throws on illegal transactions", async () => {
@@ -662,7 +663,7 @@ async function withDisconnectedTransaction(fn) {
 				throw error;
 			}),
 		]);
-		await sql`select pg_terminate_backend(${pid}::int)`;
+		await terminate(pid);
 		await failed;
 		return await fn({ sql: pool, disconnected, finish });
 	} finally {
@@ -1059,14 +1060,13 @@ test("A transaction whose backend is terminated mid-query rejects with the FATAL
 });
 
 test("A transaction terminated between statements rejects with the FATAL error, and its next query has it as cause (#1283)", async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		killer = postgres({ ...options, max: 1 });
+	const sql = postgres({ ...options, max: 1 });
 	let settled;
 	const next = new Promise<any>((r) => (settled = r));
 	const error = await sql
 		.begin(async (sql) => {
 			const [{ pid }] = await sql`select pg_backend_pid() as pid`;
-			await killer`select pg_terminate_backend(${pid})`;
+			await terminate(pid);
 			await delay(100);
 			settled(await sql`select 1`.catch((e) => e));
 		})
@@ -1078,7 +1078,6 @@ test("A transaction terminated between statements rejects with the FATAL error, 
 		"CONNECTION_CLOSED",
 		"57P01",
 	]);
-	await killer.end();
 	await sql.end();
 });
 
@@ -1088,10 +1087,9 @@ test(
 	async () => {
 		const outcomes = [];
 		for (const method of ["savepoint", "begin"]) {
-			const sql = postgres({ ...options, max: 1 }),
-				killer = postgres({ ...options, max: 1 });
+			const sql = postgres({ ...options, max: 1 });
 			let started, release, settled;
-			const pid = new Promise((r) => (started = r)),
+			const pid = new Promise<number>((r) => (started = r)),
 				gate = new Promise((r) => (release = r)),
 				child = new Promise((r) => (settled = r));
 			const root = sql
@@ -1109,11 +1107,10 @@ test(
 						.then((x) => (settled(x), x)),
 				)
 				.catch((e) => e.code);
-			await killer`select pg_terminate_backend(${await pid})`;
+			await terminate(await pid);
 			const outer = await root;
 			release();
 			outcomes.push([outer, await child]);
-			await killer.end();
 			await sql.end();
 		}
 		expect(outcomes).toEqual([

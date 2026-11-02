@@ -75,6 +75,16 @@ export async function server_major() {
 	return Math.floor(version_num / 10000);
 }
 
+/**
+ * Terminates a backend of the server at `pg_port`, through `sql` (so that a test needs no pool of
+ * its own for this).
+ * @param pid - the process ID of the backend, which `pg_backend_pid()` or a query's
+ *   `state.pid` gives
+ */
+export async function terminate(pid: number) {
+	await sql`select pg_terminate_backend(${pid}::int)`;
+}
+
 const reset = postgres({ ...options, onnotice: () => {} });
 // Before each test of the test file that imports this module (every test file gets its own instance
 // of this module), drop the table that many tests create

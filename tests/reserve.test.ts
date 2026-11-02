@@ -1,6 +1,15 @@
 import net from "net";
 import { expect, test } from "vitest";
-import { postgres, sql, options, delay, idle_timeout, pg_port, port_of } from "./setup.ts";
+import {
+	postgres,
+	sql,
+	options,
+	delay,
+	idle_timeout,
+	pg_port,
+	port_of,
+	terminate,
+} from "./setup.ts";
 
 test("Ensure reserve on connection throws proper error", async () => {
 	const sql = postgres({
@@ -83,7 +92,7 @@ test("reserve queued behind a terminated connection", async () => {
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	const pending = pool.reserve();
 
-	await sql`select pg_terminate_backend(${pid})`;
+	await terminate(pid);
 
 	const next = await pending;
 	const [{ x }] = await next`select 1 as x`;
@@ -107,7 +116,7 @@ test("reserve after a terminated query", async () => {
 		await delay(1);
 	}
 
-	await sql`select pg_terminate_backend(${pid})`;
+	await terminate(pid);
 	await query;
 
 	const next = await pool.reserve();
@@ -133,15 +142,14 @@ test("Reserved connection rejects queries after its backend is terminated", asyn
 
 test("Releasing a terminated reserved connection does not return it to the pool", async () => {
 	const sql = postgres({ ...options, max: 1 });
-	const killer = postgres(options);
 	const reserved = await sql.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
-	await killer`select pg_terminate_backend(${pid})`;
+	await terminate(pid);
 	await delay(100);
 	await reserved`select 1`.catch(() => {});
 	reserved.release();
 	const [{ x }] = await Promise.race([sql`select 1 as x`, delay(2000).then(() => [{ x: "hung" }])]);
-	await Promise.all([sql.end(), killer.end()]);
+	await sql.end();
 	expect(x).toBe(1);
 });
 

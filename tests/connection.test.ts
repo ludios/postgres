@@ -16,6 +16,7 @@ import {
 	pg_socket_dir,
 	port_of,
 	server_major,
+	terminate,
 } from "./setup.ts";
 
 test("Connects with no options", async () => {
@@ -826,13 +827,11 @@ test("Failed array type fetch on a live connection is not an unhandled rejection
 });
 
 test("end() completes after the backend is terminated mid-query", { timeout: 5000 }, async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		killer = postgres(options);
+	const sql = postgres({ ...options, max: 1 });
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
 	const query = sql`select pg_sleep(1)`.catch((e) => e);
 	await delay(10);
-	await killer`select pg_terminate_backend(${pid})`;
-	await killer.end();
+	await terminate(pid);
 	const error = await query;
 	const start = Date.now();
 	await sql.end();
@@ -888,7 +887,7 @@ test("Connection end stops a listen connection that is reconnecting", async () =
 		const {
 			state: { pid },
 		} = await client.listen("end_reconnect", () => 0);
-		await sql`select pg_terminate_backend(${pid})`;
+		await terminate(pid);
 		await delay(0);
 		await client.end();
 		await delay(400);

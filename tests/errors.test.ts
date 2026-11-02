@@ -11,6 +11,7 @@ import {
 	port_of,
 	pg_port,
 	thrown,
+	terminate,
 } from "./setup.ts";
 
 test("Undefined values throws", async () => {
@@ -196,13 +197,11 @@ function failures(sql, xs) {
 // has empty `parameters`.
 
 test("Pipelined queries that a connection close rejects each get their own error", async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		killer = postgres(options);
+	const sql = postgres({ ...options, max: 1 });
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
 	const errors = failures(sql, ["a", "b", "c"]);
 	await delay(50);
-	await killer`select pg_terminate_backend(${pid}::int)`;
-	await killer.end();
+	await terminate(pid);
 	// The `cause` of b's and c's errors is a's FATAL error, which must not have a's `args`
 	expect((await Promise.all(errors)).map((e) => [e.args, e.cause?.args])).toEqual([
 		[["a"], undefined],
@@ -214,11 +213,9 @@ test("Pipelined queries that a connection close rejects each get their own error
 
 test("Queries on a reserved connection that has closed each get their own error", async () => {
 	const sql = postgres({ ...options, max: 1 }),
-		killer = postgres(options),
 		reserved = await sql.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
-	await killer`select pg_terminate_backend(${pid}::int)`;
-	await killer.end();
+	await terminate(pid);
 	const errors = [];
 	for (const x of ["a", "b", "c"]) {
 		errors.push(await failures(reserved, [x])[0]);
@@ -263,18 +260,16 @@ test("Queries waiting for a connection when end() gives up connecting each get t
 });
 
 test("A transaction whose backend is terminated mid-query rejects with that query's error", async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		killer = postgres(options);
+	const sql = postgres({ ...options, max: 1 });
 	const error = await sql
 		.begin(async (sql) => {
 			const [{ pid }] = await sql`select pg_backend_pid() as pid`;
 			const query = failures(sql, ["a"])[0];
 			await delay(50);
-			await killer`select pg_terminate_backend(${pid}::int)`;
+			await terminate(pid);
 			await query;
 		})
 		.catch((e) => e);
-	await killer.end();
 	await sql.end();
 	expect([error.code, error.severity, error.args]).toEqual(["57P01", "FATAL", ["a"]]);
 });
@@ -308,8 +303,7 @@ test("A transaction whose connection drops mid-query rejects with that query's e
 });
 
 test("Cursors whose callbacks are running when the connection closes each get their own error", async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		killer = postgres(options);
+	const sql = postgres({ ...options, max: 1 });
 	let resume,
 		pid,
 		cursors,
@@ -335,13 +329,12 @@ test("Cursors whose callbacks are running when the connection closes each get th
 		.catch(() => {});
 	try {
 		await vi.waitUntil(() => started === 2);
-		await killer`select pg_terminate_backend(${pid}::int)`;
+		await terminate(pid);
 		// The close must reject the cursors while their callbacks are still running
 		await vi.waitUntil(() => settled === 2);
 	} finally {
 		resume();
 		await done;
-		await killer.end();
 		await sql.end();
 	}
 	expect((await Promise.all(cursors)).map((e) => [e.code, e.args])).toEqual([
