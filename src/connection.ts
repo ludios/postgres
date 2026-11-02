@@ -574,13 +574,14 @@ export function Connection(ready, options, events) {
 		if (!x.stopping) {
 			x.stopped = true;
 			x.stopping = ready.cancel();
-			hold(x.stopping);
 			// The server drops a cancel request that arrives between two messages of an
-			// exchange, so a later call sends another
+			// exchange, so a later call sends another. Before the hold, which may make
+			// the connection write again
 			const settled = () => {
 				x.stopping = null;
 			};
 			x.stopping.then(settled, settled);
+			hold(x.stopping);
 		}
 		return x.stopping;
 	}
@@ -590,23 +591,14 @@ export function Connection(ready, options, events) {
 	 * sends it no queries meanwhile. Then the connection writes what waits in
 	 * `pending`, and tells the pool that it can take queries again.
 	 *
-	 * A cancel request that is still in flight after `connect_timeout` seconds no
-	 * longer holds the connection, so that one which never completes can't hold it
-	 * forever.
+	 * If `promise` rejects with CONNECT_TIMEOUT, the cancel request may still reach
+	 * the server and cancel whatever the backend runs then, so the connection
+	 * closes instead, and writes nothing more.
 	 *
 	 * @param promise settles once a cancel request has been handled, or has failed
 	 */
 	function hold(promise) {
-		let timer = null,
-			held = true;
 		const done = () => {
-			if (!held) {
-				return;
-			}
-			held = false;
-			if (timer) {
-				timers.clearTimeout(timer);
-			}
 			cancelling--;
 			if (cancelling === 0 && !closed) {
 				release();
@@ -614,13 +606,13 @@ export function Connection(ready, options, events) {
 			}
 		};
 		cancelling++;
-		if (options.connect_timeout) {
-			timer = timers.setTimeout(done, options.connect_timeout * 1000);
-			if (typeof timer.unref === "function") {
-				timer.unref();
+		promise.then(done, (error) => {
+			if (error?.code === "CONNECT_TIMEOUT") {
+				abandon(error);
+			} else {
+				done();
 			}
-		}
-		promise.then(done, done);
+		});
 	}
 
 	/**

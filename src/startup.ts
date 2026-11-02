@@ -288,17 +288,68 @@ async function negotiate(socket, options) {
 	}
 }
 
-async function cancel(options, host, port, { pid, secret }) {
-	const socket = await Socket(options, host, port);
-	try {
-		await negotiate(socket, options);
-	} catch (error) {
-		socket.destroy();
-		throw error;
-	}
-	return new Promise<void>((resolve) => {
-		socket.onclose = () => resolve();
-		socket.end(p.Cancel(pid, secret));
+/**
+ * Sends a CancelRequest over a new connection to the server at `host` and `port`,
+ * and waits for the server to close that connection.
+ *
+ * @param pid the process ID of the backend whose statement to cancel
+ * @param secret that backend's secret key, from its BackendKeyData
+ * @returns a promise that resolves once the server has closed the connection,
+ *   and rejects if the CancelRequest could not be sent, or with CONNECT_TIMEOUT
+ *   after `connect_timeout` seconds, when the CancelRequest may still reach the
+ *   server
+ */
+function cancel(options, host, port, { pid, secret }) {
+	const { setTimeout, clearTimeout } = options.timers;
+
+	return new Promise<void>((resolve, reject) => {
+		let socket = null,
+			settled = false;
+		const timer =
+			options.connect_timeout &&
+			setTimeout(
+				() => settle(Errors.connection("CONNECT_TIMEOUT", options, host, port)),
+				options.connect_timeout * 1000,
+			);
+
+		send().then(
+			() => settle(null),
+			(error) => settle(error),
+		);
+
+		async function send() {
+			socket = await Socket(options, host, port);
+			if (!settled) {
+				await negotiate(socket, options);
+			}
+			// After the timeout, also a socket that only connected since
+			if (settled) {
+				socket.destroy();
+				return;
+			}
+			await new Promise<void>((closed) => {
+				socket.onclose = () => closed();
+				socket.end(p.Cancel(pid, secret));
+			});
+		}
+
+		function settle(error) {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			if (timer) {
+				clearTimeout(timer);
+			}
+			if (!error) {
+				resolve();
+				return;
+			}
+			if (socket) {
+				socket.destroy();
+			}
+			reject(error);
+		}
 	});
 }
 

@@ -326,7 +326,7 @@ test("A cancel of a query pipelined behind another does not cancel a query sent 
 	}
 });
 
-test("A cancel request that never completes holds its connection only for connect_timeout", async () => {
+test("A cancel request that times out closes its connection, so that it can't cancel a later query", async () => {
 	let sockets = 0;
 	const sql = postgres({
 		...options,
@@ -334,16 +334,40 @@ test("A cancel request that never completes holds its connection only for connec
 		idle_timeout: null,
 		connect_timeout: 1,
 		// The second socket is the cancel request's, which never connects
-		socket: () => (++sockets === 1 ? net.connect(pg_port, "localhost") : new Promise(() => {})),
+		socket: () => (++sockets === 2 ? new Promise(() => {}) : net.connect(pg_port, "localhost")),
 	});
 	try {
 		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
 			sleeping = sql`select pg_sleep(0.1)`.execute();
 		await until_sleeping(pid);
-		sleeping.cancel();
+		const cancelled = sleeping.cancel().then(
+			() => "resolved",
+			(error) => error.code,
+		);
 		await sleeping;
-		const [{ x }] = await sql`select 1 as x`;
-		expect([x, sockets]).toEqual([1, 2]);
+		const [{ other }] = await sql`select pg_backend_pid() as other`,
+			outcome = await Promise.race([cancelled, delay(3000).then(() => "pending")]);
+		expect([outcome, other === pid, sockets]).toEqual(["CONNECT_TIMEOUT", false, 3]);
+	} finally {
+		await sql.end({ timeout: 0 });
+	}
+});
+
+test("A cancel of a pipelined query holds its connection for as long as the query ahead of it runs", async () => {
+	const sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: 1 });
+	try {
+		const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+			first = sql`select pg_sleep(1.5)`.execute(),
+			second = sql`select 1`.execute();
+		second.catch(() => {});
+		await until_sleeping(pid);
+		const cancelled = second.cancel();
+		// Sent after connect_timeout, while the first query still runs; written before the cancel
+		// request, it would get it
+		await delay(1200);
+		const third = sql`select pg_sleep(0.3)`.execute();
+		await Promise.all([first, cancelled]);
+		await expect(third).resolves.toBeDefined();
 	} finally {
 		await sql.end({ timeout: 0 });
 	}

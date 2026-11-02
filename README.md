@@ -631,7 +631,7 @@ Destroying the readable stream partway through (as `pipeline` does when the dest
 
 ### Canceling Queries in Progress
 
-Postgres.js supports, [canceling queries in progress](https://www.postgresql.org/docs/7.1/protocol-protocol.html#AEN39000). It works by opening a new connection with a protocol level startup message to cancel the current query running on a specific connection. That means there is no guarantee that the query will be canceled. Until the server has handled the cancel request, the connection sends no more queries, so the request can't cancel a query sent after it. But if the query has already finished when the request arrives, a query that was already pipelined behind it on the same connection gets canceled instead. This is fine for long running queries, but in the case of high load and fast queries it might be better to simply ignore results instead of canceling.
+Postgres.js supports, [canceling queries in progress](https://www.postgresql.org/docs/7.1/protocol-protocol.html#AEN39000). It works by opening a new connection with a protocol level startup message to cancel the current query running on a specific connection. That means there is no guarantee that the query will be canceled. Until the server has handled the cancel request, the connection sends no more queries, so the request can't cancel a query sent after it. If the cancel request takes longer than `connect_timeout`, `query.cancel()` rejects with `CONNECT_TIMEOUT` and the connection closes, because the request could still reach the server later. But if the query has already finished when the request arrives, a query that was already pipelined behind it on the same connection gets canceled instead. This is fine for long running queries, but in the case of high load and fast queries it might be better to simply ignore results instead of canceling.
 
 ```js
 const query = sql`select pg_sleep 100`.execute()
@@ -639,7 +639,7 @@ setTimeout(() => query.cancel(), 100)
 const result = await query
 ```
 
-`.signal()` cancels the query when an [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal) aborts: one still waiting for a connection is rejected without being sent, and a running one gets a cancel request. If the cancel request cannot be sent (say, because the network is down), the query runs until it finishes on its own. The promise that `query.cancel()` returns then rejects with the error, but leaving that rejection unhandled does not crash the process; `.signal()` ignores the error. A cursor canceled while its callback runs, or while an async iterator over it is between batches, is stopped by the client instead: it fetches no more rows, closes its portal and rejects with `57014`, with no cancel request sent.
+`.signal()` cancels the query when an [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal) aborts: one still waiting for a connection is rejected without being sent, and a running one gets a cancel request. If the cancel request cannot be sent (say, because the server refuses the connection), the query runs until it finishes on its own. The promise that `query.cancel()` returns then rejects with the error, but leaving that rejection unhandled does not crash the process; `.signal()` ignores the error. A cursor canceled while its callback runs, or while an async iterator over it is between batches, is stopped by the client instead: it fetches no more rows, closes its portal and rejects with `57014`, with no cancel request sent.
 
 ```js
 await sql`select * from report()`.signal(AbortSignal.timeout(5000))
@@ -1769,7 +1769,7 @@ An insert or update helper was given an empty object or an empty list of columns
 ##### CONNECT_TIMEOUT
 > write CONNECT_TIMEOUT host:port
 
-This error is thrown if the startup phase of the connection (tcp, protocol negotiation, and auth) took more than the default 30 seconds or what was specified using `connect_timeout` or `PGCONNECT_TIMEOUT`.
+This error is thrown if the startup phase of the connection (tcp, protocol negotiation, and auth) took more than the default 30 seconds or what was specified using `connect_timeout` or `PGCONNECT_TIMEOUT`. `query.cancel()` rejects with it too, if its cancel request took longer than that.
 
 ##### COPY_IN_PROGRESS
 > You cannot execute queries during copy

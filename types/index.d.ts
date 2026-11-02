@@ -222,7 +222,7 @@ declare namespace postgres {
 		idle_timeout?: number | null | false | undefined;
 		/** Seconds a query, transaction or reserve may wait for a connection before QUEUE_TIMEOUT; 0 to wait as long as it takes @default 0 */
 		queue_timeout?: number | undefined;
-		/** Seconds to connect before CONNECT_TIMEOUT; 0, null or false to wait as long as it takes @default 30 */
+		/** Seconds to connect, or to send a cancel request, before CONNECT_TIMEOUT; 0, null or false to wait as long as it takes @default 30 */
 		connect_timeout?: number | null | false | undefined;
 		/** Seconds a connection lives at most; a function gives a number per connection; 0, null or false for no limit @default 30 to 60 minutes */
 		max_lifetime?: number | null | false | (() => number) | undefined;
