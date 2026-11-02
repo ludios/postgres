@@ -1138,6 +1138,11 @@ export function Connection(ready, options, events) {
 			unsafe(item);
 		blocker === item && (blocker = null);
 		settle(item);
+		// So that the cached statement no longer keeps the query that prepared it, with its values
+		// and rows
+		if (item.entry && item.entry.owner === item) {
+			item.entry.owner = null;
+		}
 		while (sent.length && sent[0].kind === "local") {
 			settle(sent.shift());
 		}
@@ -1622,6 +1627,13 @@ function Exchange(kind, query, lease, write) {
 	};
 }
 
+/**
+ * @param name - the name of the prepared statement on the connection
+ * @param owner - the exchange that prepares the statement. ReadyForQuery sets it to null once that
+ *   exchange has ended, so that the cache does not keep the exchange's query.
+ * @param oids - the types of the parameters, or null until the server has described them
+ * @returns the connection's cache entry for a prepared statement
+ */
 function Entry(name, owner, oids) {
 	return { name, owner, oids, columns: null, serializers: null, state: "parsing", version: -1 };
 }

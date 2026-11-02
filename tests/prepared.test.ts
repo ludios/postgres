@@ -556,3 +556,42 @@ test("Statements past the connection and pool limits are closed and prepared aga
 		[{ x }] = await run(0);
 	expect([n <= 1001, x]).toEqual([true, 1]);
 }, 30_000);
+
+/**
+ * Runs a query that returns a row of 1 MB, through a statement that `pool` prepares for it, and
+ * forgets the rows.
+ *
+ * @param pool - the `sql` of the pool to run the query on
+ * @param refs - gets a WeakRef to the rows, which tells whether something still keeps them
+ */
+async function prepare_and_forget(pool, refs) {
+	const rows = await pool`select repeat('x', ${1e6}) as x`;
+	refs.push(new WeakRef(rows));
+}
+
+test("A cached prepared statement does not keep the rows of the query that prepared it (#1287)", async ({
+	skip,
+}) => {
+	const v8 = await import("v8"),
+		vm = await import("vm");
+	let gc;
+	try {
+		v8.setFlagsFromString("--expose-gc");
+		gc = vm.runInNewContext("gc");
+	} catch {
+		skip("this runtime cannot expose gc()");
+	}
+
+	// idle_timeout: null, so that the connection stays open, with the statement in its cache
+	await using pool = postgres({ ...options, max: 1, idle_timeout: null });
+	const refs = [];
+	await prepare_and_forget(pool, refs);
+	for (let i = 0; i < 5; i++) {
+		await delay(10);
+		gc();
+	}
+
+	const [{ n }] =
+		await pool`select count(*)::int as n from pg_prepared_statements where statement like 'select repeat%'`;
+	expect([refs[0].deref() === undefined, n]).toEqual([true, options.prepare === false ? 0 : 1]);
+});
