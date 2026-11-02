@@ -52,7 +52,6 @@
 				"typescript/await-thenable": "warn",
 				"no-async-promise-executor": "warn",
 				"typescript/no-base-to-string": "warn",
-				"promise/no-callback-in-promise": "warn",
 				"unicorn/no-unnecessary-await": "warn",
 				"typescript/require-array-sort-compare": "warn",
 				"unicorn/prefer-string-starts-ends-with": "warn",
@@ -110,6 +109,13 @@
 		// seems to be a silly rule for novice users of Promise who e.g. unnecessarily
 		// use more than one `then(...)`.
 		"promise/always-return": "off",
+		// https://oxc.rs/docs/guide/usage/linter/rules/promise/no-callback-in-promise.html
+		// https://oxc.rs/docs/guide/usage/linter/rules/promise/no-promise-in-callback.html
+		// Both go by the name alone: a call of a `done` or `callback` inside then(), or a
+		// promise inside a function that has a `callback` parameter. This code settles its
+		// local `done` functions from promises, and Node's stream callbacks from queries.
+		"promise/no-callback-in-promise": "off",
+		"promise/no-promise-in-callback": "off",
 		// https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-await-in-loop
 		// Silly rule for novices who don't know what they're doing.
 		"no-await-in-loop": "off",
