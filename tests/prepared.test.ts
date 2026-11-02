@@ -595,35 +595,28 @@ test("Stale statements pipelined on the pool are all run again", async () => {
 	await sql.end();
 });
 
-test(
-	"A statement name the server already has on a connection is prepared under a new name (#960)",
-	async () => {
-		const sql = postgres({ ...options, max: 2, prepare: true });
-		const one = await sql.reserve();
-		const two = await sql.reserve();
-		const first = await one`select ${1}::int as x`;
-		await two.unsafe('prepare "' + first.statement.name + '" as select $1::int as x');
-		const [{ x }] = await two`select ${3}::int as x`;
-		const [{ x: y }] = await two`select ${4}::int as x`;
-		one.release();
-		two.release();
-		expect([x, y]).toEqual([3, 4]);
-		await sql.end();
-	},
-);
+test("A statement name the server already has on a connection is prepared under a new name (#960)", async () => {
+	const sql = postgres({ ...options, max: 2, prepare: true });
+	const one = await sql.reserve();
+	const two = await sql.reserve();
+	const first = await one`select ${1}::int as x`;
+	await two.unsafe('prepare "' + first.statement.name + '" as select $1::int as x');
+	const [{ x }] = await two`select ${3}::int as x`;
+	const [{ x: y }] = await two`select ${4}::int as x`;
+	one.release();
+	two.release();
+	expect([x, y]).toEqual([3, 4]);
+	await sql.end();
+});
 
-test(
-	"Statements past the connection and pool limits are closed and prepared again when used",
-	async () => {
-		const sql = postgres({ ...options, max: 1, prepare: true }),
-			run = (i) => sql.unsafe("select $1::int + " + i + " as x", [1], { prepare: true });
-		for (let i = 0; i < 2100; i += 100) {
-			await Promise.all(Array.from({ length: 100 }, (_, j) => run(i + j)));
-		}
-		const [{ n }] = await sql`select count(*)::int as n from pg_prepared_statements`,
-			[{ x }] = await run(0);
-		expect([n <= 1001, x]).toEqual([true, 1]);
-		await sql.end();
-	},
-	30_000,
-);
+test("Statements past the connection and pool limits are closed and prepared again when used", async () => {
+	const sql = postgres({ ...options, max: 1, prepare: true }),
+		run = (i) => sql.unsafe("select $1::int + " + i + " as x", [1], { prepare: true });
+	for (let i = 0; i < 2100; i += 100) {
+		await Promise.all(Array.from({ length: 100 }, (_, j) => run(i + j)));
+	}
+	const [{ n }] = await sql`select count(*)::int as n from pg_prepared_statements`,
+		[{ x }] = await run(0);
+	expect([n <= 1001, x]).toEqual([true, 1]);
+	await sql.end();
+}, 30_000);

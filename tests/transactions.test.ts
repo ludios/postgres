@@ -210,23 +210,19 @@ test("Helpers in Transaction", async () => {
 	expect((await sql.begin(async (sql) => await sql`select ${sql({ x: 1 })}`))[0].x).toBe("1");
 });
 
-test(
-	"Connection errors are caught using begin()",
-	async () => {
-		const sql = postgres({ host: "localhost", port: 1 });
-		const code = await sql
-			.begin(async (sql) => {
-				await sql`insert into test (label, value) values (${1}, ${2})`;
-			})
-			.then(
-				() => "ran",
-				(e) => e.code,
-			);
-		await sql.end();
-		expect(code).toBe("ECONNREFUSED");
-	},
-	2000,
-);
+test("Connection errors are caught using begin()", async () => {
+	const sql = postgres({ host: "localhost", port: 1 });
+	const code = await sql
+		.begin(async (sql) => {
+			await sql`insert into test (label, value) values (${1}, ${2})`;
+		})
+		.then(
+			() => "ran",
+			(e) => e.code,
+		);
+	await sql.end();
+	expect(code).toBe("ECONNREFUSED");
+}, 2000);
 
 test("Throws correct error when retrying in transactions", async () => {
 	await sql`create table test(x int)`;
@@ -550,27 +546,24 @@ test("idle_in_transaction_session_timeout rejects the transaction", async () => 
 	expect(error.code).toBe("25P03");
 });
 
-test(
-	"Transaction queries fail after its connection is gone even if the callback continues",
-	async () => {
-		const sql = postgres({ ...options, max: 1 });
-		setTimeout(() => sql`select 1`.catch(() => {}), 1200);
-		let code;
-		await sql
-			.begin(async (sql) => {
-				await sql`set local idle_in_transaction_session_timeout = '1s'`;
-				await delay(1500);
-				code = await sql`select 'should fail'`.then(
-					() => "ran",
-					(e) => e.code,
-				);
-			})
-			.catch(() => {});
-		await delay(1000);
-		await sql.end();
-		expect(code).toBe("CONNECTION_CLOSED");
-	},
-);
+test("Transaction queries fail after its connection is gone even if the callback continues", async () => {
+	const sql = postgres({ ...options, max: 1 });
+	setTimeout(() => sql`select 1`.catch(() => {}), 1200);
+	let code;
+	await sql
+		.begin(async (sql) => {
+			await sql`set local idle_in_transaction_session_timeout = '1s'`;
+			await delay(1500);
+			code = await sql`select 'should fail'`.then(
+				() => "ran",
+				(e) => e.code,
+			);
+		})
+		.catch(() => {});
+	await delay(1000);
+	await sql.end();
+	expect(code).toBe("CONNECTION_CLOSED");
+});
 
 test("Disconnect rejects queued transaction queries and allows reconnect", async () => {
 	const sql = postgres({ ...options, max_pipeline: 1, fetch_types: false });
@@ -909,49 +902,46 @@ test("A tagged savepoint runs its query in a savepoint", async () => {
 	expect(x.x).toBe(1);
 });
 
-test(
-	"Queries in a Promise.all inside a transaction are pipelined in the order they were made (#951)",
-	async () => {
-		const net = await import("net"),
-			proxy = net.createServer((client) => {
-				const server = net.connect(pg_port, "127.0.0.1");
-				client.on("data", (x) => setTimeout(() => server.write(x), 50));
-				server.on("data", (x) => setTimeout(() => client.write(x), 50));
-				client.on("close", () => server.destroy());
-				server.on("close", () => client.destroy());
-				client.on("error", () => {});
-				server.on("error", () => {});
-			});
-		await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
-		const sql = postgres({
-			...options,
-			host: "127.0.0.1",
-			port: port_of(proxy),
-			max: 1,
-			fetch_types: false,
+test("Queries in a Promise.all inside a transaction are pipelined in the order they were made (#951)", async () => {
+	const net = await import("net"),
+		proxy = net.createServer((client) => {
+			const server = net.connect(pg_port, "127.0.0.1");
+			client.on("data", (x) => setTimeout(() => server.write(x), 50));
+			server.on("data", (x) => setTimeout(() => client.write(x), 50));
+			client.on("close", () => server.destroy());
+			server.on("close", () => client.destroy());
+			client.on("error", () => {});
+			server.on("error", () => {});
 		});
-		const result = await sql.begin(async (sql) => {
-			await sql`create table test (x int)`;
-			let start = Date.now();
-			for (let i = 0; i < 5; i++) {
-				await sql`select ${i}::int`;
-			}
-			const sequential = Date.now() - start;
-			start = Date.now();
-			const [, counted, , summed] = await Promise.all([
-				sql`insert into test values (1)`,
-				sql`select count(*)::int as n from test`,
-				sql`insert into test values (2)`,
-				sql`select sum(x)::int as n from test`,
-				sql`select 1`,
-			]);
-			return [Date.now() - start < sequential / 2, counted[0].n, summed[0].n];
-		});
-		await sql.end();
-		proxy.close();
-		expect(result).toEqual([true, 1, 3]);
-	},
-);
+	await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
+	const sql = postgres({
+		...options,
+		host: "127.0.0.1",
+		port: port_of(proxy),
+		max: 1,
+		fetch_types: false,
+	});
+	const result = await sql.begin(async (sql) => {
+		await sql`create table test (x int)`;
+		let start = Date.now();
+		for (let i = 0; i < 5; i++) {
+			await sql`select ${i}::int`;
+		}
+		const sequential = Date.now() - start;
+		start = Date.now();
+		const [, counted, , summed] = await Promise.all([
+			sql`insert into test values (1)`,
+			sql`select count(*)::int as n from test`,
+			sql`insert into test values (2)`,
+			sql`select sum(x)::int as n from test`,
+			sql`select 1`,
+		]);
+		return [Date.now() - start < sequential / 2, counted[0].n, summed[0].n];
+	});
+	await sql.end();
+	proxy.close();
+	expect(result).toEqual([true, 1, 3]);
+});
 
 test("sql.rollback() rolls back without throwing, and begin resolves with the result (#500)", async () => {
 	await sql`create table test (x int)`;
@@ -1070,41 +1060,38 @@ test("A transaction terminated between statements rejects with the FATAL error, 
 	await sql.end();
 });
 
-test(
-	"A savepoint or nested begin rejects when the connection is lost while its callback runs (#1281)",
-	async () => {
-		const outcomes = [];
-		for (const method of ["savepoint", "begin"]) {
-			const sql = postgres({ ...options, max: 1 });
-			let started, release, settled;
-			const pid = new Promise<number>((r) => (started = r)),
-				gate = new Promise((r) => (release = r)),
-				child = new Promise((r) => (settled = r));
-			const root = sql
-				.begin((sql) =>
-					sql[method](async (sql) => {
-						const [x] = await sql`select pg_backend_pid() as pid`;
-						started(x.pid);
-						await gate;
-						return "child";
-					})
-						.then(
-							() => "fulfilled",
-							(e) => e.code,
-						)
-						.then((x) => (settled(x), x)),
-				)
-				.catch((e) => e.code);
-			const backend = await pid;
-			await terminate(backend);
-			const outer = await root;
-			release();
-			outcomes.push([outer, await child]);
-			await sql.end();
-		}
-		expect(outcomes).toEqual([
-			["57P01", "57P01"],
-			["57P01", "57P01"],
-		]);
-	},
-);
+test("A savepoint or nested begin rejects when the connection is lost while its callback runs (#1281)", async () => {
+	const outcomes = [];
+	for (const method of ["savepoint", "begin"]) {
+		const sql = postgres({ ...options, max: 1 });
+		let started, release, settled;
+		const pid = new Promise<number>((r) => (started = r)),
+			gate = new Promise((r) => (release = r)),
+			child = new Promise((r) => (settled = r));
+		const root = sql
+			.begin((sql) =>
+				sql[method](async (sql) => {
+					const [x] = await sql`select pg_backend_pid() as pid`;
+					started(x.pid);
+					await gate;
+					return "child";
+				})
+					.then(
+						() => "fulfilled",
+						(e) => e.code,
+					)
+					.then((x) => (settled(x), x)),
+			)
+			.catch((e) => e.code);
+		const backend = await pid;
+		await terminate(backend);
+		const outer = await root;
+		release();
+		outcomes.push([outer, await child]);
+		await sql.end();
+	}
+	expect(outcomes).toEqual([
+		["57P01", "57P01"],
+		["57P01", "57P01"],
+	]);
+});

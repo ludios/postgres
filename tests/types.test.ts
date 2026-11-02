@@ -629,28 +629,25 @@ test("sql.end() resolves after the types fail to load for a waiting query", asyn
 	expect([await code, ended]).toEqual(["TYPE_NOT_FOUND", "ended"]);
 });
 
-test(
-	"A custom type created after a failed lookup is found on a later query",
-	async () => {
-		await sql`drop type if exists later_t cascade`;
-		const sql2 = postgres({
-			...options,
-			types: {
-				later: { to: "later_t", from: ["later_t"], serialize: String, parse: (x) => "parsed " + x },
-			},
-		});
-		const first = await sql2`select 1`.then(
-			() => "ran",
-			(e) => e.code,
-		);
-		await sql`create type later_t as enum ('a')`;
-		await delay(1100);
-		const [{ x }] = await sql2`select 'a'::later_t as x`;
-		await sql2.end();
-		await sql`drop type later_t`;
-		expect([first, x]).toEqual(["TYPE_NOT_FOUND", "parsed a"]);
-	},
-);
+test("A custom type created after a failed lookup is found on a later query", async () => {
+	await sql`drop type if exists later_t cascade`;
+	const sql2 = postgres({
+		...options,
+		types: {
+			later: { to: "later_t", from: ["later_t"], serialize: String, parse: (x) => "parsed " + x },
+		},
+	});
+	const first = await sql2`select 1`.then(
+		() => "ran",
+		(e) => e.code,
+	);
+	await sql`create type later_t as enum ('a')`;
+	await delay(1100);
+	const [{ x }] = await sql2`select 'a'::later_t as x`;
+	await sql2.end();
+	await sql`drop type later_t`;
+	expect([first, x]).toEqual(["TYPE_NOT_FOUND", "parsed a"]);
+});
 
 test("Custom types by name need fetch_types", async () => {
 	expect(

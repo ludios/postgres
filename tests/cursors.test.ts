@@ -206,108 +206,99 @@ test("Async iterator cursor surfaces an error arriving between batches", async (
 	expect(code).toBe("22012");
 });
 
-test(
-	"A cursor in a transaction that resumes while another query waits on its description gives each its own answer",
-	async () => {
-		const sql = postgres(options);
-		const out = [];
-		await sql.begin(async (sql) => {
-			let release;
-			const batches = [];
-			const cursor = sql`select generate_series(1, 6) as x`.cursor(2, (rows) => {
-				batches.push(rows.map((r) => r.x));
-				return new Promise((r) => (release = r));
-			});
-			const done = cursor.then(() => batches),
-				until = async (fn) => {
-					while (!fn()) {
-						await delay(5);
-					}
-				},
-				next = async () => {
-					const before = release;
-					before();
-					await until(() => release !== before || batches.length === 3);
-				};
-			await until(() => release);
-			const q = sql`select ${"value"}::text as a, ${Math.random()}::float8 as cursor_order_shape`;
-			q.catch(() => {});
-			for (let i = 0; i < 10; i++) {
-				await Promise.resolve();
-			}
-			await next();
-			await next();
-			release();
-			out.push((await q)[0].a, await done);
-		});
-		expect(out).toEqual([
-			"value",
-			[
-				[1, 2],
-				[3, 4],
-				[5, 6],
-			],
-		]);
-		await sql.end();
-	},
-);
-
-test(
-	"A cursor on a reserved connection keeps its rows from a query made while it runs",
-	async () => {
-		const sql = postgres(options);
-		const reserved = await sql.reserve();
+test("A cursor in a transaction that resumes while another query waits on its description gives each its own answer", async () => {
+	const sql = postgres(options);
+	const out = [];
+	await sql.begin(async (sql) => {
+		let release;
 		const batches = [];
-		const cursor = reserved`select generate_series(1, 6) as x`.cursor(2, async (rows) => {
+		const cursor = sql`select generate_series(1, 6) as x`.cursor(2, (rows) => {
 			batches.push(rows.map((r) => r.x));
-			await delay(50);
+			return new Promise((r) => (release = r));
 		});
-		cursor.catch(() => {});
-		while (!batches.length) {
-			await delay(2);
+		const done = cursor.then(() => batches),
+			until = async (fn) => {
+				while (!fn()) {
+					await delay(5);
+				}
+			},
+			next = async () => {
+				const before = release;
+				before();
+				await until(() => release !== before || batches.length === 3);
+			};
+		await until(() => release);
+		const q = sql`select ${"value"}::text as a, ${Math.random()}::float8 as cursor_order_shape`;
+		q.catch(() => {});
+		for (let i = 0; i < 10; i++) {
+			await Promise.resolve();
 		}
-		const [{ a }] = await reserved`select 'q1' as a`;
-		await cursor;
-		reserved.release();
-		expect([a, batches]).toEqual([
-			"q1",
-			[
-				[1, 2],
-				[3, 4],
-				[5, 6],
-			],
-		]);
-		await sql.end();
-	},
-);
+		await next();
+		await next();
+		release();
+		out.push((await q)[0].a, await done);
+	});
+	expect(out).toEqual([
+		"value",
+		[
+			[1, 2],
+			[3, 4],
+			[5, 6],
+		],
+	]);
+	await sql.end();
+});
 
-test(
-	"A cursor that outlives its transaction is rejected instead of running in the next one",
-	async () => {
-		const sql = postgres({ ...options, max: 1 });
-		await sql`create table test (a int)`;
-		let cursor;
-		const first = await sql
-			.begin((sql) => {
-				cursor = sql`select generate_series(1, 6) as x`.cursor(2, () => delay(100));
-				return Promise.all([cursor, sql`select 1/0`]);
-			})
-			.catch((e) => e.code);
-		const second = await sql
-			.begin(async (sql) => {
-				await sql`insert into test values (1)`;
-				await delay(300);
-				await sql`insert into test values (2)`;
-				return "committed";
-			})
-			.catch((e) => e.code);
-		const outlived = await cursor.catch((e) => e.code);
-		const [{ n }] = await sql`select count(*)::int as n from test`;
-		expect([first, second, n, outlived !== undefined]).toEqual(["22012", "committed", 2, true]);
-		await sql`drop table test`;
-		await sql.end();
-	},
-);
+test("A cursor on a reserved connection keeps its rows from a query made while it runs", async () => {
+	const sql = postgres(options);
+	const reserved = await sql.reserve();
+	const batches = [];
+	const cursor = reserved`select generate_series(1, 6) as x`.cursor(2, async (rows) => {
+		batches.push(rows.map((r) => r.x));
+		await delay(50);
+	});
+	cursor.catch(() => {});
+	while (!batches.length) {
+		await delay(2);
+	}
+	const [{ a }] = await reserved`select 'q1' as a`;
+	await cursor;
+	reserved.release();
+	expect([a, batches]).toEqual([
+		"q1",
+		[
+			[1, 2],
+			[3, 4],
+			[5, 6],
+		],
+	]);
+	await sql.end();
+});
+
+test("A cursor that outlives its transaction is rejected instead of running in the next one", async () => {
+	const sql = postgres({ ...options, max: 1 });
+	await sql`create table test (a int)`;
+	let cursor;
+	const first = await sql
+		.begin((sql) => {
+			cursor = sql`select generate_series(1, 6) as x`.cursor(2, () => delay(100));
+			return Promise.all([cursor, sql`select 1/0`]);
+		})
+		.catch((e) => e.code);
+	const second = await sql
+		.begin(async (sql) => {
+			await sql`insert into test values (1)`;
+			await delay(300);
+			await sql`insert into test values (2)`;
+			return "committed";
+		})
+		.catch((e) => e.code);
+	const outlived = await cursor.catch((e) => e.code);
+	const [{ n }] = await sql`select count(*)::int as n from test`;
+	expect([first, second, n, outlived !== undefined]).toEqual(["22012", "committed", 2, true]);
+	await sql`drop table test`;
+	await sql.end();
+});
 
 test("A pool cursor whose parameter serializer returns a number rejects and frees the connection", async () => {
 	const sql = postgres({
@@ -449,23 +440,17 @@ async function outlives(fn) {
 	return [second, outcome, await sql.end()];
 }
 
-test(
-	"A cursor that throws in its failed transaction rejects with its own error, and the next transaction commits",
-	async () => {
-		const [second, outcome] = await outlives(() => {
-			throw new Error("late");
-		});
-		expect([second, outcome]).toEqual(["committed", "late"]);
-	},
-);
+test("A cursor that throws in its failed transaction rejects with its own error, and the next transaction commits", async () => {
+	const [second, outcome] = await outlives(() => {
+		throw new Error("late");
+	});
+	expect([second, outcome]).toEqual(["committed", "late"]);
+});
 
-test(
-	"A cursor that closes in its failed transaction rejects with 25P02, and the next transaction commits",
-	async () => {
-		const [second, outcome] = await outlives((sql) => sql.CLOSE);
-		expect([second, outcome]).toEqual(["committed", "25P02"]);
-	},
-);
+test("A cursor that closes in its failed transaction rejects with 25P02, and the next transaction commits", async () => {
+	const [second, outcome] = await outlives((sql) => sql.CLOSE);
+	expect([second, outcome]).toEqual(["committed", "25P02"]);
+});
 
 /**
  * Run a cursor that aborts its own query from its first callback.
