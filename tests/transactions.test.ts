@@ -1011,6 +1011,24 @@ test("A transaction terminated between statements rejects with the FATAL error, 
 	]);
 });
 
+test("A FATAL in answer to COMMIT rejects with CONNECTION_CLOSED, with the FATAL as cause", async () => {
+	await using pool = postgres({ ...options, max: 1 });
+	await pool`create table test (id int)`;
+	// A trigger deferred to COMMIT, which terminates the backend that runs it
+	await pool`
+		create or replace function test_kill() returns trigger language plpgsql
+		as $$ begin perform pg_terminate_backend(pg_backend_pid()); return null; end $$
+	`;
+	await pool`create constraint trigger test_kill after insert on test deferrable initially deferred for each row execute function test_kill()`;
+	const error = await pool.begin((tx) => tx`insert into test values (1)`).catch((e) => e);
+	const [{ n }] = await pool`select count(*)::int as n from test`;
+	expect([error.code, error.cause && error.cause.code, n]).toEqual([
+		"CONNECTION_CLOSED",
+		"57P01",
+		0,
+	]);
+});
+
 test("A savepoint or nested begin rejects when the connection is lost while its callback runs (#1281)", async () => {
 	const outcomes = [];
 	for (const method of ["savepoint", "begin"]) {

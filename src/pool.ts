@@ -773,12 +773,12 @@ export function Pool(options, types) {
 	/**
 	 * @param c - the connection that closed
 	 * @param error - the error that says that `c` closed (which no query's properties were added to)
-	 * @param head_error - the error that the query at the head of `c` got when `c` closed, with that
-	 *   query's properties; or null, if `c`'s lease (if any) should not get it
+	 * @param lease_error - the error that `c`'s lease (if any) rejects with instead of `error`, or
+	 *   null for `error`
 	 * @param orderly - whether `c` closed in an orderly way: it sent Terminate, and had nothing in
 	 *   flight when it closed
 	 */
-	function onclose(c, error, head_error, orderly) {
+	function onclose(c, error, lease_error, orderly) {
 		connections.delete(c);
 		// An orderly close is one that the pool asked for, not a failed attempt to open a connection
 		if (c.loading && !orderly && !signal.aborted) {
@@ -790,14 +790,11 @@ export function Pool(options, types) {
 		c.idleTimer && clearTimeout(c.idleTimer);
 		c.lifeTimer && clearTimeout(c.lifeTimer);
 		if (c.lease && c.lease.onclose) {
-			// The head query is the lease's own, so the lease can have its error and its details
-			const lost = head_error || error;
+			const lost = lease_error || error;
 			c.lease.onclose(
-				lost.cause && lost.cause.severity === "FATAL"
-					? lost.cause
-					: lost.code === "CONNECTION_DESTROYED"
-						? Errors.connection("CONNECTION_CLOSED", options, c.host, c.port)
-						: lost,
+				lost.code === "CONNECTION_DESTROYED"
+					? Errors.connection("CONNECTION_CLOSED", options, c.host, c.port)
+					: lost,
 			);
 		}
 		options.onclose && options.onclose(c.id);

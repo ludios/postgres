@@ -771,8 +771,7 @@ export function Connection(ready, options, events) {
 		const orderly = terminated && idle(),
 			head = sent[0],
 			fatal =
-				connection_error ||
-				(head && !head.ends && head.error && head.error.severity === "FATAL" && head.error);
+				connection_error || (head && head.error && head.error.severity === "FATAL" && head.error);
 		closed = Errors.connection(
 			destroyed ? "CONNECTION_DESTROYED" : "CONNECTION_CLOSED",
 			options,
@@ -780,7 +779,10 @@ export function Connection(ready, options, events) {
 			ready.port,
 		);
 		closed.cause = fatal || error || undefined;
-		let head_error = null;
+		// A FATAL error that came with no query to give it to, such as from
+		// idle_in_transaction_session_timeout, is what ended the lease (if any)
+		let lease_error =
+			connection_error && connection_error.severity === "FATAL" ? connection_error : null;
 		sent.splice(0).forEach((x) => {
 			// The query fails with `closed`, so there is nothing left to cancel
 			if (x.cancel) {
@@ -799,11 +801,15 @@ export function Connection(ready, options, events) {
 				own = copy_error(reason);
 			// settleError adds x's query to `own`
 			settleError(x, own);
-			// The pool rejects the lease (if any) with the head's error instead of `closed`. Not if
-			// the head got a FATAL error that `fatal` leaves out: a FATAL error for a statement that
-			// ends a transaction (such as COMMIT), which the server may have committed.
-			if (x === head && (reason === closed || reason === fatal)) {
-				head_error = own;
+			// Otherwise the lease rejects with the head's error, the head being the lease's own query.
+			// Not with a FATAL error for a statement that ends a transaction (such as COMMIT), which
+			// the server may have committed: then the lease rejects with `closed`, whose cause it is.
+			if (
+				x === head &&
+				lease_error === null &&
+				(reason === closed || (reason === fatal && !x.ends))
+			) {
+				lease_error = own;
 			}
 		});
 		pending.splice(0).forEach((x) => (x.own ? settle(x) : settleError(x, copy_error(closed))));
@@ -811,7 +817,7 @@ export function Connection(ready, options, events) {
 		running.clear();
 		open.clear();
 		resolve_closing && resolve_closing();
-		events.onclose(connection, closed, head_error, orderly);
+		events.onclose(connection, closed, lease_error, orderly);
 	}
 
 	function decorate(query, error) {
