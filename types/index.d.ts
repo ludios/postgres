@@ -591,9 +591,9 @@ declare namespace postgres {
 
 		/** Sends it now instead of when awaited */
 		execute(): this;
-		/** Cancels it, sent or not */
+		/** Cancels it, sent or not. The promise rejects if the cancel request cannot be sent, but leaving that rejection unhandled does not crash the process. */
 		cancel(): Promise<void>;
-		/** Cancels it when the signal aborts: `.signal(AbortSignal.timeout(5000))` */
+		/** Cancels it when the signal aborts, ignoring a cancel request that cannot be sent: `.signal(AbortSignal.timeout(5000))` */
 		signal(signal: AbortSignal | null | undefined): this;
 
 		/** @deprecated renamed to `.forEach` */

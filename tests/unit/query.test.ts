@@ -1,12 +1,19 @@
 import { expect, test } from "vitest";
 import { Query } from "../../src/query.ts";
 
-/** A Query whose cancel requests all fail, as when the network is down. */
+/**
+ * @returns A Query whose cancel requests all fail, as when the network is down, and a function
+ *   that returns how many cancel requests it has tried to send.
+ */
 function uncancelable_query() {
+	let cancels = 0;
 	const handler = {
-		cancel: () => Promise.reject(new Error("the cancel request could not be sent")),
+		cancel: () => {
+			cancels++;
+			return Promise.reject(new Error("the cancel request could not be sent"));
+		},
 	};
-	return new Query(["select 1"], [], handler);
+	return { query: new Query(["select 1"], [], handler), cancels: () => cancels };
 }
 
 /**
@@ -31,18 +38,29 @@ async function unhandled_errors(fn: () => void) {
 	return errors;
 }
 
-test("A query given an aborted AbortSignal ignores a failed cancel request", async () => {
+test("cancel() rejects when the cancel request fails, but leaving that unhandled crashes nothing", async () => {
+	const { query } = uncancelable_query();
+	await expect(query.cancel()).rejects.toThrow("the cancel request could not be sent");
 	const errors = await unhandled_errors(() => {
-		void uncancelable_query().signal(AbortSignal.abort());
+		void query.cancel();
 	});
 	expect(errors).toEqual([]);
 });
 
+test("A query given an aborted AbortSignal ignores a failed cancel request", async () => {
+	const { query, cancels } = uncancelable_query();
+	const errors = await unhandled_errors(() => {
+		void query.signal(AbortSignal.abort());
+	});
+	expect([errors, cancels()]).toEqual([[], 1]);
+});
+
 test("A query whose AbortSignal aborts later ignores a failed cancel request", async () => {
+	const { query, cancels } = uncancelable_query();
 	const controller = new AbortController();
 	const errors = await unhandled_errors(() => {
-		void uncancelable_query().signal(controller.signal);
+		void query.signal(controller.signal);
 		controller.abort();
 	});
-	expect(errors).toEqual([]);
+	expect([errors, cancels()]).toEqual([[], 1]);
 });

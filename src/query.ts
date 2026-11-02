@@ -136,19 +136,35 @@ export class Query extends Promise<any> {
 		return "Query " + inspect({ text: x.text, parameters: x.values }, options);
 	}
 
+	/**
+	 * Cancels this Query: removes it from the queue if it has not been sent, and otherwise sends a
+	 * cancel request.
+	 *
+	 * @returns A promise that rejects if the cancel request cannot be sent (say, because the
+	 *   network is down). A cancel request is only a best effort, so leaving the rejection
+	 *   unhandled does not crash the process; the query then runs until it finishes on its own.
+	 */
 	cancel() {
-		return this.handler.cancel ? this.handler.cancel(this) : Promise.resolve();
+		const cancelled = this.handler.cancel ? this.handler.cancel(this) : Promise.resolve();
+		cancelled.catch(() => {});
+		return cancelled;
 	}
 
+	/**
+	 * Cancels this Query (see `cancel()`) when `signal` aborts, or right away if it has aborted.
+	 *
+	 * @param signal An AbortSignal; if null or undefined, this does nothing.
+	 * @returns This Query.
+	 */
 	signal(signal) {
 		if (!signal || this.settled) {
 			return this;
 		}
 
-		// Nothing awaits this cancel request, so a failure to send it (say, because the network is
-		// down) must not crash the process; the query then keeps running.
+		// Returns nothing, because Node's EventTarget rethrows the rejection of a promise that a
+		// listener returns, as an uncaught exception
 		const abort = () => {
-			this.cancel().catch(() => {});
+			void this.cancel();
 		};
 		if (signal.aborted) {
 			abort();
