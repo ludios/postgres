@@ -165,13 +165,9 @@ test("Async stack trace", async () => {
 test("Debug has long async stack trace", async () => {
 	const sql = postgres({ ...options, debug: true });
 
-	const inlines = "Bun" in globalThis;
-	const expected = inlines ? "true" : "watyo";
-	expect(
-		await yo().catch((x) =>
-			inlines ? String(x.stack.includes("errors.test.ts")) : x.stack.match(/wat|yo/g).join(""),
-		),
-	).toBe(expected);
+	const error = await yo().catch((x) => x);
+	const frames = [...error.stack.matchAll(/^\s+at (wat|yo) /gm)].map((m) => m[1]);
+	expect(frames).toEqual(["wat", "yo"]);
 
 	function yo() {
 		return wat();
