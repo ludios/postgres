@@ -1118,21 +1118,24 @@ function code_of(query) {
 
 test("Queries keep working after the backend dies under a burst of pipelined writes (#1250)", async () => {
 	const sql = postgres({ ...options, max: 1, max_pipeline: 100 });
-	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
-	// The connection gets and writes the sleep and the first 99 queries of the burst, which wait
-	// behind the sleep until the backend dies. The other 101 queries wait in the pool for the next
-	// connection. The burst gives the type of its parameter (23 is int4), so that the connection
-	// does not wait for the server to describe the statement before writing the rest of the burst.
-	const sleep = code_of(sql`select pg_sleep(10)`);
-	const burst = [...Array(200)].map((_, i) => code_of(sql`select ${sql.typed(i, 23)} as x`));
-	await until_sleeping(pid);
-	await terminate(pid);
-	expect(await Promise.all([sleep, ...burst])).toEqual([
-		"57P01",
-		...Array(99).fill("CONNECTION_CLOSED"),
-		...Array(101).fill("ok"),
-	]);
-	await sql.end();
+	try {
+		const [{ pid }] = await sql`select pg_backend_pid() as pid`;
+		// The connection gets and writes the sleep and the first 99 queries of the burst, which wait
+		// behind the sleep until the backend dies. The other 101 queries wait in the pool for the next
+		// connection. The burst gives the type of its parameter (23 is int4), so that the connection
+		// does not wait for the server to describe the statement before writing the rest of the burst.
+		const sleep = code_of(sql`select pg_sleep(10)`);
+		const burst = [...Array(200)].map((_, i) => code_of(sql`select ${sql.typed(i, 23)} as x`));
+		await until_sleeping(pid);
+		await terminate(pid);
+		expect(await Promise.all([sleep, ...burst])).toEqual([
+			"57P01",
+			...Array(99).fill("CONNECTION_CLOSED"),
+			...Array(101).fill("ok"),
+		]);
+	} finally {
+		await sql.end({ timeout: 0 });
+	}
 });
 
 function lyingServer(final) {
