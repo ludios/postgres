@@ -107,7 +107,7 @@ The open issues and pull requests were triaged into 33 correctness bugs, each wi
 - Array and domain types are fetched once per pool, on its first connection; if that query fails with a server error the pool carries on without them instead of asking again for every query.
 - COPY under back-pressure no longer stalls, and COPY TO STDOUT to a slow consumer is no slower with the shared read buffer than without it.
 - A COPY keeps its connection until it has finished, so the pool sends other queries to other connections instead of queueing them behind a COPY TO STDOUT that is read slowly or not at all.
-- Destroying a `copy ... to stdout` readable partway through no longer hangs its connection; the connection drops the rest of the COPY output. Outside a transaction block, it also sends a cancel request, so that the server stops the COPY soon.
+- Destroying a `copy ... to stdout` readable partway through no longer hangs its connection; the connection reads and drops the rest of the COPY output.
 - After `query.cancel()`, the connection sends no more queries until the server has handled the cancel request, so a request that arrives after its query has finished can't cancel a query sent after it.
 - `query.cancel()` stops a COPY whose query has already resolved with its stream; it used to do nothing and return a promise that never settled. It fails the stream with a 57014 error, and it stops a `copy ... from stdin` with CopyFail, because the server holds back a cancel request while it waits for COPY data.
 - Destroying a COPY BOTH stream (the stream of `START_REPLICATION`) ends the COPY with CopyDone. It used to send CopyFail, which the server takes as a FATAL error that closes the connection.
