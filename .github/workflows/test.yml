@@ -28,9 +28,6 @@ jobs:
           git -C "$RUNNER_TEMP/ephemeralpg" checkout fec6ffb97bb902e8caef0fd9ab880ccf115db83a
           make -C "$RUNNER_TEMP/ephemeralpg"
           sudo make -C "$RUNNER_TEMP/ephemeralpg" install
-      - uses: denoland/setup-deno@v1
-        with:
-          deno-version: v1.x
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

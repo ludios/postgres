@@ -1500,11 +1500,7 @@ async function exits(source) {
 		path = await import("path"),
 		file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "unref-")), "x.mjs");
 	fs.writeFileSync(file, source);
-	const child = spawn(
-		process.execPath,
-		typeof Deno !== "undefined" ? ["run", "-A", file] : [file],
-		{ env: process.env },
-	);
+	const child = spawn(process.execPath, [file], { env: process.env });
 	let out = "";
 	child.stdout.on("data", (x) => (out += x));
 	const exited = await new Promise((r) => {
