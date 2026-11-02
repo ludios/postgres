@@ -1719,6 +1719,11 @@ A query, savepoint or nested `sql.begin` was made after `sql.rollback()` in the 
 
 Arrays are typed from what they hold, so they need no helper. Add a cast where the server should treat it as something else, like `${ ids }::int[]`.
 
+##### CASING_TRANSFORM_REMOVED
+> postgres.camel is removed in v4: pass your own functions as transform.column.to and transform.column.from instead
+
+Code read `postgres.camel`, `postgres.toCamel`, `postgres.fromCamel`, or the Pascal or kebab version of one of them. Write the transform as in [Custom Transform Functions](#custom-transform-functions).
+
 ##### CONNECTION_CLOSED
 > write CONNECTION_CLOSED host:port
 
@@ -1881,7 +1886,7 @@ If it returns no columns, or the time zone is `UTC` and so is your Node.js proce
 
 - **Runtimes.** Node.js 22 or later, Bun and Cloudflare Workers; Deno runs the npm package. Postgres.js is an ES module; `require('postgres').default` works on Node.js 22.12 and later.
 - **`sql.array()` is removed.** Pass the array as it is, with a cast where the query doesn't decide its type: `${ ids }::int[]`.
-- **The casing transforms are removed:** `postgres.camel`, `postgres.toCamel` and `postgres.fromCamel`, and the same for Pascal and kebab case. Pass your own functions as `transform.column.to` and `transform.column.from`, as in [Custom Transform Functions](#custom-transform-functions). Two things that the removed transforms did need more than that: they renamed the keys inside `json` and `jsonb` values too (at every depth), which needs a `transform.value.from` of your own; and `postgres.toCamel`, `postgres.toPascal` and `postgres.toKebab` converted the names given to the `sql()` helpers back to snake_case, as a `transform.column.to` does. A `transform: postgres.camel` that is left in JavaScript code now transforms nothing, without an error.
+- **The casing transforms are removed:** `postgres.camel`, `postgres.toCamel` and `postgres.fromCamel`, and the same for Pascal and kebab case. Pass your own functions as `transform.column.to` and `transform.column.from`, as in [Custom Transform Functions](#custom-transform-functions). Two things that the removed transforms did need more than that: they renamed the keys inside `json` and `jsonb` values too (at every depth), which needs a `transform.value.from` of your own; and `postgres.toCamel`, `postgres.toPascal` and `postgres.toKebab` converted the names given to the `sql()` helpers back to snake_case, as a `transform.column.to` does. Reading `postgres.camel` or one of the others throws `CASING_TRANSFORM_REMOVED`.
 - **Transactions are stricter.** A `COMMIT` the server answers with `ROLLBACK` rejects with `TRANSACTION_ROLLED_BACK`, a query on a transaction or reserved connection after it ended rejects, a query that can't be built inside a transaction aborts it, and a `begin` sent outside `sql.begin`, a reserved connection or `max: 1` rejects with `UNSAFE_TRANSACTION` and is rolled back.
 - **Domains** are read and written as their base type, so a domain over `int[]` comes back as an array of numbers.
 - **`infinity` timestamps** are `Infinity` and `-Infinity` instead of an invalid `Date`.

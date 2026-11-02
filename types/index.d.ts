@@ -378,6 +378,7 @@ declare namespace postgres {
       | 'UNDEFINED_VALUE'
       | 'MAX_PARAMETERS_EXCEEDED'
       | 'ARRAY_REMOVED'
+      | 'CASING_TRANSFORM_REMOVED'
       | 'COPY_IN_PROGRESS'
       | 'UNSAFE_TRANSACTION'
       | 'TRANSACTION_ROLLED_BACK'

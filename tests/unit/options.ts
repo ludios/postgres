@@ -104,6 +104,20 @@ test("sql.array() is removed, and says so", async () => {
 	).toBe("ARRAY_REMOVED");
 });
 
+test("The removed casing transforms throw when read, and Object.assign does not copy them", async () => {
+	const names = "camel toCamel fromCamel pascal toPascal fromPascal kebab toKebab fromKebab",
+		codes = names.split(" ").map((name) => {
+			try {
+				return postgres[name];
+			} catch (e) {
+				return e.code;
+			}
+		});
+	expect(codes.join() + " " + Object.keys(Object.assign({}, postgres)).join()).toBe(
+		Array(9).fill("CASING_TRANSFORM_REMOVED").join() + " PostgresError,BigInt",
+	);
+});
+
 test("channel_binding from options, the url and PGCHANNELBINDING, as libpq reads it", async () => {
 	process.env.PGCHANNELBINDING = "disable";
 	let read;

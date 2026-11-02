@@ -3,7 +3,7 @@ import { connect } from "cloudflare:sockets";
 import { EventEmitter } from "node:events";
 import { Buffer } from "node:buffer";
 import postgres, { PostgresError } from "./index.ts";
-import { Errors } from "./errors.ts";
+import { Errors, remove_casing_transforms } from "./errors.ts";
 import { secured, direct } from "./socket.ts";
 
 export default function Postgres(a, b) {
@@ -11,6 +11,7 @@ export default function Postgres(a, b) {
 }
 
 Object.assign(Postgres, postgres);
+remove_casing_transforms(Postgres);
 
 export { PostgresError };
 

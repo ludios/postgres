@@ -8,7 +8,7 @@ import type { PostgresType } from "./types.ts";
 import { Identifier, Builder } from "./build.ts";
 import { Query, CLOSE } from "./query.ts";
 import { Pool } from "./pool.ts";
-import { Errors, PostgresError } from "./errors.ts";
+import { Errors, PostgresError, remove_casing_transforms } from "./errors.ts";
 import Subscribe from "./subscribe.ts";
 import largeObject from "./large.ts";
 import { channels, active, start, finish, userName } from "./diagnostics.ts";
@@ -22,6 +22,8 @@ export default Object.assign(Postgres, {
 		serialize: (x) => x.toString(),
 	},
 });
+
+remove_casing_transforms(Postgres);
 
 export { PostgresError };
 

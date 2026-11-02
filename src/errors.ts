@@ -141,3 +141,40 @@ export function queryError(error, q, debug) {
 	});
 	return withOrigin(error, q.origin);
 }
+
+/** The casing transforms that v3 had as properties of `postgres`, and that v4 removed */
+const casing_transforms = [
+	"camel",
+	"toCamel",
+	"fromCamel",
+	"pascal",
+	"toPascal",
+	"fromPascal",
+	"kebab",
+	"toKebab",
+	"fromKebab",
+];
+
+/**
+ * Makes reading a removed casing transform (such as `postgres.camel`) from `target` throw
+ * CASING_TRANSFORM_REMOVED. Without this, `transform: postgres.camel` would be `transform:
+ * undefined`, which transforms nothing, without an error. The getters are not enumerable, so that
+ * `Object.assign` (which reads only enumerable properties) does not throw when it copies `target`.
+ * @param target - a function that a module exports as its default, as `postgres`
+ */
+export function remove_casing_transforms(target) {
+	for (const name of casing_transforms) {
+		Object.defineProperty(target, name, {
+			configurable: true,
+			enumerable: false,
+			get() {
+				throw Errors.generic(
+					"CASING_TRANSFORM_REMOVED",
+					"postgres." +
+						name +
+						" is removed in v4: pass your own functions as transform.column.to and transform.column.from instead",
+				);
+			},
+		});
+	}
+}
