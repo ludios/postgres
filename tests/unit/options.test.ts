@@ -112,6 +112,20 @@ test("disable and false in the query of a url turn an option off", async () => {
 	expect([x.prepare, x.ssl, x.fetch_types]).toEqual([false, false, false]);
 });
 
+test("disable and false in a PG environment variable turn an option off, as in a url", async () => {
+	process.env.PGPREPARE = "false";
+	process.env.PGIDLE_TIMEOUT = "disable";
+	let read;
+	try {
+		const x = postgres({ max: 1 }).options;
+		read = [x.prepare, x.idle_timeout];
+	} finally {
+		delete process.env.PGPREPARE;
+		delete process.env.PGIDLE_TIMEOUT;
+	}
+	expect(read).toEqual([false, false]);
+});
+
 test("An unsupported target_session_attrs throws", async () => {
 	expect(thrown(() => postgres({ target_session_attrs: "any" })).message).toBe(
 		"target_session_attrs any is not supported",

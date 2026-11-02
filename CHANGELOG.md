@@ -27,7 +27,7 @@ The README has an [upgrade guide](./README.md#upgrading-from-v3), with a query t
 - **An unknown authentication type rejects** with `AUTH_TYPE_NOT_IMPLEMENTED` instead of waiting for the connect timeout.
 - **A replication error with no `onerror` is logged.** When the `sql.subscribe` stream fails and none of its subscriptions has an `onerror`, the error goes to `console.error` before the stream reconnects; v3 dropped it. Pass `onerror` to handle or silence it.
 - **`infinity` timestamps** are `Infinity` and `-Infinity`, both ways, instead of an invalid `Date`.
-- **A numeric option must be a finite, non-negative number.** In the url (`?connect_timeout=30`) or in a `PG` environment variable (`PGCONNECT_TIMEOUT=30`), it must be written as a decimal number such as `30` or `0.5`, with or without whitespace around it; `false` and `disable` in the url still turn an option off. Otherwise `postgres()` throws an error that names the option and where its value came from. v3 read other text, such as `30s`, as `NaN`, and kept a `NaN` from the options object, and `NaN` turned off a timeout option without saying so. `max` given as text is now a number too, so `?max=1` and `PGMAX=1` act like `max: 1`; v3 kept `max` as a string.
+- **A numeric option must be a finite, non-negative number.** In the url (`?connect_timeout=30`) or in a `PG` environment variable (`PGCONNECT_TIMEOUT=30`), it must be written as a decimal number such as `30` or `0.5`, with or without whitespace around it; `false` and `disable` still turn an option off. Otherwise `postgres()` throws an error that names the option and where its value came from. v3 read other text, such as `30s`, as `NaN`, and kept a `NaN` from the options object, and `NaN` turned off a timeout option without saying so. `max` given as text is now a number too, so `?max=1` and `PGMAX=1` act like `max: 1`; v3 kept `max` as a string.
 - **TypeScript:** the types are an ES module with a default export and named types (`import postgres, { type Sql } from 'postgres'`). A reserved connection is no longer typed as having `begin` and `end`, which it never had.
 
 ### New
@@ -88,6 +88,7 @@ The open issues and pull requests were triaged into 33 correctness bugs, each wi
 - A reserved connection released while its own queries are still in flight goes back to the pool only once they are answered and it is outside a transaction; otherwise it is closed.
 - `connect_timeout` destroys a TCP connection that is still being opened, so the process can exit.
 - A timeout longer than about 24.8 days, the longest delay that `setTimeout` can wait, is cut to that length. On Node.js, v3 let `setTimeout` fire such a timer after 1 ms, so that a `max_lifetime` or an `idle_timeout` of 30 days closed each connection at once.
+- `false` and `disable` in a `PG` environment variable turn an option off, as they do in the url. v3 kept them as text, which counts as true, so that `PGPREPARE=false` left prepared statements on and `PGSSL=false` turned SSL on.
 - A server that is ready before it has accepted the authentication is rejected with `AUTHENTICATION_INCOMPLETE`, so SCRAM cannot be skipped.
 - An `onnotice` that throws during startup no longer fails the connection.
 - `sql.subscribe` parses custom array types and domains like queries do.

@@ -501,6 +501,14 @@ const numeric_options = [
 ];
 
 /**
+ * @param text - the text of an option, from the url or an environment variable
+ * @returns `false` if `text` is `disable` or `false`, which turn an option off; otherwise `text`
+ */
+function off_or_text(text) {
+	return text === "disable" || text === "false" ? false : text;
+}
+
+/**
  * Reads an option from the first of these places that sets it: the options object, the query of
  * the url, and the environment variable named `PG` followed by the option's name in upper case.
  *
@@ -509,8 +517,8 @@ const numeric_options = [
  * @param o     - the options object given to `postgres()`
  * @param query - the parameters in the query of the url, by name
  * @param env   - the environment variables
- * @returns the value of the option, where `disable` and `false` in the url are `false`, and a
- *          string for a numeric option is the number it is written as
+ * @returns the value of the option, where `disable` and `false` in the url or an environment
+ *          variable are `false`, and a string for a numeric option is the number it is written as
  * @throws if a numeric option is a number that is NaN, negative or infinite, or text that is not
  *         a non-negative decimal number with or without whitespace around it
  */
@@ -521,10 +529,10 @@ function read_option(k, d, o, query, env) {
 		value = o[k];
 		source = "The option " + k;
 	} else if (k in query) {
-		value = query[k] === "disable" || query[k] === "false" ? false : query[k];
+		value = off_or_text(query[k]);
 		source = "The url parameter " + k;
 	} else if (env[variable]) {
-		value = env[variable];
+		value = off_or_text(env[variable]);
 		source = "The environment variable " + variable;
 	} else {
 		return d;
