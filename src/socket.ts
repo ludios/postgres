@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import net from "net";
 import tls from "tls";
 
