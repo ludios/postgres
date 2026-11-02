@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 // @ts-nocheck
 import { t } from "./test.ts";
 import { postgres, sql, options, login_md5, rel, idle_timeout, delay } from "./setup.ts";
@@ -152,10 +153,10 @@ t("Debug", async () => {
 
 t("Async stack trace", async () => {
 	const sql = postgres({ ...options, debug: false });
-	return [
-		parseInt(new Error().stack.split("\n")[1].match(":([0-9]+):")[1]) + 1,
-		parseInt(await sql`error`.catch((x) => x.stack.split("\n").pop().match(":([0-9]+):")[1])),
-	];
+	// The query must be on the line after this one
+	const line = parseInt(new Error().stack.split("\n")[1].match(":([0-9]+):")[1]);
+	const error = await sql`error`.catch((x) => x);
+	return [line + 1, parseInt(error.stack.split("\n").pop().match(":([0-9]+):")[1])];
 });
 
 t("Debug has long async stack trace", async () => {
