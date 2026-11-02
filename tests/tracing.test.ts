@@ -174,7 +174,7 @@ test("Tracing: the pool publishes open, lease, release, idle and close", async (
 	const kinds = [...new Set(messages.map((x) => x.event))];
 	expect([
 		["open", "idle", "lease", "release", "close"].filter((x) => kinds.includes(x)),
-		messages.filter((x) => typeof x.stats.connections !== "number"),
+		messages.filter((x) => typeof x.stats?.connections !== "number"),
 	]).toEqual([["open", "idle", "lease", "release", "close"], []]);
 });
 
