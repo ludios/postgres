@@ -2,7 +2,7 @@
 
 Reviewer: Claude Mythos 5.1, on 2026-11-02, at commit `33aa4bd` on `prime`.
 
-This is not a full review. The two bugs below turned up while reading every file in `src/` to mark where an operator would want a log line. Both are confirmed against the working tree with the scripts under [How this was tested](#how-this-was-tested).
+This is not a full review. The four items below turned up while reading every file in `src/` to mark where an operator would want a log line. 1, 2 and 4 are confirmed against the working tree with the scripts under [How this was tested](#how-this-was-tested); 3 is from reading only.
 
 ## 1. A non-numeric value for a numeric option becomes `NaN` silently; `backoff=abc` is a hot reconnect loop
 
@@ -35,6 +35,27 @@ Suggested fix: in the `ints` branch, throw when `Number.isNaN(+value)`, naming t
 Reachability: a conforming PostgreSQL sends a `Relation` message before the first change for each relation in a walsender session, and `relations` is created per `Stream`, which is per connection, so this needs a non-conforming server or proxy, or a dropped message. Low likelihood, process-crash consequence, and in the common case it is not even reported.
 
 Suggested fix: when `relation` is undefined, build an error (`Errors.generic('UNKNOWN_RELATION', ...)` with the id and message type) and hand it to `report()` or `stream.destroy(error)` instead of dereferencing.
+
+## 3. If the rollback sent after a failed query itself fails, its error replaces the original one
+
+In `scope()` ([src/index.ts:266-273](../src/index.ts#L266-L273)) the `catch` block sends `rollback` (or `rollback to <savepoint>`) with `await control(...)`, unless the connection is already known to be closed, and only then throws the original error. If that rollback rejects, because the connection closed between the `lease.connection.closed` check and the rollback completing, the rejection propagates out of the `catch`, and the caller gets `CONNECTION_CLOSED` instead of the error that ended the transaction (a constraint violation, say).
+
+From reading only; the race was not reproduced. Minor: the transaction is gone either way, but the cause is lost.
+
+Suggested fix: `await control(...).catch(() => {})` there, or attach the rollback error as `cause` on the original.
+
+## 4. A server error while fetching types is treated as "types loaded"
+
+`loadTypes()` ([src/pool.ts:439-447](../src/pool.ts#L439-L447)) runs the `pg_catalog.pg_type` queries on the first connection. If they fail with a `PostgresError`, it sets `typesLoaded = true` and nothing is reported. From then on, arrays of custom types and domains are returned unparsed, as text, for the lifetime of the pool:
+
+```
+as app (no SELECT on pg_type):  [{"x":"{a,b}"}]
+as superuser:                   [{"x":["a","b"]}]
+```
+
+That may be deliberate, to keep working against servers whose catalog differs, but `fetch_types: false` already exists for the deliberate case, and a user who hits it by accident (a restricted role, or a proxy in front of something that is not PostgreSQL) has no way to find out why their arrays are strings. The `TYPE_NOT_FOUND` branch next to it, by contrast, rejects every query.
+
+Suggested fix: at least report it (a warning, once); or treat it like `TYPE_NOT_FOUND`.
 
 ## How this was tested
 
@@ -69,4 +90,18 @@ setImmediate(() => {
   t.on('data', () => { throw new Error('buffered') })
   t.pause(); t.push(Buffer.from('a')); t.push(Buffer.from('b')); t.resume()        // uncaught: buffered
 })
+```
+
+Bug 4, against a scratch cluster from `pg_tmp -t` (PostgreSQL 18):
+
+```sh
+psql "$url" -c "create role app login password 'x'; create type mood as enum ('a','b');
+  create table m (x mood[]); insert into m values ('{a,b}'); grant select on m to app;
+  revoke select on pg_catalog.pg_type from public;"
+```
+
+```js
+import postgres from './src/index.ts'
+const sql = postgres({ host: '127.0.0.1', port, user: 'app', password: 'x', database: 'test' })
+console.log(JSON.stringify(await sql`select x from m`))   // [{"x":"{a,b}"}], no error, no warning
 ```
