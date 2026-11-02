@@ -492,8 +492,9 @@ export function Pool(options, types) {
 
 	/**
 	 * Loads the pool's types on connection `c`, then lets the connections go on: the waiting
-	 * queries run, or, if a type does not exist, are rejected, and each connection that is left
-	 * with nothing to do settles into idleness, or closes if the pool is ending.
+	 * queries run, or, if a type does not exist, are rejected, and each connection that waited
+	 * for the types and is left with nothing to do settles into idleness, or closes if the pool
+	 * is ending.
 	 * @param c - an open connection
 	 */
 	function loadTypes(c) {
@@ -532,6 +533,7 @@ export function Pool(options, types) {
 			)
 			.then(() => {
 				typesLoading = false;
+				const waited = [...connections].filter((x) => x.loading);
 				connections.forEach((x) => (x.loading = !typesLoaded && !typesError));
 				if (typesLoaded || typesError) {
 					recovered();
@@ -550,7 +552,9 @@ export function Pool(options, types) {
 				if (ending && waiting.length === 0) {
 					finishing();
 				}
-				connections.forEach((x) => idle(x));
+				for (const x of waited) {
+					idle(x);
+				}
 			});
 	}
 
@@ -673,9 +677,16 @@ export function Pool(options, types) {
 		return timer;
 	}
 
+	/**
+	 * Closes connection `c` when its idle timer fires, if `c` has been idle for `idle_timeout`
+	 * and the pool has more than `min` connections; if `c` became idle again after the timer was
+	 * set, waits the rest of the timeout first. A connection that is busy, leased or waiting for
+	 * the pool's types is left alone: it gets a new timer when it next settles into idleness.
+	 * @param c - the connection whose idle timer fired
+	 */
 	function idled(c) {
 		c.idleTimer = null;
-		if (c.inflight || c.lease || c.closed) {
+		if (c.inflight || c.lease || c.closed || c.loading) {
 			return;
 		}
 
@@ -684,7 +695,11 @@ export function Pool(options, types) {
 		}
 
 		const left = options.idle_timeout * 1000 - (now() - c.idleSince);
-		left >= 1 ? (c.idleTimer = unref(setTimeout(() => idled(c), left))) : c.close();
+		if (left >= 1) {
+			c.idleTimer = unref(setTimeout(() => idled(c), left));
+		} else {
+			c.close();
+		}
 	}
 
 	function onready(c) {
