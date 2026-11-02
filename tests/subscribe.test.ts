@@ -117,7 +117,7 @@ test("subscribe reconnects and calls onsubscribe", async () => {
 		state = () => JSON.stringify({ onsubscribes, result, errors });
 	let onsubscribes = 0;
 
-	const { unsubscribe, sql: subscribeSql } = await sql.subscribe(
+	const { unsubscribe, sql: subscribe_sql } = await sql.subscribe(
 		"*",
 		(row, { command, old }) => result.push([command, row.name || row.id, old && old.name]),
 		() => onsubscribes++,
@@ -133,7 +133,7 @@ test("subscribe reconnects and calls onsubscribe", async () => {
 
 	await sql`insert into test (name) values ('Murray')`;
 	await until(() => result.length === 1, 5000, state);
-	await subscribeSql.close();
+	await subscribe_sql.close();
 	await until(() => onsubscribes === 2, 5000, state);
 	await sql`delete from test`;
 	await until(() => result.length === 2, 5000, state);
@@ -359,7 +359,7 @@ test("subscribe does not pile up listeners across reconnects (#1087)", async () 
 		process.off("warning", onwarning);
 	});
 
-	const { unsubscribe, sql: subscribeSql } = await sql.subscribe(
+	const { unsubscribe, sql: subscribe_sql } = await sql.subscribe(
 		"insert:test",
 		(row) => result.push(row.name),
 		() => seen.subscribes++,
@@ -368,7 +368,7 @@ test("subscribe does not pile up listeners across reconnects (#1087)", async () 
 
 	for (let i = 1; i <= 12; i++) {
 		const before = seen.subscribes;
-		await subscribeSql.close();
+		await subscribe_sql.close();
 		await until(() => seen.subscribes !== before);
 	}
 

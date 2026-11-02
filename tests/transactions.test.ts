@@ -495,10 +495,10 @@ test("Parameter failing to serialize aborts a pipelined transaction on a reserve
 test("Does not reject leftover begin onclose after commit", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	const rejections = [];
-	const onUnhandled = (reason) => rejections.push(reason);
-	process.on("unhandledRejection", onUnhandled);
+	const on_unhandled = (reason) => rejections.push(reason);
+	process.on("unhandledRejection", on_unhandled);
 	onTestFinished(() => {
-		process.off("unhandledRejection", onUnhandled);
+		process.off("unhandledRejection", on_unhandled);
 	});
 	await sql.begin((sql) => sql`select 1`);
 	await sql.end({ timeout: 0 });
@@ -564,7 +564,7 @@ test("Disconnect rejects queued transaction queries and allows reconnect", async
 });
 
 test("Disconnected transaction cannot query a reused connection", async () => {
-	const code = await withDisconnectedTransaction(({ sql, disconnected }) =>
+	const code = await with_disconnected_transaction(({ sql, disconnected }) =>
 		sql.begin(async (sql) => {
 			await sql`select set_config('postgres_js.test', 'replacement', true)`;
 			const result = await disconnected`select current_setting('postgres_js.test') as x`.catch(
@@ -589,7 +589,7 @@ test("Disconnected transaction cannot roll back a reused connection", async () =
 });
 
 function finishDisconnectedTransaction(error?) {
-	return withDisconnectedTransaction(({ sql, finish }) =>
+	return with_disconnected_transaction(({ sql, finish }) =>
 		sql.begin(async (sql) => {
 			const [{ x: before }] = await sql`select txid_current()::text as x`;
 			finish(error);
@@ -600,7 +600,15 @@ function finishDisconnectedTransaction(error?) {
 	);
 }
 
-async function withDisconnectedTransaction(fn) {
+/**
+ * Begins a transaction on a new pool, and terminates the transaction's backend while its callback
+ * waits; then runs `fn`.
+ * @param fn - a function that gets `sql`, the pool; `disconnected`, the `sql` of the transaction,
+ *   whose connection is gone; and `finish`, which lets the transaction's callback return, or throw
+ *   the error given to `finish`
+ * @returns what `fn` returns, awaited
+ */
+async function with_disconnected_transaction(fn) {
 	const pool = postgres({ ...options, fetch_types: false });
 	await using _end = defer(() => pool.end({ timeout: 0 }));
 	let finish, ready;

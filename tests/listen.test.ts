@@ -227,12 +227,12 @@ test("listen result reports correct connection state after reconnection", async 
 	const xs = [];
 
 	const result = await sql.listen("test", (x) => xs.push(x));
-	const initialPid = result.state.pid;
+	const initial_pid = result.state.pid;
 	await sql.notify("test", "a");
-	await sql`select pg_terminate_backend(${initialPid})`;
-	await until(() => result.state.pid && result.state.pid !== initialPid);
+	await sql`select pg_terminate_backend(${initial_pid})`;
+	await until(() => result.state.pid && result.state.pid !== initial_pid);
 
-	expect(result.state.pid !== initialPid).toBe(true);
+	expect(result.state.pid !== initial_pid).toBe(true);
 });
 
 test("unlisten removes subscription", async () => {
