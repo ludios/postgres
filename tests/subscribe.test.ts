@@ -337,9 +337,18 @@ test(
 				truncate.command,
 				truncate.relation.table,
 				truncate.restartIdentity,
-				/^[0-9A-F]+\/[0-9A-F]+$/.test(insert.lsn),
-				insert.time instanceof Date && typeof insert.xid === "number",
-			]).toEqual(["insert", "truncate", "test", true, true, true]);
+				insert.lsn,
+				insert.time,
+				insert.xid,
+			]).toEqual([
+				"insert",
+				"truncate",
+				"test",
+				true,
+				expect.stringMatching(/^[0-9A-F]+\/[0-9A-F]+$/),
+				expect.any(Date),
+				expect.any(Number),
+			]);
 		} finally {
 			await done();
 		}

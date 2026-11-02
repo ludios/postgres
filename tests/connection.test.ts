@@ -1479,7 +1479,10 @@ test(
 		const waited = Date.now() - start;
 		await sql.end();
 		await admin`drop role postgres_js_test_none`;
-		expect([code, waited >= 400 && waited < 4000]).toEqual(["53300", true]);
+		expect([code, waited]).toEqual([
+			"53300",
+			expect.toSatisfy((x) => x >= 400 && x < 4000, "at least 400 ms and less than 4000 ms"),
+		]);
 		await admin.end();
 	},
 );
@@ -1637,7 +1640,11 @@ test(
 		const waited = Date.now() - start;
 		reserved.release();
 		const after = await sql`select 1 as x`;
-		expect([code, waited >= 150 && waited < 500, after[0].x]).toEqual(["QUEUE_TIMEOUT", true, 1]);
+		expect([code, waited, after[0].x]).toEqual([
+			"QUEUE_TIMEOUT",
+			expect.toSatisfy((x) => x >= 150 && x < 500, "at least 150 ms and less than 500 ms"),
+			1,
+		]);
 		await sql.end();
 	},
 );

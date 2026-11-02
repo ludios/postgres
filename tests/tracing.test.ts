@@ -39,9 +39,11 @@ test("Tracing: a query publishes start, end, asyncStart and asyncEnd with what i
 		c.command,
 		c.count,
 		c.database,
-		typeof c.connection === "number" && c.port === pg_port && typeof c.host === "string",
-		c.queued <= c.sent && c.sent <= c.firstByte && c.firstByte <= c.complete,
-		c.parameters === undefined,
+		c.connection,
+		c.port,
+		c.host,
+		[c.queued, c.sent, c.firstByte, c.complete],
+		c.parameters,
 		x,
 	]).toEqual([
 		["start", "end", "asyncStart", "asyncEnd"],
@@ -49,9 +51,14 @@ test("Tracing: a query publishes start, end, asyncStart and asyncEnd with what i
 		"SELECT",
 		1,
 		sql.options.database,
-		true,
-		true,
-		true,
+		expect.any(Number),
+		pg_port,
+		expect.any(String),
+		expect.toSatisfy(
+			(t) => t[0] <= t[1] && t[1] <= t[2] && t[2] <= t[3],
+			"queued <= sent <= firstByte <= complete",
+		),
+		undefined,
 		1,
 	]);
 	await sql.end();
