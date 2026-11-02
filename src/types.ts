@@ -155,7 +155,7 @@ export function Types(options: Record<string, any> = {}) {
 	options.infer === false && (parsers[1114] = parseDate);
 	const custom = Object.values<PostgresType>(options.types || {}),
 		named = custom.filter((x) => [x.to].concat(x.from || []).some((y) => typeof y === "string")),
-		oids = {};
+		oids = new Map<string, number>();
 
 	register(custom.filter((x) => !named.includes(x)));
 
@@ -174,7 +174,7 @@ export function Types(options: Record<string, any> = {}) {
 	};
 
 	function resolve(type) {
-		return typeof type === "string" ? oids[type] || 0 : type;
+		return typeof type === "string" ? (oids.get(type) ?? 0) : type;
 	}
 
 	function decoder(oid, parse) {
@@ -250,7 +250,7 @@ export function Types(options: Record<string, any> = {}) {
 			const [schema, name] = x.includes(".") ? x.split(".") : [null, x],
 				row = rows.find((r) => r.name === name && (schema ? r.schema === schema : r.visible));
 			row
-				? ((oids[x] = row.oid),
+				? (oids.set(x, row.oid),
 					row.array && !(row.array in elements) && (elements[row.array] = [row.oid, row.delimiter]))
 				: missing.push(x);
 		});

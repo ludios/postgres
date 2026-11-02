@@ -267,3 +267,27 @@ test('Array round trip keeps NULL and "NULL" apart', async () => {
 test("Parse timestamptz in a DateStyle other than ISO as Date does", async () => {
 	expect(show(parse(1184, "Mon Oct 19 12:00:00 2026 UTC"))).toBe("date:2026-10-19T12:00:00.000Z");
 });
+
+test("Type names like constructor and __proto__ are not looked up on Object.prototype", async () => {
+	expect([types.resolve("constructor"), types.resolve("__proto__")]).toEqual([0, 0]);
+});
+
+test("A custom type named __proto__ resolves to its OID", async () => {
+	const custom = Types({
+		types: {
+			p: { to: "__proto__", from: ["__proto__"], serialize: String, parse: (x) => "p:" + x },
+		},
+	});
+	const row = {
+		oid: 99999,
+		array: 0,
+		delimiter: ",",
+		name: "__proto__",
+		schema: "public",
+		visible: true,
+	};
+	// Answers only the query that looks up the named types
+	const run = async (text) => (text.includes("t.typname in") ? [row] : []);
+	await custom.load(run);
+	expect([custom.resolve("__proto__"), custom.parser(99999)("x")]).toEqual([99999, "p:x"]);
+});
