@@ -31,18 +31,18 @@ test("Rows keep the same shape and values across many rows", async () => {
 test("Rows with a __proto__ column stay plain objects", async () => {
 	const rows = await sql`select 'x' as "__proto__", 1 as a from generate_series(1, 40)`;
 	expect(rows.map((x) => [Object.getPrototypeOf(x) === Object.prototype, x.a])).toEqual(
-		Array(40).fill([true, 1]),
+		Array.from({ length: 40 }, () => [true, 1]),
 	);
 });
 
 test("Rows from .values() are arrays across many rows", async () => {
 	const rows = await sql`select 1 as a, 'x' as a, null as b from generate_series(1, 40)`.values();
-	expect(rows).toEqual(Array(40).fill([1, "x", null]));
+	expect(rows).toEqual(Array.from({ length: 40 }, () => [1, "x", null]));
 });
 
 test("Rows from .raw() are buffers across many rows", async () => {
 	const rows = await sql`select 1 as a, null as b from generate_series(1, 40)`.raw();
-	expect(rows).toEqual(Array(40).fill([Buffer.from("1"), null]));
+	expect(rows).toEqual(Array.from({ length: 40 }, () => [Buffer.from("1"), null]));
 });
 
 test("Rows apply value and column transforms across many rows", async () => {
@@ -55,7 +55,7 @@ test("Rows apply value and column transforms across many rows", async () => {
 	});
 	const rows = await sql`select 1 as a, 'x' as b, null::int as c from generate_series(1, 40)`;
 	expect(rows.map((x) => Object.entries(x))).toEqual(
-		Array(40).fill([
+		Array.from({ length: 40 }, () => [
 			["A", 10],
 			["B", "x"],
 			["C", null],
