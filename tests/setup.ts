@@ -113,10 +113,17 @@ export async function until_sleeping(pid: number) {
 	}
 }
 
-const reset = postgres({ ...options, onnotice: () => {} });
+/**
+ * The superuser's pool for the beforeEach below. Only a superuser can drop a `test` that another
+ * role created (such as the superuser's own pools in tests/subscribe.test.ts) on PostgreSQL 13 and
+ * 14, where the schema public belongs to the superuser, not to the owner of the database.
+ */
+const reset = postgres({ ...options, user: pg_vars.PGUSER, onnotice: () => {} });
 // Before each test of the test file that imports this module (every test file gets its own instance
-// of this module), drop the table that many tests create
-beforeEach(() => reset`drop table if exists test cascade`.catch(() => {}));
+// of this module), drop the table that many tests create and leave to this hook to drop
+beforeEach(async () => {
+	await reset`drop table if exists test cascade`;
+});
 
 /**
  * Runs `source` as an ES module in a child Node.js process, to see whether that process exits by
