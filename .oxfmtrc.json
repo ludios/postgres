@@ -1,3 +1,3 @@
 {
-	"ignorePatterns": ["*.md", "*.json", "*.yml", "types/"]
+	"ignorePatterns": ["*.md", "*.json", "*.yml"]
 }
