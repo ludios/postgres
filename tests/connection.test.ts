@@ -1767,11 +1767,18 @@ test("An empty query gives an empty result, simple or prepared", async () => {
  *
  * @param scheduler - The pool's `scheduler` option.
  * @param retried - Whether each connection, before the measurement, retries a 10-millisecond
- *   prepared statement that the server forgot.
+ *   prepared statement that the server forgot. If true, the pool prepares statements even when
+ *   the tests run with PREPARE=false.
  * @returns The number of milliseconds that the short query took.
  */
 async function waited(scheduler, retried = false) {
-	const sql = postgres({ ...options, max: 2, idle_timeout: 0, scheduler }),
+	const sql = postgres({
+			...options,
+			max: 2,
+			idle_timeout: 0,
+			scheduler,
+			...(retried ? { prepare: true } : {}),
+		}),
 		slow = () => sql`select pg_sleep(1) as slow`,
 		quick = () => sql`select pg_sleep(0.1) as quick`,
 		short = () => sql`select 1 as short`;
