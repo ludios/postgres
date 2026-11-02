@@ -548,6 +548,10 @@ export function Connection(ready, options, events) {
 	 * @returns a promise that settles as the CancelRequest does
 	 */
 	function stop(x) {
+		// A cancel request for anything else would hit whatever the backend runs next
+		if (sent[0] !== x || x.done) {
+			return Promise.resolve();
+		}
 		if (!x.stopping) {
 			x.stopping = ready.cancel();
 			hold(x.stopping);
@@ -589,10 +593,12 @@ export function Connection(ready, options, events) {
 			if (x.copied) {
 				return Promise.resolve();
 			}
+			// Before the destroy, so that the hold also covers what resuming the socket finishes
+			const stopped = stop(x);
 			if (x.stream) {
 				x.stream.destroy(error);
 			}
-			return stop(x);
+			return stopped;
 		}
 		if (x.stream && !x.copied) {
 			x.stream.destroy(error);
@@ -1290,25 +1296,45 @@ export function Connection(ready, options, events) {
 	}
 
 	/**
+	 * @returns whether the COPY of exchange `item` is still in progress: `item` is the
+	 * head of `sent` (which is empty once the connection has closed), and its
+	 * stream is still attached
+	 */
+	function in_progress(item) {
+		return !!item.stream && sent[0] === item;
+	}
+
+	/**
+	 * @returns whether destroying the COPY TO stream of exchange `item` should also
+	 * cancel the COPY. A cancel request aborts the transaction block that the COPY
+	 * runs in, also one begun earlier in the same query, and it can hit a query
+	 * written behind the COPY, so only a COPY in progress that is the first
+	 * statement of its query, outside a transaction block, and alone on the wire.
+	 */
+	function cancellable(item) {
+		return (
+			in_progress(item) &&
+			status === "I" &&
+			!item.error &&
+			!(item.results && item.results.length) &&
+			sent.length === 1
+		);
+	}
+
+	/**
 	 * Detaches a destroyed COPY stream from its exchange. If that COPY is still in
 	 * progress, the connection then reads the socket again and drops any further
 	 * COPY data, instead of waiting for the stream to ask for more.
 	 *
 	 * @param item the exchange whose COPY the stream belonged to
-	 * @returns whether that COPY was still in progress
 	 */
 	function discard(item) {
-		if (!item.stream) {
-			return false;
-		}
+		const reading = in_progress(item);
 		item.stream = null;
-		// After the connection closes, `sent` is empty, and the buffered frames must stay unread
-		if (sent[0] !== item) {
-			return false;
+		if (reading) {
+			frames.own(false);
+			unpause();
 		}
-		frames.own(false);
-		unpause();
-		return true;
 	}
 
 	function writeData(chunk, callback) {
@@ -1369,10 +1395,12 @@ export function Connection(ready, options, events) {
 		item.stream = new Stream.Readable({
 			read: readable(item),
 			destroy(error, callback) {
-				// In a transaction block, a cancel would abort the transaction, so the rest is only dropped
-				if (discard(item) && status === "I" && !item.error) {
+				// Before the discard, so that the hold of the cancel also covers what resuming the
+				// socket finishes: the end of this COPY, and the release of the next query
+				if (cancellable(item)) {
 					stop(item).catch(noop);
 				}
+				discard(item);
 				callback(error);
 			},
 		});

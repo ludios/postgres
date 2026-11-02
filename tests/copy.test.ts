@@ -358,23 +358,27 @@ test(
 	},
 );
 
-test("A query is not queued behind a copy to stdout that nobody reads", { timeout: 10_000 }, async () => {
-	const sql = postgres({ ...options, max: 2 });
-	try {
-		const reserved = await sql.reserve(),
-			readable =
-				await sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`.readable(),
-			query = sql`select 1 as x`.execute();
-		// Until the release, the COPY's connection is the only one the pool may use
-		await delay(50);
-		reserved.release();
-		const [{ x }] = await query;
-		readable.destroy();
-		expect(x).toBe(1);
-	} finally {
-		await sql.end({ timeout: 0 });
-	}
-});
+test(
+	"A query is not queued behind a copy to stdout that nobody reads",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 2 });
+		try {
+			const reserved = await sql.reserve(),
+				readable =
+					await sql`copy (select repeat('x', 1000) from generate_series(1, 1000)) to stdout`.readable(),
+				query = sql`select 1 as x`.execute();
+			// Until the release, the COPY's connection is the only one the pool may use
+			await delay(50);
+			reserved.release();
+			const [{ x }] = await query;
+			readable.destroy();
+			expect(x).toBe(1);
+		} finally {
+			await sql.end({ timeout: 0 });
+		}
+	},
+);
 
 test(
 	"Canceling a copy from stdin that waits for data fails its writable with 57014",
@@ -487,6 +491,64 @@ test(
 				const [{ x }] = await sql`select 1 as x`;
 				return x;
 			});
+			expect(x).toBe(1);
+		} finally {
+			await sql.end({ timeout: 0 });
+		}
+	},
+);
+
+test(
+	"Destroying a copy to stdout whose end is already buffered does not cancel the next query",
+	{ timeout: 20_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1, idle_timeout: null }),
+			xs = [];
+		try {
+			const reserved = await sql.reserve();
+			// With these sizes, back-pressure pauses the connection inside the last chunk of the
+			// output, so the end of the COPY waits unread in that chunk
+			for (const rows of [650, 700, 800, 1000]) {
+				const readable = await reserved
+					.unsafe(`copy (select repeat('x', 100) from generate_series(1, ${rows})) to stdout`)
+					.readable();
+				while (readable.readableLength < readable.readableHighWaterMark) {
+					await delay(1);
+				}
+				await delay(20);
+				const sleeping = reserved`select pg_sleep(0.1), ${rows}::int as x`.execute();
+				// Let the query reach the connection, where it waits for the COPY to finish
+				await delay(5);
+				readable.destroy();
+				const [{ x }] = await sleeping;
+				xs.push(x);
+			}
+			reserved.release();
+			expect(xs).toEqual([650, 700, 800, 1000]);
+		} finally {
+			await sql.end({ timeout: 0 });
+		}
+	},
+);
+
+test(
+	"Destroying a copy to stdout after a begin in the same query keeps the transaction",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1, idle_timeout: null });
+		try {
+			const reserved = await sql.reserve(),
+				// Still running when destroyed, but only for about a second more
+				readable = await reserved
+					.unsafe(
+						"begin; copy (select i, case when i > 5000 then pg_sleep(0.01)::text end from generate_series(1, 5100) i) to stdout",
+					)
+					.readable();
+			await new Promise((resolve) => readable.once("data", resolve));
+			readable.destroy();
+			const [{ x }] = await reserved`select 1 as x`;
+			await reserved`rollback`;
+			reserved.release();
 			expect(x).toBe(1);
 		} finally {
 			await sql.end({ timeout: 0 });
