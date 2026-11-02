@@ -72,6 +72,7 @@ async function simulate(seed) {
 			scenario: name,
 			faults: scenario.faults.length ? random.pick([2, 6, 15]) : 0,
 			ops: random.int(5, 60),
+			max_pipeline: random.pick([0, 1, 2, 100]),
 		},
 		wire = single && process.env.WIRE && ((x) => log("wire " + x)),
 		server = Server({ clock, random, delay: config.delay, split: config.split, log: wire }),
@@ -88,6 +89,7 @@ async function simulate(seed) {
 		user: "sim",
 		database: "sim",
 		max: config.max,
+		max_pipeline: config.max_pipeline,
 		prepare: config.prepare,
 		fetch_types: false,
 		connect_timeout: 2,
@@ -129,6 +131,11 @@ async function simulate(seed) {
 	let ended = false;
 	try {
 		await clock.run(10000);
+		// Without faults, nothing delays an operation for long; end() would reject a stuck one
+		const stuck = settled.filter((x) => !x.done).length;
+		if (!config.faults && stuck) {
+			violations.push(stuck + " of " + settled.length + " operations still open after 10 s");
+		}
 		sql.end({ timeout: 1 }).then(
 			() => (ended = true),
 			(e) => violations.push("end() rejected: " + e.message),
