@@ -215,7 +215,7 @@ test("A numeric option that is not a finite, non-negative number, or text that i
 		from_variable,
 		thrown(() => postgres({ max: 1, idle_timeout: "abc" })).message,
 		thrown(() => postgres({ max: 1, connect_timeout: NaN })).message,
-		thrown(() => postgres({ max: -1 })).message,
+		thrown(() => postgres({ max: 1, keep_alive: -1 })).message,
 		thrown(() => postgres({ max: 1, idle_timeout: Infinity })).message,
 		...texts.map(
 			(x) =>
@@ -226,9 +226,32 @@ test("A numeric option that is not a finite, non-negative number, or text that i
 		"The environment variable PGCONNECT_TIMEOUT" + must + '"30s"',
 		"The option idle_timeout" + must + '"abc"',
 		"The option connect_timeout" + must + "NaN",
-		"The option max" + must + "-1",
+		"The option keep_alive" + must + "-1",
 		"The option idle_timeout" + must + "Infinity",
 		...texts.map((x) => "The url parameter backoff" + must + JSON.stringify(x)),
+	]);
+});
+
+test("max, min and max_pipeline must be integers of at least 1, 0 and 0", async () => {
+	const must = (k, least, shown) =>
+		"The " + k + " must be an integer of at least " + least + ", but it is " + shown;
+	const read = postgres("postgres://u@h/db?max=2&min=0&max_pipeline=0").options;
+	expect([
+		[read.max, read.min, read.max_pipeline],
+		thrown(() => postgres({ max: 0 })).message,
+		thrown(() => postgres({ max: 2.5 })).message,
+		thrown(() => postgres("postgres://u@h/db?max=false")).message,
+		thrown(() => postgres({ max: 1, min: -1 })).message,
+		thrown(() => postgres({ max: 1, min: "0.5" })).message,
+		thrown(() => postgres({ max: 1, max_pipeline: 1.5 })).message,
+	]).toEqual([
+		[2, 0, 0],
+		must("option max", 1, "0"),
+		must("option max", 1, "2.5"),
+		must("url parameter max", 1, "false"),
+		must("option min", 0, "-1"),
+		must("option min", 0, '"0.5"'),
+		must("option max_pipeline", 0, "1.5"),
 	]);
 });
 

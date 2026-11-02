@@ -522,18 +522,22 @@ function default_timers() {
 	};
 }
 
-/** The options that are numbers, which `read_option` reads from a string such as `"30"`. */
-const numeric_options = [
-	"max",
-	"min",
-	"max_pipeline",
-	"idle_timeout",
-	"queue_timeout",
-	"connect_timeout",
-	"max_lifetime",
-	"backoff",
-	"keep_alive",
-];
+/**
+ * The options that are numbers, which `read_option` also reads from text such as `"30"`. Each
+ * option that counts something has the least integer it may be; each of the others has `null`,
+ * as it may be any finite, non-negative number.
+ */
+const numeric_options = {
+	max: 1,
+	min: 0,
+	max_pipeline: 0,
+	idle_timeout: null,
+	queue_timeout: null,
+	connect_timeout: null,
+	max_lifetime: null,
+	backoff: null,
+	keep_alive: null,
+};
 
 /**
  * @param text - the text of an option, from the url or an environment variable
@@ -555,7 +559,8 @@ function off_or_text(text) {
  * @returns the value of the option, where `disable` and `false` in the url or an environment
  *          variable are `false`, and a string for a numeric option is the number it is written as
  * @throws if a numeric option is a number that is NaN, negative or infinite, or text that is not
- *         a non-negative decimal number with or without whitespace around it
+ *         a non-negative decimal number with or without whitespace around it, or if an option
+ *         that counts something is not an integer of at least its number in `numeric_options`
  */
 function read_option(k, d, o, query, env) {
 	const variable = "PG" + k.toUpperCase();
@@ -573,13 +578,24 @@ function read_option(k, d, o, query, env) {
 		return d;
 	}
 
-	if (!numeric_options.includes(k) || (typeof value !== "string" && typeof value !== "number")) {
+	if (!Object.hasOwn(numeric_options, k)) {
+		return value;
+	}
+	const least = numeric_options[k];
+	if (least === null && typeof value !== "string" && typeof value !== "number") {
 		return value;
 	}
 	const number =
-		typeof value === "number" ? value : /^\s*\d+(\.\d+)?\s*$/.test(value) ? +value : NaN;
+		typeof value === "number"
+			? value
+			: typeof value === "string" && /^\s*\d+(\.\d+)?\s*$/.test(value)
+				? +value
+				: NaN;
+	const shown = typeof value === "string" ? JSON.stringify(value) : String(value);
+	if (least !== null && !(Number.isInteger(number) && number >= least)) {
+		throw new Error(source + " must be an integer of at least " + least + ", but it is " + shown);
+	}
 	if (!Number.isFinite(number) || number < 0) {
-		const shown = typeof value === "string" ? JSON.stringify(value) : String(value);
 		throw new Error(source + " must be a non-negative decimal number, but it is " + shown);
 	}
 	return number;
