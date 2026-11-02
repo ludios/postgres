@@ -192,6 +192,21 @@ test("channel_binding from options, the url and PGCHANNELBINDING, as libpq reads
 	]).toEqual([["disable", "require", "prefer", undefined], must + '"yes"', must + "null"]);
 });
 
+test("sslnegotiation from options, the url and PGSSLNEGOTIATION; another value throws", async () => {
+	const read = with_env({ PGSSLNEGOTIATION: "postgres" }, () => [
+		postgres({ max: 1 }).options.sslnegotiation,
+		postgres("postgres://u@h/db?sslnegotiation=direct", { max: 1 }).options.sslnegotiation,
+		postgres({ max: 1, sslnegotiation: null }).options.sslnegotiation,
+	]);
+	expect([
+		read,
+		thrown(() => postgres("postgres://u@h/db?sslnegotiation=Direct", { max: 1 })).message,
+	]).toEqual([
+		["postgres", "direct", null],
+		'The url parameter sslnegotiation must be one of null, "postgres", "direct", but it is "Direct"',
+	]);
+});
+
 test("The scheduler is on by default, and off with scheduler: false, scheduler=false in the url, or max: 1", async () => {
 	expect([
 		postgres({ max: 2 }).options.scheduler,

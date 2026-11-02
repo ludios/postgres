@@ -815,7 +815,7 @@ const option_rules: Record<
 	ssl: { default: false, read: off },
 	// Besides false: true, or a function that is called with every query
 	debug: { default: false, read: off },
-	sslnegotiation: { default: null, read: off },
+	sslnegotiation: { default: null, read: one_of(null, "postgres", "direct") },
 	channel_binding: {
 		default: "prefer",
 		variable: "PGCHANNELBINDING",
