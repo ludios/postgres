@@ -118,7 +118,8 @@ export type Exchange = {
 	last: Promise<unknown> | null;
 	/** The final callback of a COPY FROM stream, until CommandComplete calls it */
 	final: ((error?: Error | null) => void) | null;
-	resolve: ((value: unknown) => void) | null;
+	/** Settle the promise of the exchange's kind: with rows, a Description, or nothing */
+	resolve: ((value: any) => void) | null;
 	reject: ((error: unknown) => void) | null;
 	/** The scheduler's estimate of the query's cost */
 	cost: number | undefined;
@@ -168,10 +169,12 @@ export type Events = Pick<
 	ReturnType<typeof Types>,
 	"parser" | "decoder" | "binary" | "serializer"
 > & {
+	// Method signatures: TypeScript checks their parameters bivariantly, so that the pool's callbacks
+	// may take the Pooled connection that it made out of the Connection.
 	/** Called once the connection may take queries again */
-	onready: (c: Connection) => void;
+	onready(c: Connection): void;
 	/** Called once the connection has closed; pool.ts's onclose() says what the arguments are */
-	onclose: (c: Connection, error: Failure, lease_error: Failure | null, orderly: boolean) => void;
+	onclose(c: Connection, error: Failure, lease_error: Failure | null, orderly: boolean): void;
 	onnotify: Options["onnotify"];
 	onparameter: (key: string, value: string) => void;
 	/** Called with how long the head of `sent` took, for the scheduler */

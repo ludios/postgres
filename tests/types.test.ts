@@ -125,7 +125,7 @@ test("Point type", async () => {
 			point: {
 				to: 600,
 				from: [600],
-				serialize: ([x, y]: [number, number]) => "(" + x + "," + y + ")",
+				serialize: ([x, y]: number[]) => "(" + x + "," + y + ")",
 				parse: (x: string) =>
 					x
 						.slice(1, -1)
@@ -147,7 +147,7 @@ test("Point type array", async () => {
 			point: {
 				to: 600,
 				from: [600],
-				serialize: ([x, y]: [number, number]) => "(" + x + "," + y + ")",
+				serialize: ([x, y]: number[]) => "(" + x + "," + y + ")",
 				parse: (x: string) =>
 					x
 						.slice(1, -1)
@@ -415,7 +415,7 @@ test("Custom type serializes values the server says are of a type in its from (#
 			point: {
 				to: 600,
 				from: [600],
-				serialize: ([x, y]: [number, number]) => "(" + x + "," + y + ")",
+				serialize: ([x, y]: number[]) => "(" + x + "," + y + ")",
 				parse: (x: string) => x.slice(1, -1).split(",").map(Number),
 			},
 		},

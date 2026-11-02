@@ -98,7 +98,7 @@ test("Tracing: start runs in the context of the code that made the query", async
 	await using sql = postgres({ ...options, max: 1 });
 	const store = new AsyncLocalStorage<string>(),
 		seen: string[] = [],
-		start = (context: { query: string }) => seen.push(store.getStore() + ":" + context.query);
+		start = (context: any) => seen.push(store.getStore() + ":" + context.query);
 	dc.subscribe("tracing:postgres:query:start", start);
 	onTestFinished(() => {
 		dc.unsubscribe("tracing:postgres:query:start", start);

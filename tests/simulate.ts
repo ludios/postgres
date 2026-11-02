@@ -343,7 +343,10 @@ async function simulate(seed: number) {
 		);
 		return random.chance(0.5)
 			? Promise.all(chosen.map((k) => query(sql, k, scope)))
-			: chosen.reduce((p, k) => p.then(() => query(sql, k, scope)), Promise.resolve());
+			: chosen.reduce<Promise<unknown>>(
+					(p, k) => p.then(() => query(sql, k, scope)),
+					Promise.resolve(),
+				);
 	}
 
 	function operation(kind: string) {
