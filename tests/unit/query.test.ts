@@ -13,7 +13,7 @@ function uncancelable_query() {
 			return Promise.reject(new Error("the cancel request could not be sent"));
 		},
 	};
-	return { query: new Query(["select 1"], [], handler), cancels: () => cancels };
+	return { query: new Query(["select 1"], [], handler as any), cancels: () => cancels };
 }
 
 /**

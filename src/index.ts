@@ -6,6 +6,7 @@ import type { PostgresType } from "./types.ts";
 
 import { Identifier, Builder } from "./build.ts";
 import { Query, CLOSE } from "./query.ts";
+import type { Handler, QueryOptions } from "./query.ts";
 import { Pool } from "./pool.ts";
 import { Errors, PostgresError, throw_on_casing_transforms } from "./errors.ts";
 import Subscribe from "./subscribe.ts";
@@ -108,10 +109,12 @@ function Postgres(a?, b?) {
 	 * @returns a new `sql`, without the properties that only some `sql`s have (such as `begin`
 	 *   or `release`), which the callers add
 	 */
-	function Sql(handle): any {
-		handle.debug = options.debug;
-		handle.options = options;
-		handle.cancel = handle.cancel || pool.cancel;
+	function Sql(fn: ((q: Query) => void) & { cancel?: Handler["cancel"] }): any {
+		const handle: Handler = Object.assign(fn, {
+			debug: options.debug,
+			options,
+			cancel: fn.cancel || pool.cancel,
+		});
 
 		Object.assign(sql, {
 			types: typed,
@@ -138,7 +141,7 @@ function Postgres(a?, b?) {
 					: new Builder(strings, args);
 		}
 
-		function unsafe(string, args = [], query_options = {}) {
+		function unsafe(string, args = [], query_options: QueryOptions = {}) {
 			if (arguments.length === 2 && !Array.isArray(args)) {
 				query_options = args;
 				args = [];
@@ -154,12 +157,13 @@ function Postgres(a?, b?) {
 			return await sql`select pg_notify(${channel}, ${"" + payload})`;
 		}
 
-		function file(path, args = [], query_options = {}) {
+		function file(path, args = [], query_options: QueryOptions = {}) {
 			if (arguments.length === 2 && !Array.isArray(args)) {
 				query_options = args;
 				args = [];
 			}
-			const fileHandler = (query) =>
+			// Runs the query once the file is read; otherwise the handler
+			const fileHandler: Handler = Object.assign((query: Query) => {
 				fs.readFile(path, "utf8", (err, string) => {
 					if (err) {
 						query.reject(err);
@@ -168,7 +172,7 @@ function Postgres(a?, b?) {
 					query.strings = [string];
 					handle(query);
 				});
-			Object.assign(fileHandler, handle);
+			}, handle);
 			return new Query([], args, fileHandler, {
 				...query_options,
 				simple: "simple" in query_options ? query_options.simple : args.length === 0,

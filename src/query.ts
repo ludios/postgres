@@ -4,8 +4,27 @@ import { ours } from "./errors.ts";
 import { channels, active, start, finish, now, userName } from "./diagnostics.ts";
 import { statement } from "./result.ts";
 import type postgres from "../types/index.js";
+import type { Built } from "./build.ts";
+import type { Exchange } from "./connection.ts";
+import type { Options } from "./index.ts";
 
-const origins = new WeakMap();
+const origins = new WeakMap<TemplateStringsArray | string[], string>();
+
+/**
+ * Runs a Query when it is first awaited: the pool's, or a lease's. It carries the pool's `options`
+ * and `debug`, and `cancel`, which cancels a Query.
+ */
+export type Handler = ((q: Query) => void) & {
+	debug?: Options["debug"];
+	options: Options;
+	cancel?: (q: Query) => Promise<unknown>;
+};
+
+/** The options of one Query, which its methods set */
+export type QueryOptions = { simple?: boolean; prepare?: boolean };
+
+/** The callback of a cursor: called with each batch of rows; may return CLOSE to stop */
+export type CursorFn = (rows: any) => unknown;
 
 export const CLOSE = {};
 
@@ -18,17 +37,17 @@ export class Query extends Promise<any> {
 	declare strings: TemplateStringsArray | string[];
 	declare args: any[];
 	/** Called with this Query when it runs; it may carry `debug`, `options`, and `cancel`. */
-	declare handler: any;
-	declare options: any;
+	declare handler: Handler;
+	declare options: QueryOptions;
 	/** The `{ pid, secret }` of the backend process whose connection ran this Query. */
-	declare state: any;
+	declare state: { pid: number | null; secret: number | null } | null;
 	/** The connection's pipeline item that ran this Query. */
-	declare source: any;
+	declare source: Exchange | null;
 	declare active: boolean;
 	declare executed: boolean;
 	declare settled: boolean;
 	/** What `build()` returned, cached. */
-	declare built: any;
+	declare built: Built | null;
 	/** The diagnostics_channel context, while tracing this Query. */
 	declare trace: postgres.QueryTrace | null;
 	/** Removes the abort listener that `signal()` added. */
@@ -36,17 +55,24 @@ export class Query extends Promise<any> {
 	declare originError: Error | null;
 	declare streaming: boolean;
 	declare cursorRows: number;
-	declare cursorFn: (rows: any) => any;
+	declare cursorFn: CursorFn;
 	declare onlyDescribe: boolean;
-	declare forEachFn: (row: any, result: any) => any;
+	declare forEachFn: (row: any, result: any) => unknown;
 	/** `true` for `.raw()`, `"values"` for `.values()`. */
 	declare isRaw: boolean | "values";
 	/** Whether the query must have its connection to itself: its statement opens a transaction block */
 	declare alone: boolean | undefined;
 	/** Called once the query has been written on its lease's connection; the lease's send() sets it */
 	declare onwrite: (() => void) | undefined;
+	/** Marks a Query, which build.ts's isFragment() tests for */
+	declare [isQuery]: true;
 
-	constructor(strings, args, handler, options = {}) {
+	constructor(
+		strings: TemplateStringsArray | string[],
+		args: any[],
+		handler: Handler,
+		options: QueryOptions = {},
+	) {
 		let resolve, reject;
 
 		super((a, b) => {
@@ -58,7 +84,7 @@ export class Query extends Promise<any> {
 		this.fail = reject;
 
 		this[isQuery] = true;
-		this.tagged = Array.isArray(strings.raw);
+		this.tagged = Array.isArray((strings as TemplateStringsArray).raw);
 		this.strings = strings;
 		this.args = args;
 		this.handler = handler;
@@ -83,7 +109,7 @@ export class Query extends Promise<any> {
 		return Promise;
 	}
 
-	join(items) {
+	join(items: Iterable<unknown>) {
 		const kept = [...items].filter((x) => x !== false && x !== null && x !== undefined),
 			joined = new Query(joinStrings, [new Join(this, kept)], this.handler);
 
@@ -91,7 +117,7 @@ export class Query extends Promise<any> {
 		return joined;
 	}
 
-	resolve(x) {
+	resolve(x: unknown) {
 		if (this.aborts) {
 			this.aborts();
 		}
@@ -103,7 +129,7 @@ export class Query extends Promise<any> {
 		this.fulfil(x);
 	}
 
-	reject(x) {
+	reject(x: unknown) {
 		if (this.aborts) {
 			this.aborts();
 		}
@@ -137,7 +163,11 @@ export class Query extends Promise<any> {
 		return this.build().values;
 	}
 
-	[util.inspect.custom](depth, options, inspect) {
+	[util.inspect.custom](
+		depth: number,
+		options: util.InspectOptionsStylized,
+		inspect: typeof util.inspect,
+	) {
 		if (!this.handler.debug) {
 			return "Query {}";
 		}
@@ -171,7 +201,7 @@ export class Query extends Promise<any> {
 	 * @param signal An AbortSignal; if null or undefined, this does nothing.
 	 * @returns This Query.
 	 */
-	signal(signal) {
+	signal(signal: AbortSignal | null | undefined) {
 		if (!signal || this.settled) {
 			return this;
 		}
@@ -212,7 +242,7 @@ export class Query extends Promise<any> {
 		return this;
 	}
 
-	cursor(rows = 1, fn) {
+	cursor(rows: number | CursorFn = 1, fn?: CursorFn) {
 		this.options.simple = false;
 		if (typeof rows === "function") {
 			fn = rows;
@@ -226,7 +256,7 @@ export class Query extends Promise<any> {
 			return this;
 		}
 
-		let prev;
+		let prev: ((value?: unknown) => void) | undefined;
 		return {
 			[Symbol.asyncIterator]: () => ({
 				next: () => {
@@ -282,7 +312,7 @@ export class Query extends Promise<any> {
 		throw new Error(".stream has been renamed to .forEach");
 	}
 
-	forEach(fn) {
+	forEach(fn: (row: any, result: any) => unknown) {
 		this.forEachFn = fn;
 		this.handle();
 		return this;
@@ -342,8 +372,8 @@ export class Query extends Promise<any> {
 	}
 }
 
-function context(q): postgres.QueryTrace {
-	const options = q.handler.options || {};
+function context(q: Query): postgres.QueryTrace {
+	const options = q.handler.options;
 	let text = null;
 	if (q.strings.length) {
 		try {
@@ -370,13 +400,15 @@ function context(q): postgres.QueryTrace {
 	};
 }
 
-function traced(q, error, result?) {
+function traced(q: Query, error: unknown, result?: unknown) {
 	const x = q.trace;
 	q.trace = null;
 	x.complete = now();
 	if (result && typeof result === "object" && "command" in result) {
-		x.command = result.command;
-		x.count = result.count;
+		// A Result, or a COPY stream once it has finished
+		const done = result as { command: string | null; count: number | null };
+		x.command = done.command;
+		x.count = done.count;
 	}
 	finish(channels.query, x, error, result);
 }
@@ -393,7 +425,7 @@ function located() {
 	}
 }
 
-function trim(stack) {
+function trim(stack: string) {
 	const lines = stack.split("\n"),
 		i = lines.findIndex((line, j) => j > 0 && !ours(line));
 
