@@ -52,9 +52,8 @@ test("PostgresError is exported from the package", async () => {
 });
 
 test("Connection error stack is writable and configurable", async () => {
-	const sql = offline();
+	await using sql = offline();
 	const e = await sql`select 1`.catch((x) => x);
-	await sql.end();
 	const d = Object.getOwnPropertyDescriptor(e, "stack");
 	e.stack = "y";
 	expect([d ? d.writable !== false || !!d.set : true, d ? d.configurable : true, e.stack]).toEqual([
@@ -65,24 +64,21 @@ test("Connection error stack is writable and configurable", async () => {
 });
 
 test("Connection error stack includes the calling line", async () => {
-	const sql = offline();
+	await using sql = offline();
 	const e = await sql`select 1`.catch((x) => x);
-	await sql.end();
 	expect(e.stack.includes(here)).toBe(true);
 });
 
 test("Undefined value error stack includes the calling line", async () => {
-	const sql = offline();
+	await using sql = offline();
 	const e = await sql`select ${undefined}`.catch((x) => x);
-	await sql.end();
 	expect([e.code, e.stack.includes(here)]).toEqual(["UNDEFINED_VALUE", true]);
 });
 
 test("Not tagged error has a code", async () => {
-	const sql = offline();
+	await using sql = offline();
 	const e = await Promise.resolve()
 		.then(() => sql("select 1"))
 		.catch((x) => x);
-	await sql.end();
 	expect(e.code).toBe("NOT_TAGGED_CALL");
 });
