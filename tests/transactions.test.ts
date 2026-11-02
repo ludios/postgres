@@ -1,5 +1,14 @@
 import { expect, test } from "vitest";
-import { postgres, sql, options, delay, idle_timeout, pg_port, port_of } from "./setup.ts";
+import {
+	postgres,
+	sql,
+	options,
+	delay,
+	idle_timeout,
+	pg_port,
+	port_of,
+	server_major,
+} from "./setup.ts";
 
 test("Throws on illegal transactions", async () => {
 	const sql = postgres({ ...options, max: 2, fetch_types: false });
@@ -996,9 +1005,7 @@ test("sql.rollback() comes after the queries already made, and the connection is
 test("A transaction ended by transaction_timeout rejects with the FATAL error instead of CONNECTION_CLOSED (#1283)", async ({
 	skip,
 }) => {
-	const [{ supported }] =
-		await sql`select current_setting('server_version_num')::int >= 170000 as supported`;
-	skip(!supported, "transaction_timeout needs PostgreSQL 17 or later");
+	skip((await server_major()) < 17, "transaction_timeout needs PostgreSQL 17 or later");
 
 	const timed = postgres({ ...options, max: 1 });
 	const error = await timed

@@ -30,6 +30,16 @@ console.log = (...xs) => (xs.length === 1 && notice(xs[0]) ? undefined : log(...
 
 export const sql = postgres(options);
 
+/**
+ * @returns {Promise<number>} the major version of PostgreSQL (e.g. 17) that the server at `pg_port` runs
+ */
+export async function server_major() {
+	const [{ version_num }] =
+		await sql`select current_setting('server_version_num')::int as version_num`;
+	// Since PostgreSQL 10, server_version_num is the major version × 10000 + the minor version
+	return Math.floor(version_num / 10000);
+}
+
 const reset = postgres({ ...options, onnotice: () => {} });
 // Before each test of the test file that imports this module (every test file gets its own instance
 // of this module), drop the table that many tests create

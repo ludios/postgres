@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { pipeline } from "stream/promises";
 import stream from "stream";
 import { expect, test } from "vitest";
-import { postgres, sql, options, delay, rel } from "./setup.ts";
+import { postgres, sql, options, delay, rel, server_major } from "./setup.ts";
 
 test("Copy read", async () => {
 	const result = [];
@@ -173,9 +173,7 @@ test(
 	"Copy read through a slow pipeline over direct TLS keeps every byte",
 	{ timeout: 30_000 },
 	async ({ skip }) => {
-		const [{ supported }] =
-			await sql`select current_setting('server_version_num')::int >= 170000 as supported`;
-		skip(!supported, "direct TLS needs PostgreSQL 17 or later");
+		skip((await server_major()) < 17, "direct TLS needs PostgreSQL 17 or later");
 
 		const tls = postgres({ ...options, ssl: "require", sslnegotiation: "direct", max: 1 });
 		const [{ ssl }] = await tls`select ssl from pg_stat_ssl where pid = pg_backend_pid()`;

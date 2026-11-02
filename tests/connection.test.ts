@@ -16,6 +16,7 @@ import {
 	second_pg_port,
 	pg_socket_dir,
 	port_of,
+	server_major,
 } from "./setup.ts";
 
 test("Connects with no options", async () => {
@@ -99,9 +100,7 @@ test("Connect using SSL require", async () => {
 });
 
 test("Connect using SSL direct", async ({ skip }) => {
-	const [{ supported }] =
-		await sql`select current_setting('server_version_num')::int >= 180000 as supported`;
-	skip(!supported, "this test runs only on PostgreSQL 18 or later");
+	skip((await server_major()) < 17, "direct TLS needs PostgreSQL 17 or later");
 	expect(
 		await new Promise((resolve, reject) => {
 			postgres({
