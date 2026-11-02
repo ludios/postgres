@@ -1,5 +1,5 @@
 import net from "net";
-import { expect, test, vi } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 import {
 	postgres,
 	sql,
@@ -12,6 +12,7 @@ import {
 	pg_port,
 	thrown,
 	terminate,
+	defer,
 } from "./setup.ts";
 
 test("Undefined values throws", async () => {
@@ -59,7 +60,6 @@ test("Throws if more than 65534 parameters", async () => {
 			(e) => e.code,
 		),
 	).toBe("MAX_PARAMETERS_EXCEEDED");
-	await sql`drop table test`;
 });
 
 test("await sql() throws not tagged error", async () => {
@@ -88,13 +88,10 @@ test("little bobby tables", async () => {
 	const name = "Robert'); DROP TABLE students;--";
 
 	await sql`create table students (name text, age int)`;
+	await using _drop = defer(() => sql`drop table students`);
 	await sql`insert into students (name) values (${name})`;
 
-	try {
-		expect((await sql`select name from students`)[0].name).toBe(name);
-	} finally {
-		await sql`drop table students`;
-	}
+	expect((await sql`select name from students`)[0].name).toBe(name);
 });
 
 test("throws correct error when authentication fails", async () => {
@@ -112,13 +109,14 @@ test("notice", async () => {
 	console.log = function (x) {
 		notice = x;
 	};
+	onTestFinished(() => {
+		console.log = log;
+	});
 
 	const sql = postgres(options);
 
 	await sql`create table if not exists users()`;
 	await sql`create table if not exists users()`;
-
-	console.log = log;
 
 	expect(notice.severity).toBe("NOTICE");
 });
@@ -197,7 +195,7 @@ function failures(sql, xs) {
 // has empty `parameters`.
 
 test("Pipelined queries that a connection close rejects each get their own error", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
 	const errors = failures(sql, ["a", "b", "c"]);
 	await delay(50);
@@ -208,12 +206,11 @@ test("Pipelined queries that a connection close rejects each get their own error
 		[["b"], undefined],
 		[["c"], undefined],
 	]);
-	await sql.end();
 });
 
 test("Queries on a reserved connection that has closed each get their own error", async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		reserved = await sql.reserve();
+	await using sql = postgres({ ...options, max: 1 });
+	const reserved = await sql.reserve();
 	const [{ pid }] = await reserved`select pg_backend_pid() as pid`;
 	await terminate(pid);
 	// A query on the reserved connection fails once the client has seen the connection close (or
@@ -233,16 +230,14 @@ test("Queries on a reserved connection that has closed each get their own error"
 		["CONNECTION_CLOSED", ["b"]],
 		["CONNECTION_CLOSED", ["c"]],
 	]);
-	await sql.end();
 });
 
 test("Queries waiting for a connection when end() destroys the pool each get their own error", async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		reserved = await sql.reserve();
+	const sql = postgres({ ...options, max: 1 });
+	using _reserved = await sql.reserve();
 	const errors = failures(sql, ["a", "b"]);
 	await sql.end({ timeout: 0 });
 	expect((await Promise.all(errors)).map((e) => e.args)).toEqual([["a"], ["b"]]);
-	reserved.release();
 });
 
 test("Queries waiting for a connection when end() gives up connecting each get their own error", async () => {
@@ -253,8 +248,9 @@ test("Queries waiting for a connection when end() gives up connecting each get t
 		socket.end();
 	});
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+	await using _close = defer(() => server.close());
 	// A long backoff, so that the pool does not try again before end()
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		host: "127.0.0.1",
 		port: port_of(server),
@@ -264,7 +260,6 @@ test("Queries waiting for a connection when end() gives up connecting each get t
 	const errors = failures(sql, ["a", "b"]);
 	await vi.waitUntil(() => attempts === 1 && sql.stats.opening === 0);
 	await sql.end();
-	server.close();
 	expect((await Promise.all(errors)).map((e) => [e.code, e.args])).toEqual([
 		["CONNECTION_ENDED", ["a"]],
 		["CONNECTION_ENDED", ["b"]],
@@ -272,7 +267,7 @@ test("Queries waiting for a connection when end() gives up connecting each get t
 });
 
 test("A transaction whose backend is terminated mid-query rejects with that query's error", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	const error = await sql
 		.begin(async (sql) => {
 			const [{ pid }] = await sql`select pg_backend_pid() as pid`;
@@ -282,7 +277,6 @@ test("A transaction whose backend is terminated mid-query rejects with that quer
 			await query;
 		})
 		.catch((e) => e);
-	await sql.end();
 	expect([error.code, error.severity, error.args]).toEqual(["57P01", "FATAL", ["a"]]);
 });
 
@@ -298,7 +292,8 @@ test("A transaction whose connection drops mid-query rejects with that query's e
 		}
 	});
 	await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
-	const sql = postgres({ ...options, host: "127.0.0.1", port: port_of(proxy), max: 1 });
+	await using _close = defer(() => proxy.close());
+	await using sql = postgres({ ...options, host: "127.0.0.1", port: port_of(proxy), max: 1 });
 	const error = await sql
 		.begin(async (sql) => {
 			const query = failures(sql, ["a"])[0];
@@ -309,13 +304,11 @@ test("A transaction whose connection drops mid-query rejects with that query's e
 			await query;
 		})
 		.catch((e) => e);
-	proxy.close();
-	await sql.end();
 	expect([error.code, error.args]).toEqual(["CONNECTION_CLOSED", ["a"]]);
 });
 
 test("Cursors whose callbacks are running when the connection closes each get their own error", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	let resume,
 		pid,
 		cursors,
@@ -339,16 +332,14 @@ test("Cursors whose callbacks are running when the connection closes each get th
 			await Promise.all(cursors);
 		})
 		.catch(() => {});
-	try {
-		await vi.waitUntil(() => started === 2);
-		await terminate(pid);
-		// The close must reject the cursors while their callbacks are still running
-		await vi.waitUntil(() => settled === 2);
-	} finally {
+	await using _resume = defer(async () => {
 		resume();
 		await done;
-		await sql.end();
-	}
+	});
+	await vi.waitUntil(() => started === 2);
+	await terminate(pid);
+	// The close must reject the cursors while their callbacks are still running
+	await vi.waitUntil(() => settled === 2);
 	expect((await Promise.all(cursors)).map((e) => [e.code, e.args])).toEqual([
 		["CONNECTION_CLOSED", ["a"]],
 		["CONNECTION_CLOSED", ["b"]],
@@ -357,12 +348,12 @@ test("Cursors whose callbacks are running when the connection closes each get th
 
 test("Queries that a reserved connection gets just as it closes each get their own error", async () => {
 	let raw;
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		max: 1,
 		socket: () => (raw = net.connect(pg_port, "localhost")),
 	});
-	const reserved = await sql.reserve();
+	using reserved = await sql.reserve();
 	await reserved`select 1`;
 	// Two queries that execute and two that only describe, so that the check in place() for a
 	// closed connection would show if two queries of either kind got the same error
@@ -376,39 +367,29 @@ test("Queries that a reserved connection gets just as it closes each get their o
 	// microtask. The connection closes in a microtask between those two, as it can with a socket
 	// that reports its close in a microtask (as on Cloudflare).
 	queueMicrotask(() => raw.emit("error", new Error("closed between microtasks")));
-	try {
-		expect((await Promise.all(errors)).map((e) => [e.code, e.args])).toEqual([
-			["CONNECTION_CLOSED", ["a"]],
-			["CONNECTION_CLOSED", ["b"]],
-			["CONNECTION_CLOSED", ["c"]],
-			["CONNECTION_CLOSED", ["d"]],
-		]);
-	} finally {
-		reserved.release();
-		await sql.end();
-	}
+	expect((await Promise.all(errors)).map((e) => [e.code, e.args])).toEqual([
+		["CONNECTION_CLOSED", ["a"]],
+		["CONNECTION_CLOSED", ["b"]],
+		["CONNECTION_CLOSED", ["c"]],
+		["CONNECTION_CLOSED", ["d"]],
+	]);
 });
 
 test("A frame that no query asked for closes the connection with CONNECTION_CLOSED", async () => {
 	let raw, onclose;
 	const closed = new Promise((r) => (onclose = r));
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		max: 1,
 		onclose: () => onclose(),
 		socket: () => (raw = net.connect(pg_port, "localhost")),
 	});
-	const reserved = await sql.reserve();
-	try {
-		// A ReadyForQuery while nothing is in flight
-		raw.emit("data", Buffer.from([0x5a, 0, 0, 0, 5, 0x49]));
-		await closed;
-		const error = await reserved`select 1`.catch((e) => e);
-		expect([error.code, error.cause instanceof Error]).toEqual(["CONNECTION_CLOSED", true]);
-	} finally {
-		reserved.release();
-		await sql.end();
-	}
+	using reserved = await sql.reserve();
+	// A ReadyForQuery while nothing is in flight
+	raw.emit("data", Buffer.from([0x5a, 0, 0, 0, 5, 0x49]));
+	await closed;
+	const error = await reserved`select 1`.catch((e) => e);
+	expect([error.code, error.cause instanceof Error]).toEqual(["CONNECTION_CLOSED", true]);
 });
 
 test("Query and parameters on an error are not enumerable if debug is not set", async () => {
@@ -454,7 +435,7 @@ test("Catches query format errors", async () => {
 });
 
 test("A query that fails to encode leaves the connection usable", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	const error = await sql
 		.unsafe({
 			toString: () => {
@@ -469,7 +450,6 @@ test("A query that fails to encode leaves the connection usable", async () => {
 	}}::json`.catch((e) => e.message);
 	const [{ x }] = await sql`select 1 as x`;
 	expect([error, huge, x]).toEqual(["wat", "json", 1]);
-	await sql.end();
 });
 
 test("Catches type serialize errors", async () => {
@@ -513,7 +493,6 @@ test("Insert array with undefined throws", async () => {
 	expect(await sql`insert into test ${sql({ x: [1, undefined, 3] })}`.catch((e) => e.code)).toBe(
 		"UNDEFINED_VALUE",
 	);
-	await sql`drop table test`;
 });
 
 test("A PostgresError has its fields and its message in JSON (#767)", async () => {
@@ -527,7 +506,6 @@ test("A PostgresError has its fields and its message in JSON (#767)", async () =
 		json.table_name,
 		json.message.includes("check constraint"),
 	]).toEqual(["PostgresError", "23514", "test_x_check", "test", true]);
-	await sql`drop table test`;
 });
 
 test("The cached origin of a query does not keep the closure that made it alive (#1274)", async ({
