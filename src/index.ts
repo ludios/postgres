@@ -50,7 +50,7 @@ function typed_parameters(types: Record<string, PostgresType>) {
 }
 
 function Postgres(a?, b?) {
-	const options = parseOptions(a, b),
+	const options = parse_options(a, b),
 		types = options.shared_types || Types(options),
 		pool = Pool(options, types),
 		subscribe = options.no_subscribe || Subscribe(Postgres, { ...options, shared_types: types }),
@@ -837,7 +837,16 @@ function read_option(k, rule, o, query, env) {
 	return rule.read ? rule.read(value, source) : value;
 }
 
-function parseOptions(a, b) {
+/**
+ * Reads the options of a pool from the url, the options object and the environment variables.
+ *
+ * @param a - the url; or the options object, if there is no url; or options that this function
+ *            returned before, which it returns as they are
+ * @param b - the options object, if `a` is the url
+ * @returns the options of the pool
+ * @throws if an option has a value that it may not have
+ */
+function parse_options(a, b) {
 	if (a && a.shared) {
 		return a;
 	}
@@ -850,11 +859,17 @@ function parseOptions(a, b) {
 		port = o.port || query.port || env.PGPORT || 5432,
 		user = o.user || o.username || url.url.username || env.PGUSERNAME || env.PGUSER || osUsername();
 
-	o.no_prepare && (o.prepare = false);
-	query.sslmode && ((query.ssl = query.sslmode), delete query.sslmode);
-	"timeout" in o &&
-		(console.log("The timeout option is deprecated, use idle_timeout instead"),
-		(o.idle_timeout = o.timeout));
+	if (o.no_prepare) {
+		o.prepare = false;
+	}
+	if (query.sslmode) {
+		query.ssl = query.sslmode;
+		delete query.sslmode;
+	}
+	if ("timeout" in o) {
+		console.log("The timeout option is deprecated, use idle_timeout instead");
+		o.idle_timeout = o.timeout;
+	}
 	// Only "system" is supported. Any other sslrootcert, such as the path of a CA file, is sent to
 	// the server as a setting, which PostgreSQL refuses; connecting without checking the
 	// certificate against that CA would be worse.
