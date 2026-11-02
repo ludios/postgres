@@ -10,14 +10,16 @@ jobs:
       matrix:
         node: ['22', '24', '26']
         postgres: ['13', '14', '15', '16', '17', '18']
-    runs-on: ubuntu-latest
+    # Pinned, so that a new image behind ubuntu-latest can't break the steps below unannounced
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: |
           date
-          sudo apt purge postgresql-16
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get purge -y 'postgresql-*' || true
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get -y install "postgresql-${{ matrix.postgres }}"
           echo "/usr/lib/postgresql/${{ matrix.postgres }}/bin" >> "$GITHUB_PATH"
