@@ -143,7 +143,7 @@ Renaming anything public (see `types/index.d.ts`) breaks users of the library; a
 
 Vitest runs the tests (see `vitest.config.ts`): the unit tests in `tests/unit/`, and the integration tests in `tests/`, which need PostgreSQL. Vitest runs only the files whose names end in `.test.ts`. Node runs the scripts `tests/simulate.ts` (which needs no PostgreSQL server) and `tests/soak.ts` directly.
 
-Each integration test gets 10 seconds. To give a test more time, pass its timeout as the third argument, `test(name, async () => {...}, 30_000)`, and not in an options object, `test(name, { timeout: 30_000 }, async () => {...})`. oxfmt keeps the first line of a test call unbroken only in the first form. In the second form, a long name makes oxfmt break the call over several lines and indent the whole body.
+By default, vitest fails an integration test that runs for more than 10 seconds. To give a test a different timeout, pass it as the third argument, `test(name, async () => {...}, 30_000)`, and not in an options object, `test(name, { timeout: 30_000 }, async () => {...})`. In the second form, once the first line is wider than 100 columns, oxfmt breaks the call over several lines and indents the whole test body one more level. In the first form, the test body keeps its indentation.
 
 # Before committing
 
