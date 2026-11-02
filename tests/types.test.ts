@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import type { Sql, Row } from "../types/index.js";
 import { postgres, sql, options, delay, thrown, defer, proxy_to_server } from "./setup.ts";
 
 test("null", async () => {
@@ -124,8 +125,8 @@ test("Point type", async () => {
 			point: {
 				to: 600,
 				from: [600],
-				serialize: ([x, y]) => "(" + x + "," + y + ")",
-				parse: (x) =>
+				serialize: ([x, y]: [number, number]) => "(" + x + "," + y + ")",
+				parse: (x: string) =>
 					x
 						.slice(1, -1)
 						.split(",")
@@ -146,8 +147,8 @@ test("Point type array", async () => {
 			point: {
 				to: 600,
 				from: [600],
-				serialize: ([x, y]) => "(" + x + "," + y + ")",
-				parse: (x) =>
+				serialize: ([x, y]: [number, number]) => "(" + x + "," + y + ")",
+				parse: (x: string) =>
 					x
 						.slice(1, -1)
 						.split(",")
@@ -261,15 +262,15 @@ test("String NULL in array round trips", async () => {
 });
 
 test("Null in array does not reach custom type parser", async () => {
-	const parsed = [];
+	const parsed: string[] = [];
 	await using sql = postgres({
 		...options,
 		types: {
 			text: {
 				to: 25,
 				from: [25],
-				serialize: (x) => x,
-				parse: (x) => {
+				serialize: (x: unknown) => x,
+				parse: (x: string) => {
 					parsed.push(x);
 					return x.toUpperCase();
 				},
@@ -414,8 +415,8 @@ test("Custom type serializes values the server says are of a type in its from (#
 			point: {
 				to: 600,
 				from: [600],
-				serialize: ([x, y]) => "(" + x + "," + y + ")",
-				parse: (x) => x.slice(1, -1).split(",").map(Number),
+				serialize: ([x, y]: [number, number]) => "(" + x + "," + y + ")",
+				parse: (x: string) => x.slice(1, -1).split(",").map(Number),
 			},
 		},
 	});
@@ -457,7 +458,7 @@ test("A column of a type Postgres.js does not know returns its rows as text, emp
 		empty.length,
 		tagged.map((x) => x.m),
 		simple.map((x) => x.m),
-		many[0].map((x) => x.m),
+		many[0].map((x: Row) => x.m),
 		many[1][0].n,
 	]).toEqual([0, ["a", "b"], ["a", "b"], ["a", "b"], 1]);
 });
@@ -465,8 +466,8 @@ test("A column of a type Postgres.js does not know returns its rows as text, emp
 test("forEach and cursors get every row of a column of a type Postgres.js does not know", async () => {
 	await using _drop = await enum_table("test_enum_each", "('a'), ('b'), ('a')");
 	await using fresh = postgres(options);
-	const seen = [],
-		batches = [];
+	const seen: unknown[] = [],
+		batches: number[] = [];
 	await fresh`select m from test_enum_each`.forEach((row) => seen.push(row.m));
 	await fresh`select m from test_enum_each`.cursor(2, (rows) => {
 		batches.push(rows.length);
@@ -531,8 +532,8 @@ test("A custom type given by name is looked up, with its array type (#1115)", as
 			pair: {
 				to: "pair_t",
 				from: ["pair_t"],
-				serialize: (x) => "(" + x.join(",") + ")",
-				parse: (x) => x.slice(1, -1).split(",").map(Number),
+				serialize: (x: number[]) => "(" + x.join(",") + ")",
+				parse: (x: string) => x.slice(1, -1).split(",").map(Number),
 			},
 		},
 	});
@@ -613,7 +614,12 @@ test("A custom type created after a failed lookup is found on a later query", as
 	await using sql2 = postgres({
 		...options,
 		types: {
-			later: { to: "later_t", from: ["later_t"], serialize: String, parse: (x) => "parsed " + x },
+			later: {
+				to: "later_t",
+				from: ["later_t"],
+				serialize: String,
+				parse: (x: string) => "parsed " + x,
+			},
 		},
 	});
 	const first = await sql2`select 1`.then(
@@ -643,7 +649,7 @@ test("Custom types by name need fetch_types", async () => {
  * @returns the rows of a query of a bytea and of arrays of each type that is read in binary (and
  *   of int8, which is not), with NULLs, two dimensions, no elements, and lower bounds other than 1
  */
-function binaries(pool) {
+function binaries(pool: Sql) {
 	return pool`select ${1}::int as k, '\\x00ff10'::bytea as b,
 		array[1, -2, null, 2147483647, -2147483648]::int4[] as i4,
 		array[[1, 2], [3, -32768]]::int2[] as i2,
@@ -656,7 +662,7 @@ function binaries(pool) {
  * @param bytes - what a client sent on a connection without TLS, from its startup message on
  * @returns the result formats of each Bind message in `bytes`, in order
  */
-function bind_result_formats(bytes) {
+function bind_result_formats(bytes: Buffer) {
 	const formats = [];
 	// The startup message has no type byte
 	for (let i = bytes.readInt32BE(0); i < bytes.length; i += 1 + bytes.readInt32BE(i + 1)) {
@@ -679,7 +685,7 @@ function bind_result_formats(bytes) {
 }
 
 test("bytea and int2, int4 and bool arrays are read in binary once their statement is prepared, with the same values", async () => {
-	const sent = [];
+	const sent: Buffer[] = [];
 	await using proxy = await proxy_to_server({
 		from_client: (chunk) => {
 			sent.push(chunk);
@@ -715,7 +721,14 @@ test("bytea and int2, int4 and bool arrays are read in binary once their stateme
 test("A custom parser for an int4 array still gets the text once its statement is prepared", async () => {
 	await using pool = postgres({
 		...options,
-		types: { ints: { to: 1007, from: [1007], serialize: (x) => x, parse: (x) => "text " + x } },
+		types: {
+			ints: {
+				to: 1007,
+				from: [1007],
+				serialize: (x: unknown) => x,
+				parse: (x: string) => "text " + x,
+			},
+		},
 	});
 	const query = async () => (await pool`select array[1, 2]::int4[] as x, ${1}::int as k`)[0].x;
 	expect([await query(), await query()]).toEqual(["text {1,2}", "text {1,2}"]);
@@ -739,7 +752,9 @@ test("A parser set in sql.options.parsers still gets the text of a bytea and of 
 test("A custom parser for int4 still gets the text of an int4 array's elements once its statement is prepared", async () => {
 	await using pool = postgres({
 		...options,
-		types: { int: { to: 23, from: [23], serialize: (x) => "" + x, parse: (x) => "n" + x } },
+		types: {
+			int: { to: 23, from: [23], serialize: (x: number) => "" + x, parse: (x: string) => "n" + x },
+		},
 	});
 	const query = async () => (await pool`select array[1, 2]::int4[] as x, ${1}::int8 as k`)[0].x;
 	expect([await query(), await query()]).toEqual([

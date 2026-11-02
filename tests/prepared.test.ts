@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import type { Sql, ISql, Row } from "../types/index.js";
 import { postgres, sql, options, delay, defer } from "./setup.ts";
 
 test("unsafe describe", async () => {
@@ -198,14 +199,14 @@ test("Fails a stale prepared statement once when a query is piped behind it", as
 
 test("Holds the connection while retrying a prepared statement", async () => {
 	let builds = 0,
-		other;
+		other: Promise<Row[]>;
 	await using sql = postgres({
 		...options,
 		debug: (_, x) =>
 			x === "select * from test where id = $1" && ++builds === 3 && (other = get(2).execute()),
 	});
-	const read = (id) => sql`select * from test where id = ${id}`;
-	const get = (id) => sql`select id, name, null::int as extra from test where id = ${id}`;
+	const read = (id: number) => sql`select * from test where id = ${id}`;
+	const get = (id: number) => sql`select id, name, null::int as extra from test where id = ${id}`;
 	await sql`create table test (id int, name text)`;
 	await sql`insert into test values (1, 'a'), (2, 'b')`;
 	await read(1);
@@ -218,7 +219,7 @@ test("Holds the connection while retrying a prepared statement", async () => {
 
 test("Answers two stale prepared statements piped together", async () => {
 	await using sql = postgres(options);
-	const read = (id) => sql`select * from test where id = ${id}`;
+	const read = (id: number) => sql`select * from test where id = ${id}`;
 	await sql`create table test (id int, name text)`;
 	await sql`insert into test values (1, 'a'), (2, 'b')`;
 	await read(1);
@@ -236,7 +237,7 @@ test("Answers two stale prepared statements piped together", async () => {
 
 test("A stale prepared statement retried with a transaction queued behind it stays outside the transaction", async () => {
 	await using sql = postgres(options);
-	const insert = (x) => sql`insert into test (name) values (${x}) returning *`;
+	const insert = (x: string) => sql`insert into test (name) values (${x}) returning *`;
 	await sql`create table test (id serial primary key, name text)`;
 	await insert("a");
 	await sql`alter table test add column extra int`;
@@ -247,7 +248,7 @@ test("A stale prepared statement retried with a transaction queued behind it sta
 				await tx`select 1`;
 				throw new Error("rollback");
 			})
-			.catch(() => null),
+			.catch((): null => null),
 	]);
 	expect((await sql`select name from test order by id`).map((x) => x.name)).toEqual(["a", "b"]);
 });
@@ -255,7 +256,7 @@ test("A stale prepared statement retried with a transaction queued behind it sta
 test("Does not give a stale prepared statement the answer of a statement piped behind it", async () => {
 	await using sql = postgres(options);
 	const select = () => sql`select * from test order by id`;
-	const get = (id) => sql`select name from test where id = ${id}`;
+	const get = (id: number) => sql`select name from test where id = ${id}`;
 	await sql`create table test (id int, name text)`;
 	await sql`insert into test values (1, 'a'), (2, 'b')`;
 	await select();
@@ -334,7 +335,7 @@ test("Stale prepared statement is not retried after the transaction it was pipel
 
 test("prepare: false describes every time, so a changed column type is seen at once, as in v3", async () => {
 	await using sql = postgres({ ...options, prepare: false, max: 1 });
-	const insert = (x) => sql`insert into test values (${x}) returning x::text as x`;
+	const insert = (x: any) => sql`insert into test values (${x}) returning x::text as x`;
 	await sql`create table test (x boolean)`;
 	const [a] = await insert(true);
 	await sql`alter table test alter column x type int using x::int`;
@@ -346,7 +347,7 @@ test("prepare: false describes every time, so a changed column type is seen at o
 
 test("A prepared statement that a changed column type no longer fits is prepared again and the query re-run", async () => {
 	await using sql = postgres({ ...options, max: 1 });
-	const insert = (x) => sql`insert into test values (${x}) returning x::text as x`;
+	const insert = (x: number | string) => sql`insert into test values (${x}) returning x::text as x`;
 	await sql`create table test (x int)`;
 	await insert(1);
 	await sql`alter table test alter column x type uuid using null`;
@@ -360,7 +361,7 @@ test("A prepared statement that a changed column type no longer fits is prepared
 
 test("A value the learned types cannot write is written for a fresh description", async () => {
 	await using sql = postgres({ ...options, max: 1 });
-	const insert = (x) => sql`insert into test values (${x}) returning x::text as x`;
+	const insert = (x: number | Buffer) => sql`insert into test values (${x}) returning x::text as x`;
 	await sql`create table test (x bytea)`;
 	await insert(Buffer.from("hi"));
 	await sql`alter table test alter column x type int using null`;
@@ -370,7 +371,7 @@ test("A value the learned types cannot write is written for a fresh description"
 
 test("A prepared statement made on a new connection has the types the pool writes values for", async () => {
 	await using sql = postgres({ ...options, max: 1 });
-	const insert = (x) => sql`insert into test values (${x}) returning x::text as x`;
+	const insert = (x: string) => sql`insert into test values (${x}) returning x::text as x`;
 	await sql`create table test (x text)`;
 	await insert("123");
 	await sql.close();
@@ -382,7 +383,7 @@ test("A prepared statement made on a new connection has the types the pool write
 test("A query waiting on another query's description of the same statement does not get that query's error", async () => {
 	await using sql = postgres({ ...options, max: 4 });
 	await Promise.all([1, 2, 3].map(() => sql`select pg_sleep(0.02)`));
-	const out = [];
+	const out: unknown[] = [];
 	await sql
 		.begin(async (tx) => {
 			await tx`select 1/0`.catch(() => {});
@@ -406,7 +407,7 @@ test("A query waiting on another query's description of the same statement does 
 test("An invalid value for a prepared statement keeps the statement and leaves nothing behind on the server", async () => {
 	await using sql = postgres({ ...options, max: 4 });
 	await sql`create table test (id uuid)`;
-	const q = (id) => sql`select * from test where id = ${id}`,
+	const q = (id: string) => sql`select * from test where id = ${id}`,
 		zero = "00000000-0000-0000-0000-000000000000";
 	const counts = async () => {
 		const reserved = await Promise.all([1, 2, 3, 4].map(() => sql.reserve()));
@@ -433,7 +434,7 @@ test("A connection that prepares a statement for the first time reads the column
 	await sql`create table test (id int, v int)`;
 	await sql`insert into test values (1, 10)`;
 	using reserved = await sql.reserve();
-	const query = (sql) => sql`select * from test where id = ${1}`;
+	const query = (sql: ISql) => sql`select * from test where id = ${1}`;
 	const before = await query(reserved);
 	await sql`alter table test alter column v type text using '0' || v::text`;
 	await sql`alter table test add column w text default 'new'`;
@@ -445,7 +446,7 @@ test("A connection that prepares a statement for the first time writes values fo
 	await using sql = postgres({ ...options, max: 2 });
 	await sql`create table test (id int, v boolean)`;
 	using reserved = await sql.reserve();
-	const insert = (sql, id, v) => sql`insert into test values (${id}, ${v})`;
+	const insert = (sql: ISql, id: number, v: string) => sql`insert into test values (${id}, ${v})`;
 	await insert(reserved, 1, "false");
 	await sql`alter table test alter column v type text`;
 	await insert(sql, 2, "yes");
@@ -467,7 +468,7 @@ test("The same query in schemas of different shape gets the rows of its own sche
 	await using _drop = defer(() =>
 		sql.unsafe("drop schema tenant_a cascade; drop schema tenant_b cascade"),
 	);
-	const tenant = (schema, hold) =>
+	const tenant = (schema: string, hold: number) =>
 		sql.begin(async (tx) => {
 			await tx`select set_config('search_path', ${schema}, true)`;
 			const [row] = await tx`select * from t where id = ${1}`;
@@ -489,7 +490,7 @@ test("The same query in schemas of different shape gets the rows of its own sche
 test("A late 26000 does not make the connection forget a statement prepared again behind it", async () => {
 	await using sql = postgres({ ...options, max: 1 });
 	const query = () => sql`select ${1}::int as x`;
-	const code = (x) =>
+	const code = (x: Promise<unknown>) =>
 		x.then(
 			() => "ok",
 			(e) => e.code,
@@ -551,7 +552,7 @@ test("A statement name the server already has on a connection is prepared under 
 
 test("Statements past the connection and pool limits are closed and prepared again when used", async () => {
 	await using sql = postgres({ ...options, max: 1, prepare: true });
-	const run = (i) => sql.unsafe("select $1::int + " + i + " as x", [1], { prepare: true });
+	const run = (i: number) => sql.unsafe("select $1::int + " + i + " as x", [1], { prepare: true });
 	for (let i = 0; i < 2100; i += 100) {
 		await Promise.all(Array.from({ length: 100 }, (_, j) => run(i + j)));
 	}
@@ -567,7 +568,7 @@ test("Statements past the connection and pool limits are closed and prepared aga
  * @param pool - the `sql` of the pool to run the query on
  * @param refs - gets a WeakRef to the rows, which tells whether something still keeps them
  */
-async function prepare_and_forget(pool, refs) {
+async function prepare_and_forget(pool: Sql, refs: WeakRef<Row[]>[]) {
 	const rows = await pool`select repeat('x', ${1e6}) as x`;
 	refs.push(new WeakRef(rows));
 }
@@ -587,7 +588,7 @@ test("A cached prepared statement does not keep the rows of the query that prepa
 
 	// idle_timeout: null, so that the connection stays open, with the statement in its cache
 	await using pool = postgres({ ...options, max: 1, idle_timeout: null });
-	const refs = [];
+	const refs: WeakRef<Row[]>[] = [];
 	await prepare_and_forget(pool, refs);
 	for (let i = 0; i < 5; i++) {
 		await delay(10);

@@ -2,6 +2,7 @@ import net from "net";
 import tls from "tls";
 import crypto from "crypto";
 import { expect, onTestFinished, test } from "vitest";
+import type { Sql, ReservedSql } from "../types/index.js";
 import { notable } from "../src/pool.ts";
 import {
 	postgres,
@@ -261,7 +262,7 @@ test("Connection destroyed with query before", async () => {
 });
 
 test("A query that sql.close() waits for gets CONNECTION_CLOSED, not CONNECTION_DESTROYED, if the connection's socket is lost", async () => {
-	let raw;
+	let raw: net.Socket;
 	await using sql = postgres({
 		...options,
 		max: 1,
@@ -335,7 +336,7 @@ test("connect_timeout", async () => {
 	await using _close = defer(() => server.close());
 	const sql = postgres({ port: port_of(server), host: "127.0.0.1", connect_timeout });
 	const start = Date.now();
-	let end;
+	let end: number;
 	await sql`select 1`.catch((e) => {
 		if (e.code !== "CONNECT_TIMEOUT") {
 			throw e;
@@ -619,7 +620,7 @@ test("prefer-standby tries every host for a standby before accepting a primary",
 	expect([x, probe]).toEqual([1, 1]);
 });
 
-const backendMessage = (type, body) => {
+const backendMessage = (type: string, body: Buffer) => {
 	const header = Buffer.alloc(5);
 	header.write(type);
 	header.writeInt32BE(body.length + 4, 1);
@@ -633,7 +634,7 @@ const backendMessage = (type, body) => {
  *   V field, as PostgreSQL before 9.6 and some poolers do
  * @returns an ErrorResponse message
  */
-const errorResponse = (severity, code, localized_only = false) =>
+const errorResponse = (severity: string, code: string, localized_only = false) =>
 	backendMessage(
 		"E",
 		Buffer.from(
@@ -834,7 +835,7 @@ test("A FATAL error with the severity only in the S field rejects the query and 
  * @returns a server that accepts a connection's startup, and answers each simple query after it
  *   with `answer`
  */
-function answering(answer) {
+function answering(answer: (socket: net.Socket, text: string) => void) {
 	return listening(
 		net.createServer((socket) => {
 			let started = false;
@@ -885,7 +886,7 @@ test("A transaction rejects with the FATAL error that answers a query of it that
 });
 
 test("A transaction whose COMMIT got a FATAL error, and whose connection end() then destroyed, rejects with CONNECTION_CLOSED with the FATAL as cause", async () => {
-	let answered;
+	let answered: (value?: unknown) => void;
 	const fatal_sent = new Promise((r) => (answered = r)),
 		server = await answering((socket, text) => {
 			if (text.includes("commit")) {
@@ -938,7 +939,7 @@ test("Failed array type fetch on a live connection is not an unhandled rejection
 	await new Promise<void>((r) => server.listen(0, "localhost", r));
 	await using _close = defer(() => server.close());
 	const sql = postgres({ ...options, host: "localhost", port: port_of(server) });
-	await sql`select 1`.catch(() => null);
+	await sql`select 1`.catch((): null => null);
 	// Ended before the check, not by `await using` after it, so that the check also counts the
 	// unhandled rejections that Node reports while the pool ends
 	await sql.end();
@@ -959,8 +960,8 @@ test("end() completes after the backend is terminated mid-query", async () => {
 });
 
 test("Connection end cancels a pending socket factory", async () => {
-	let release,
-		started,
+	let release: (socket: net.Socket) => void,
+		started: (value?: unknown) => void,
 		closes = 0;
 
 	const connecting = new Promise((r) => (started = r)),
@@ -1036,7 +1037,7 @@ test("Connection end cancels the first listen attempt", async () => {
 });
 
 test("Cancel query while its connection is opening", async () => {
-	let open;
+	let open: (value?: unknown) => void;
 	const opened = new Promise((r) => (open = r));
 	await using sql = postgres({
 		...options,
@@ -1069,7 +1070,7 @@ test("A query cancelled while its connection starts up leaves the connection in 
 	] as const) {
 		// The proxy holds back what the server sends, from the start or from the types query on,
 		// until the test releases it
-		const held = [];
+		const held: [connection: any, data: Buffer][] = [];
 		let holding = phase === "auth";
 		await using proxy = await proxy_to_server({
 			from_client: (x) => {
@@ -1179,7 +1180,7 @@ test("sql.stats is current, not a snapshot from creation", async () => {
 });
 
 test("A socket error without a close rejects the query in flight instead of hanging (#1246, #1089)", async () => {
-	let raw;
+	let raw: net.Socket;
 	await using sql = postgres({
 		...options,
 		max: 1,
@@ -1205,7 +1206,7 @@ test("A socket error without a close rejects the query in flight instead of hang
  * @param query - a query
  * @returns a promise of "ok" if `query` resolves, or of the `code` of its error if it rejects
  */
-function code_of(query) {
+function code_of(query: Promise<unknown>) {
 	return query.then(
 		() => "ok",
 		(e) => e.code,
@@ -1230,19 +1231,19 @@ test("Queries keep working after the backend dies under a burst of pipelined wri
 	]);
 });
 
-function lyingServer(final) {
-	const i32 = (n) => {
+function lyingServer(final: boolean) {
+	const i32 = (n: number) => {
 			const b = Buffer.alloc(4);
 			b.writeInt32BE(n);
 			return b;
 		},
-		msg = (t, body) => Buffer.concat([Buffer.from(t), i32(body.length + 4), body]),
-		z = (x) => Buffer.from(x + "\0"),
+		msg = (t: string, body: Buffer) => Buffer.concat([Buffer.from(t), i32(body.length + 4), body]),
+		z = (x: string) => Buffer.from(x + "\0"),
 		salt = Buffer.from("saltsalt").toString("base64");
 	const server = net.createServer((s) => {
 		let buf = Buffer.alloc(0),
 			started = false,
-			nonce = null;
+			nonce: string | null = null;
 		s.on("error", () => {});
 		s.on("data", (d) => {
 			buf = Buffer.concat([buf, d]);
@@ -1410,7 +1411,7 @@ test("With several hosts every new connection tries the first host first, as in 
 		max: 3,
 	});
 	const ports = [];
-	const reserved = [];
+	const reserved: ReservedSql[] = [];
 	await using _release = defer(() => reserved.forEach((r) => r.release()));
 	for (let i = 0; i < 3; i++) {
 		const r = await sql.reserve();
@@ -1567,7 +1568,7 @@ test("Connections refused for too many connections reject once connect_timeout h
 });
 
 test("unref_sockets lets the process exit while connections are idle", async () => {
-	const script = (idle) =>
+	const script = (idle: boolean) =>
 		[
 			"const postgres = (await import(" +
 				JSON.stringify(new URL("../src/index.ts", import.meta.url).href) +
@@ -1659,7 +1660,7 @@ test("sql and reserved connections are async disposable, and disposing sql waits
 	]).toEqual(["UNSAFE_TRANSACTION", 1, "CONNECTION_ENDED"]);
 });
 
-function listening(server) {
+function listening(server: net.Server) {
 	return new Promise<net.Server>((r) => server.listen(0, "127.0.0.1", () => r(server)));
 }
 
@@ -1729,7 +1730,7 @@ test("A password file readable by others is ignored, as in libpq", async () => {
  * @param fn - a function that gets the pool
  * @returns what `fn` returns, awaited
  */
-async function passfile(content, mode, fn) {
+async function passfile(content: string, mode: number, fn: (sql: Sql) => unknown) {
 	const fs = await import("fs"),
 		os = await import("os"),
 		path = await import("path"),
@@ -1823,7 +1824,7 @@ test("An AbortSignal removes a waiting query and cancels a running one", async (
 });
 
 test("A parameter the server reports after startup reaches onparameter and sql.parameters", async () => {
-	const seen = [];
+	const seen: string[] = [];
 	await using sql = postgres({
 		...options,
 		onparameter: (k, v) => k === "application_name" && seen.push(v),
@@ -1851,7 +1852,7 @@ test("An empty query gives an empty result, simple or prepared", async () => {
  *   the tests run with PREPARE=false.
  * @returns The number of milliseconds that the short query took.
  */
-async function short_query_ms(scheduler, retried = false) {
+async function short_query_ms(scheduler: boolean, retried = false) {
 	await using sql = postgres({
 		...options,
 		max: 2,

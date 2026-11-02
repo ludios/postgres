@@ -42,9 +42,9 @@ function dropping_listens(numbers: number[], dropped: () => void) {
  *   set through `timers` and have neither been cleared nor run yet
  */
 function tracked_timers() {
-	const pending = new Set(),
+	const pending = new Set<NodeJS.Timeout>(),
 		timers = {
-			setTimeout(fn, ms, ...args) {
+			setTimeout(fn: (...args: any[]) => void, ms: number, ...args: unknown[]) {
 				const timer = setTimeout(() => {
 					pending.delete(timer);
 					fn(...args);
@@ -52,7 +52,7 @@ function tracked_timers() {
 				pending.add(timer);
 				return timer;
 			},
-			clearTimeout(timer) {
+			clearTimeout(timer: NodeJS.Timeout) {
 				pending.delete(timer);
 				clearTimeout(timer);
 			},
@@ -63,7 +63,7 @@ function tracked_timers() {
 	return { pending, timers };
 }
 
-const until = async (fn, ms = 5000) => {
+const until = async (fn: () => unknown, ms = 5000) => {
 	const end = Date.now() + ms;
 	while (!(await fn())) {
 		if (Date.now() > end) {
@@ -111,7 +111,7 @@ test("double listen", async () => {
 
 test("multiple listeners work after a reconnect", async () => {
 	await using sql = postgres(options);
-	const xs = [];
+	const xs: string[] = [];
 
 	let listens = 0;
 	const s1 = await sql.listen(
@@ -188,7 +188,7 @@ test("listen keeps retrying when a reconnect attempt fails", async () => {
 		pass: "",
 		backoff: () => 0.1,
 	});
-	const xs = [];
+	const xs: string[] = [];
 
 	let listens = 0;
 	await sql.listen(
@@ -208,7 +208,7 @@ test("listen keeps retrying when a reconnect attempt fails", async () => {
 
 test("listen result reports correct connection state after reconnection", async () => {
 	await using sql = postgres(options);
-	const xs = [];
+	const xs: string[] = [];
 
 	const result = await sql.listen("test", (x) => xs.push(x));
 	const initial_pid = result.state.pid;
@@ -221,7 +221,7 @@ test("listen result reports correct connection state after reconnection", async 
 
 test("unlisten removes subscription", async () => {
 	await using sql = postgres(options);
-	const xs = [];
+	const xs: string[] = [];
 
 	const { unlisten } = await sql.listen("test", (x) => xs.push(x));
 	await sql.notify("test", "a");
@@ -235,7 +235,7 @@ test("unlisten removes subscription", async () => {
 
 test("listen after unlisten", async () => {
 	await using sql = postgres(options);
-	const xs = [];
+	const xs: string[] = [];
 
 	const { unlisten } = await sql.listen("test", (x) => xs.push(x));
 	await sql.notify("test", "a");
@@ -252,7 +252,7 @@ test("listen after unlisten", async () => {
 
 test("multiple listeners and unlisten one", async () => {
 	await using sql = postgres(options);
-	const xs = [];
+	const xs: string[] = [];
 
 	await sql.listen("test", (x) => xs.push("1" + x));
 	const s2 = await sql.listen("test", (x) => xs.push("2" + x));
@@ -281,13 +281,13 @@ test("Listen connection closes after the last unlisten", async () => {
 
 test("Original listen handles unsubscribe after a reconnect", async () => {
 	await using sql = postgres(options);
-	const xs = [],
+	const xs: string[] = [],
 		arrivals: Record<string, (value?: unknown) => void> = {},
 		a = new Promise((r) => (arrivals.a = r)),
 		b = new Promise((r) => (arrivals.b = r)),
 		c = new Promise((r) => (arrivals.c = r));
 	let registrations = 0,
-		reconnect;
+		reconnect: (value?: unknown) => void;
 
 	const reconnected = new Promise((r) => (reconnect = r));
 
@@ -320,9 +320,9 @@ test("Original listen handles unsubscribe after a reconnect", async () => {
 
 test("Unlisten while reconnecting keeps only the other listener", async () => {
 	await using sql = postgres(options);
-	const callbacks = [];
-	let released,
-		received,
+	const callbacks: string[] = [];
+	let released: (value?: unknown) => void,
+		received: (value?: unknown) => void,
 		first = 0,
 		second = 0;
 
@@ -351,7 +351,7 @@ test("Unlisten while reconnecting keeps only the other listener", async () => {
 
 test("A listener that throws keeps its connection and gets the next notification", async () => {
 	await using sql = postgres(options);
-	const got = [];
+	const got: string[] = [];
 	let onlisten = 0;
 	await sql.listen(
 		"throwing",
@@ -372,8 +372,8 @@ test("A listener that throws keeps its connection and gets the next notification
 
 test("A listen() whose onlisten throws rejects and leaves no listener behind", async () => {
 	await using sql = postgres(options);
-	const kept = [],
-		removed = [];
+	const kept: string[] = [],
+		removed: string[] = [];
 	await sql.listen("onlisten_throws", (x) => kept.push(x));
 	const error = await sql
 		.listen(
@@ -426,7 +426,7 @@ test("A close while a LISTEN is in flight starts no second retry chain", async (
 		port: proxy.port,
 		backoff: () => 0.1,
 	});
-	const xs = [];
+	const xs: string[] = [];
 	let listens = 0;
 	const { state } = await sql.listen(
 		"test",
@@ -444,7 +444,7 @@ test("A close while a LISTEN is in flight starts no second retry chain", async (
 
 test("A listener that joins while a reconnect's LISTEN is in flight gets onlisten once", async () => {
 	// The proxy holds back the LISTEN on its second connection until the test releases it
-	let on_hold, release;
+	let on_hold: () => void, release: () => void;
 	const held = new Promise<void>((r) => (on_hold = r));
 	await using proxy = await proxy_to_server({
 		from_client: (x, c) => {
@@ -536,7 +536,7 @@ test("A listen() that joins a channel that waits to retry its LISTEN sends the L
 test("A failed LISTEN of a listen() that joins a retrying channel counts as one more retry", async () => {
 	const { pending, timers } = tracked_timers(),
 		// The numbers of failed LISTENs that `sql` gives `backoff`
-		counts = [];
+		counts: number[] = [];
 	// The proxy drops its second and third connections as soon as the client sends a LISTEN on them
 	let dropped = 0;
 	await using proxy = await proxy_to_server({
@@ -546,7 +546,7 @@ test("A failed LISTEN of a listen() that joins a retrying channel counts as one 
 		...options,
 		host: proxy.host,
 		port: proxy.port,
-		backoff: (retries) => {
+		backoff: (retries: number) => {
 			counts.push(retries);
 			return 10;
 		},

@@ -4,10 +4,11 @@ import { AsyncLocalStorage } from "async_hooks";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { postgres, options, delay, pg_port, until_sleeping, proxy_to_server } from "./setup.ts";
 
-function record(name) {
-	const events = [],
+function record(name: string) {
+	const events: { event: string; context: any; snapshot: any }[] = [],
 		channel = dc.tracingChannel(name),
-		recorder = (event) => (context) => events.push({ event, context, snapshot: { ...context } }),
+		recorder = (event: string) => (context: any) =>
+			events.push({ event, context, snapshot: { ...context } }),
 		handlers = {
 			start: recorder("start"),
 			end: recorder("end"),
@@ -24,9 +25,9 @@ function record(name) {
 	return { events, stop };
 }
 
-function listen(name) {
-	const messages = [],
-		fn = (message) => messages.push(message);
+function listen(name: string) {
+	const messages: any[] = [],
+		fn = (message: unknown) => messages.push(message);
 	dc.subscribe(name, fn);
 	const stop = () => {
 		dc.unsubscribe(name, fn);
@@ -97,7 +98,7 @@ test("Tracing: start runs in the context of the code that made the query", async
 	await using sql = postgres({ ...options, max: 1 });
 	const store = new AsyncLocalStorage<string>(),
 		seen: string[] = [],
-		start = (context) => seen.push(store.getStore() + ":" + context.query);
+		start = (context: { query: string }) => seen.push(store.getStore() + ":" + context.query);
 	dc.subscribe("tracing:postgres:query:start", start);
 	onTestFinished(() => {
 		dc.unsubscribe("tracing:postgres:query:start", start);
@@ -113,7 +114,7 @@ test("Tracing: a store bound to start is current while the query is dispatched",
 	await using sql = postgres({ ...options, max: 1 });
 	const store = new AsyncLocalStorage(),
 		channel = dc.tracingChannel<unknown, { query: string }>("postgres:query"),
-		seen = [],
+		seen: unknown[] = [],
 		end = () => seen.push(store.getStore());
 	channel.start.bindStore(store, (context) => "span for " + context.query);
 	dc.subscribe("tracing:postgres:query:end", end);
@@ -280,8 +281,8 @@ test("Tracing: the pool publishes idle for a cancelled query's connection once i
 
 test("Tracing: the pool's close event has an error only if the connection did not close in an orderly way", async () => {
 	const { messages, stop } = listen("postgres:pool");
-	const closed_ids = [];
-	let raw;
+	const closed_ids: number[] = [];
+	let raw: net.Socket;
 	await using sql = postgres({
 		...options,
 		max: 1,

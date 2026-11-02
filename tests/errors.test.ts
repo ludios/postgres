@@ -1,5 +1,6 @@
 import net from "net";
 import { expect, onTestFinished, test, vi } from "vitest";
+import type { ISql, Notice } from "../types/index.js";
 import {
 	postgres,
 	sql,
@@ -105,7 +106,7 @@ test("throws correct error when authentication fails", async () => {
 });
 
 test("notice", async () => {
-	let notice;
+	let notice: Notice;
 	const log = console.log;
 	console.log = function (x) {
 		notice = x;
@@ -123,7 +124,7 @@ test("notice", async () => {
 });
 
 test("notice hook", async () => {
-	let notice;
+	let notice: Notice;
 	const sql = postgres({
 		...options,
 		onnotice: (x) => (notice = x),
@@ -188,7 +189,7 @@ test("Error contains query raw parameters", async () => {
  * Starts a query for each of `xs` on `sql`, each with its element as its only parameter.
  * @returns the promises of the errors that the queries reject with, in the order of `xs`
  */
-function failures(sql, xs) {
+function failures(sql: ISql, xs: string[]) {
 	return xs.map((x) => sql`select pg_sleep(1), ${x}::text as x`.catch((e) => e));
 }
 
@@ -301,9 +302,9 @@ test("A transaction whose connection drops mid-query rejects with that query's e
 
 test("Cursors whose callbacks are running when the connection closes each get their own error", async () => {
 	await using sql = postgres({ ...options, max: 1 });
-	let resume,
-		pid,
-		cursors,
+	let resume: (value?: unknown) => void,
+		pid: number,
+		cursors: Promise<any>[],
 		started = 0,
 		settled = 0;
 	const paused = new Promise((r) => (resume = r));
@@ -339,7 +340,7 @@ test("Cursors whose callbacks are running when the connection closes each get th
 });
 
 test("Queries that a reserved connection gets just as it closes each get their own error", async () => {
-	let raw;
+	let raw: net.Socket;
 	await using sql = postgres({
 		...options,
 		max: 1,
@@ -368,7 +369,7 @@ test("Queries that a reserved connection gets just as it closes each get their o
 });
 
 test("A frame that no query asked for closes the connection with CONNECTION_CLOSED", async () => {
-	let raw, onclose;
+	let raw: net.Socket, onclose: (value?: unknown) => void;
 	const closed = new Promise((r) => (onclose = r));
 	await using sql = postgres({
 		...options,
@@ -453,7 +454,7 @@ test("Catches type serialize errors", async () => {
 			text: {
 				from: [25],
 				to: 25,
-				parse: (x) => x,
+				parse: (x: string) => x,
 				serialize: () => {
 					throw new Error("watSerialize");
 				},
@@ -474,7 +475,7 @@ test("Catches type parse errors", async () => {
 				parse: () => {
 					throw new Error("watParse");
 				},
-				serialize: (x) => x,
+				serialize: (x: unknown) => x,
 			},
 		},
 	});
@@ -515,7 +516,7 @@ test("The cached origin of a query does not keep the closure that made it alive 
 		skip("this runtime cannot expose gc()");
 	}
 
-	const refs = [];
+	const refs: WeakRef<object>[] = [];
 	await holding(refs);
 
 	for (let i = 0; i < 5; i++) {
@@ -526,7 +527,7 @@ test("The cached origin of a query does not keep the closure that made it alive 
 	expect(refs[0].deref() === undefined).toBe(true);
 });
 
-function holding(refs) {
+function holding(refs: WeakRef<object>[]) {
 	const big = { data: Buffer.alloc(1e6) };
 	refs.push(new WeakRef(big));
 	return (function inner() {

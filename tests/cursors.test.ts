@@ -1,4 +1,6 @@
 import { expect, test } from "vitest";
+import type { ISql, TransactionSql, Row } from "../types/index.js";
+import type { Failure } from "../src/errors.ts";
 import { postgres, sql, options, delay } from "./setup.ts";
 
 test("forEach", async () => {
@@ -12,7 +14,7 @@ test("forEach returns empty array", async () => {
 });
 
 test("Cursor", async () => {
-	const order = [];
+	const order: string[] = [];
 	await sql`select 1 as x union select 2 as x`.cursor(async ([x]) => {
 		order.push(x.x + "a");
 		await delay(100);
@@ -22,7 +24,7 @@ test("Cursor", async () => {
 });
 
 test("Unsafe cursor", async () => {
-	const order = [];
+	const order: string[] = [];
 	await sql.unsafe("select 1 as x union select 2 as x").cursor(async ([x]) => {
 		order.push(x.x + "a");
 		await delay(100);
@@ -32,7 +34,7 @@ test("Unsafe cursor", async () => {
 });
 
 test("Cursor custom n", async () => {
-	const order = [];
+	const order: number[] = [];
 	await sql`select * from generate_series(1,20)`.cursor(10, async (x) => {
 		order.push(x.length);
 	});
@@ -40,7 +42,7 @@ test("Cursor custom n", async () => {
 });
 
 test("Cursor custom with rest n", async () => {
-	const order = [];
+	const order: number[] = [];
 	await sql`select * from generate_series(1,20)`.cursor(11, async (x) => {
 		order.push(x.length);
 	});
@@ -48,7 +50,7 @@ test("Cursor custom with rest n", async () => {
 });
 
 test("Cursor custom with less results than batch size", async () => {
-	const order = [];
+	const order: number[] = [];
 	await sql`select * from generate_series(1,20)`.cursor(21, async (x) => {
 		order.push(x.length);
 	});
@@ -65,7 +67,7 @@ test("Cursor cancel", async () => {
 });
 
 test("Cursor throw", async () => {
-	const order = [];
+	const order: string[] = [];
 	await sql`select 1 as x union select 2 as x`
 		.cursor(async ([x]) => {
 			order.push(x.x + "a");
@@ -81,7 +83,7 @@ test("Cursor error", async () => {
 });
 
 test("Multiple Cursors", async () => {
-	const result = [];
+	const result: number[] = [];
 	await sql.begin(async (tx) => [
 		await tx`select 1 as cursor, x from generate_series(1,4) as x`.cursor(async ([row]) => {
 			result.push(row.x);
@@ -156,13 +158,13 @@ test("Async Iterator Cursor custom with less results than batch size", async () 
 });
 
 test("forEach has result as second argument", async () => {
-	let x;
+	let x: { columns: { name: string }[] } | undefined;
 	await sql`select 1 as x`.forEach((_, result) => (x = result));
 	expect(x.columns[0].name).toBe("x");
 });
 
 test("concurrent cursors", async () => {
-	const xs = [];
+	const xs: number[] = [];
 
 	await Promise.all(
 		[...Array(7)].map((_, i) =>
@@ -177,7 +179,7 @@ test("concurrent cursors", async () => {
 
 test("concurrent cursors multiple connections", async () => {
 	const sql = postgres({ ...options, max: 2 });
-	const xs = [];
+	const xs: number[] = [];
 
 	await Promise.all(
 		[...Array(7)].map((_, i) =>
@@ -207,16 +209,16 @@ test("Async iterator cursor surfaces an error arriving between batches", async (
 
 test("A cursor in a transaction that resumes while another query waits on its description gives each its own answer", async () => {
 	await using sql = postgres(options);
-	const out = [];
+	const out: unknown[] = [];
 	await sql.begin(async (tx) => {
-		let release;
-		const batches = [];
+		let release: (value?: unknown) => void;
+		const batches: number[][] = [];
 		const cursor = tx`select generate_series(1, 6) as x`.cursor(2, (rows) => {
 			batches.push(rows.map((r) => r.x));
 			return new Promise((r) => (release = r));
 		});
 		const done = cursor.then(() => batches),
-			until = async (fn) => {
+			until = async (fn: () => unknown) => {
 				while (!fn()) {
 					await delay(5);
 				}
@@ -250,7 +252,7 @@ test("A cursor in a transaction that resumes while another query waits on its de
 test("A cursor on a reserved connection keeps its rows from a query made while it runs", async () => {
 	await using sql = postgres(options);
 	using reserved = await sql.reserve();
-	const batches = [];
+	const batches: number[][] = [];
 	const cursor = reserved`select generate_series(1, 6) as x`.cursor(2, async (rows) => {
 		batches.push(rows.map((r) => r.x));
 		await delay(50);
@@ -274,7 +276,7 @@ test("A cursor on a reserved connection keeps its rows from a query made while i
 test("A cursor that outlives its transaction is rejected instead of running in the next one", async () => {
 	await using sql = postgres({ ...options, max: 1 });
 	await sql`create table test (a int)`;
-	let cursor;
+	let cursor: Promise<unknown>;
 	const first = await sql
 		.begin((tx) => {
 			cursor = tx`select generate_series(1, 6) as x`.cursor(2, () => delay(100));
@@ -289,7 +291,7 @@ test("A cursor that outlives its transaction is rejected instead of running in t
 			return "committed";
 		})
 		.catch((e) => e.code);
-	const outlived = await cursor.catch((e) => e.code);
+	const outlived = await cursor.catch((e: Failure) => e.code);
 	const [{ n }] = await sql`select count(*)::int as n from test`;
 	expect([first, second, n, outlived !== undefined]).toEqual(["22012", "committed", 2, true]);
 });
@@ -298,7 +300,7 @@ test("A pool cursor whose parameter serializer returns a number rejects and free
 	await using sql = postgres({
 		...options,
 		max: 1,
-		types: { ms: { to: 20, from: [], serialize: (x) => x.getTime() } as any },
+		types: { ms: { to: 20, from: [], serialize: (x: Date) => x.getTime() } as any },
 	});
 	const run = () =>
 		sql`select ${sql.types.ms(new Date(0))}::int8 as x`
@@ -315,8 +317,8 @@ test("A pool cursor whose parameter serializer returns a number rejects and free
 });
 
 test("A transaction waits for a cursor it did not await before it commits", async () => {
-	const batches = [];
-	let cursor;
+	const batches: number[] = [];
+	let cursor: Promise<unknown>;
 	await sql.begin(async (tx) => {
 		cursor = tx`select generate_series(1, 4) as x`.cursor(1, async ([row]) => {
 			batches.push(row.x);
@@ -335,8 +337,8 @@ test("A transaction waits for a cursor it did not await before it commits", asyn
 });
 
 test("A transaction that returns right after starting a cursor still lets the cursor finish", async () => {
-	const batches = [];
-	let cursor;
+	const batches: number[] = [];
+	let cursor: Promise<unknown>;
 	await sql.begin((tx) => {
 		cursor = tx`select generate_series(1, 3) as x`.cursor(1, ([row]) => {
 			batches.push(row.x);
@@ -375,7 +377,7 @@ test("A pool cursor whose column parser throws rejects and frees the connection"
 			bad: {
 				to: 0,
 				from: [23],
-				parse: (x) => {
+				parse: (x: string) => {
 					if (x === "3") {
 						throw new Error("parser");
 					}
@@ -419,9 +421,9 @@ test("A reserved cursor whose callback throws on the last batch rejects and leav
  * @returns the outcome of the second transaction ("committed"), and the outcome of the cursor:
  *   "resolved N" for N rows, or the code (or else the message) of its error
  */
-async function outlives(fn) {
+async function outlives(fn: (tx: TransactionSql) => unknown) {
 	await using sql = postgres({ ...options, max: 1 });
-	let cursor;
+	let cursor: Promise<Row[]>;
 	await sql
 		.begin((tx) => {
 			cursor = tx`select generate_series(1, 6) as x`.cursor(2, () => delay(100).then(() => fn(tx)));
@@ -458,20 +460,19 @@ test("A cursor that goes on in its failed transaction rejects with 25P02, and th
  * @returns the cursor's outcome ("resolved", or the code it rejected with), and how many times its
  * callback ran
  */
-async function aborted(sql, how) {
+async function aborted(sql: ISql, how: string) {
 	const controller = new AbortController(),
-		query = sql`select generate_series(1, 10) as x`;
+		query = sql`select generate_series(1, 10) as x`.signal(
+			how === "signal" ? controller.signal : null,
+		);
 	let calls = 0;
-	if (how === "signal") {
-		query.signal(controller.signal);
-	}
 	const outcome = await query
 		.cursor(2, async () => {
 			calls++;
 			if (how === "signal") {
 				controller.abort();
 			} else {
-				query.cancel();
+				void query.cancel();
 			}
 			await delay(20);
 		})
@@ -535,8 +536,8 @@ test("A cursor waits for the callback of its last batch, and rejects if it does"
 	 * @returns the first x of each batch that the callback got, and the cursor's outcome
 	 * ("resolved", or the message of the error it rejected with)
 	 */
-	const last = async (sql, fail?) => {
-		const seen = [];
+	const last = async (sql: ISql, fail?: boolean) => {
+		const seen: number[] = [];
 		const outcome = await sql`select generate_series(1, 3) as x`
 			.cursor(2, async (rows) => {
 				await delay(20);

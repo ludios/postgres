@@ -23,13 +23,13 @@ const base: Partial<Options> = {
 	...login,
 };
 
-const session = async (overrides?) => {
+const session = async (overrides?: Partial<Options>) => {
 	const ready = await open({ ...base, ...overrides } as Options);
 	ready.socket.end();
 	return ready;
 };
 
-const server = (fn) =>
+const server = (fn: (socket: net.Socket) => void) =>
 	new Promise<net.Server>((r) => {
 		const x = net.createServer(fn).listen(0, "localhost", () => r(x));
 	});
@@ -106,7 +106,7 @@ test("Startup with target_session_attrs standby and no standby", async () => {
 
 test("Cancel reaches the backend", async () => {
 	const ready = await open(base as Options),
-		types = [],
+		types: string[] = [],
 		frames = Frames((type) => types.push(String.fromCharCode(type)));
 	await using _end = defer(() => ready.socket.end());
 	ready.socket.ondata = (x) => frames.push(x);
@@ -118,25 +118,25 @@ test("Cancel reaches the backend", async () => {
 	expect(types).toEqual(["T", "E", "Z"]);
 });
 
-const message = (type, body) => {
+const message = (type: string, body: Buffer) => {
 	const head = Buffer.alloc(5);
 	head[0] = type.charCodeAt(0);
 	head.writeInt32BE(body.length + 4, 1);
 	return Buffer.concat([head, body]);
 };
 
-const int32 = (x) => {
+const int32 = (x: number) => {
 	const b = Buffer.alloc(4);
 	b.writeInt32BE(x);
 	return b;
 };
 
-const fake = (respond) =>
+const fake = (respond: (socket: net.Socket, type: string, body?: Buffer) => unknown) =>
 	server((socket) => {
 		let buffer = Buffer.alloc(0),
 			started = false;
 		socket.on("error", () => {});
-		socket.on("data", (data) => {
+		socket.on("data", (data: Buffer) => {
 			buffer = Buffer.concat([buffer, data]);
 			while (started ? one() : first()) {}
 		});
@@ -217,7 +217,7 @@ test("Startup with a throwing onnotice still connects", async () => {
 
 test("Startup destroys a TCP connection still in progress when connect_timeout passes", async () => {
 	const connect = net.connect,
-		sockets = [];
+		sockets: net.Socket[] = [];
 	net.connect = (...xs: [any, any?, any?]) => {
 		const socket = connect(...xs);
 		sockets.push(socket);
@@ -235,7 +235,7 @@ test("Startup destroys a TCP connection still in progress when connect_timeout p
 	expect([code, sockets.map((x) => x.destroyed)]).toEqual(["CONNECT_TIMEOUT", [true]]);
 });
 
-const refused = async (auth, overrides?) => {
+const refused = async (auth: Buffer, overrides?: Partial<Options>) => {
 	const x = await fake((socket, type) => {
 		if (type === "startup") {
 			socket.write(message("R", auth));
@@ -274,7 +274,7 @@ test("Startup with ssl: require rejects a server without SSL", async () => {
 });
 
 test("Startup asks the server for its state when it does not report it, for target_session_attrs", async () => {
-	const row = (x) =>
+	const row = (x: string) =>
 		message("D", Buffer.concat([Buffer.from([0, 1]), int32(x.length), Buffer.from(x)]));
 	const x = await fake((socket, type) => {
 		if (type === "startup") {
@@ -298,7 +298,7 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 		path = await import("path"),
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "pgpass-")),
 		file = path.join(dir, "pgpass"),
-		sent = [];
+		sent: string[] = [];
 	await using _rm = defer(() => fs.rmSync(dir, { recursive: true, force: true }));
 	const x = await fake((socket, type, body) => {
 		if (type === "startup") {
@@ -311,7 +311,7 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 	});
 	await using _close = defer(() => x.close());
 	const port = port_of(x),
-		log_in = (passfile) =>
+		log_in = (passfile: string | null) =>
 			session({
 				host: ["localhost"],
 				port: [port],
@@ -375,15 +375,15 @@ test("channel_binding: require rejects a connection without TLS, or authenticate
 
 test("channel_binding: disable and prefer connect over TLS and without it", async () => {
 	const statuses = [];
-	for (const channel_binding of ["disable", "prefer"]) {
-		for (const ssl of [false, "require"]) {
+	for (const channel_binding of ["disable", "prefer"] as const) {
+		for (const ssl of [false, "require"] as const) {
 			statuses.push((await session({ ...login_scram, ssl, channel_binding })).status);
 		}
 	}
 	expect(statuses).toEqual(["I", "I", "I", "I"]);
 });
 
-const header = (type, length) => {
+const header = (type: string, length: number) => {
 	const x = Buffer.alloc(5);
 	x[0] = type.charCodeAt(0);
 	x.writeInt32BE(length, 1);
@@ -425,8 +425,8 @@ test("A message with an invalid length after startup rejects the query and close
 });
 
 test("channel_binding: require sends no password when the server asks for cleartext or MD5", async () => {
-	const received = [],
-		codes = [];
+	const received: unknown[] = [],
+		codes: string[] = [];
 	for (const kind of [3, 5]) {
 		const x = await fake((socket, type) => {
 			if (type === "startup") {

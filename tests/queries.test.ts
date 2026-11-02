@@ -148,7 +148,7 @@ test("Large object", async () => {
 
 test("Large object tell, size, truncate, and ranges for readable and writable", async () => {
 	const lo = await sql.largeObject(),
-		read = async (o?) => {
+		read = async (o?: { start?: number; end?: number; highWaterMark?: number }) => {
 			let s = "";
 			for await (const x of await lo.readable(o)) {
 				s += x;
@@ -435,7 +435,7 @@ test("result.statement and query.statement have the documented name, string, typ
 });
 
 test("debug gets the values as sent and the parameter types, also on first use", async () => {
-	const calls = [];
+	const calls: unknown[] = [];
 	await using sql = postgres({
 		...options,
 		max: 1,

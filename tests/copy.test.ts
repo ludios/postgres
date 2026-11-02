@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { pipeline } from "stream/promises";
 import stream from "stream";
 import { expect, test } from "vitest";
+import type { Sql } from "../types/index.js";
 import {
 	postgres,
 	sql,
@@ -83,7 +84,7 @@ test("Copy from abort", async () => {
 
 	const writable = await sql`COPY test FROM STDIN`.writable();
 
-	let aborted;
+	let aborted: Error;
 
 	readable.pipe(writable).on("error", (err) => (aborted = err));
 
@@ -168,7 +169,7 @@ test("Copy read through a slow pipeline over direct TLS keeps every byte", async
 	expect([got, ssl]).toEqual([expected, true]);
 }, 30_000);
 
-async function slowCopy(sql) {
+async function slowCopy(sql: Sql) {
 	const query =
 			"select i, md5(i::text) || repeat(chr(65 + i % 26), i % 300) from generate_series(1, 50000) i",
 		[{ expected }] = await sql.unsafe(

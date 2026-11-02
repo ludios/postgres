@@ -1,4 +1,5 @@
 import { expect, onTestFinished, test } from "vitest";
+import type { ReplicationEvent } from "../types/index.js";
 import { postgres, options, delay, camel_case, snake_case, defer } from "./setup.ts";
 
 test("subscribe", async () => {
@@ -12,7 +13,7 @@ test("subscribe", async () => {
 	);
 	await using _drop_publication = defer(() => sql`drop publication alltables`);
 
-	const result = [];
+	const result: unknown[][] = [];
 
 	const { unsubscribe } = await sql.subscribe("*", (row, { command, old }) => {
 		result.push([command, row.name, row.id, old && old.name, old && old.id]);
@@ -66,7 +67,7 @@ test("subscribe with transform", async () => {
 	);
 	await using _drop_publication = defer(() => sql`drop publication alltables`);
 
-	const result = [];
+	const result: unknown[][] = [];
 
 	const { unsubscribe } = await sql.subscribe("*", (row, { command, old }) =>
 		result.push([command, row.nameInCamel || row.id, old && old.nameInCamel]),
@@ -112,8 +113,8 @@ test("subscribe reconnects and calls onsubscribe", async () => {
 	);
 	await using _drop_publication = defer(() => sql`drop publication alltables`);
 
-	const result = [],
-		errors = [],
+	const result: unknown[] = [],
+		errors: unknown[] = [],
 		state = () => JSON.stringify({ onsubscribes, result, errors });
 	let onsubscribes = 0;
 
@@ -147,7 +148,7 @@ test("subscribe reconnects and calls onsubscribe", async () => {
 	]);
 });
 
-const until = async (fn, ms = 5000, state?) => {
+const until = async (fn: () => unknown, ms = 5000, state?: () => string) => {
 	const start = Date.now();
 	while (!fn()) {
 		if (Date.now() - start > ms) {
@@ -190,7 +191,7 @@ async function replicating(slot?: string) {
 test("subscribe with a persistent slot resumes where it left off", async () => {
 	await using fixture = await replicating("postgresjs_resume");
 	const { sql, replica } = fixture,
-		seen = [];
+		seen: unknown[] = [];
 
 	await using first = replica();
 	await first.subscribe("insert:test", (row) => seen.push(row.name));
@@ -215,7 +216,7 @@ test("subscribe with a persistent slot resumes where it left off", async () => {
 test("subscribe with a persistent slot runs async handlers in commit order", async () => {
 	await using fixture = await replicating("postgresjs_order");
 	const { sql, replica } = fixture,
-		seen = [];
+		seen: unknown[] = [];
 	await using sub = replica();
 
 	await sub.subscribe("insert:test", async (row) => {
@@ -232,8 +233,8 @@ test("subscribe with a persistent slot runs async handlers in commit order", asy
 test("subscribe with a persistent slot delivers a failed transaction again", async () => {
 	await using fixture = await replicating("postgresjs_retry");
 	const { sql, replica } = fixture,
-		seen = [],
-		errors = [];
+		seen: string[] = [],
+		errors: string[] = [];
 	await using sub = replica();
 	let fails = 1;
 
@@ -259,7 +260,7 @@ test("subscribe confirms the slot only as far as handlers have finished", async 
 	await using fixture = await replicating("postgresjs_confirm");
 	const { sql, replica } = fixture;
 	await using sub = replica();
-	let release,
+	let release: (value?: unknown) => void,
 		calls = 0;
 	const blocked = new Promise((r) => (release = r));
 
@@ -286,14 +287,14 @@ test("subscribe confirms the slot only as far as handlers have finished", async 
 test("subscribe gets truncate and the transaction of each change", async () => {
 	await using fixture = await replicating();
 	const { sql } = fixture,
-		seen = [];
+		seen: ReplicationEvent[] = [];
 	await using sub = postgres({ database: options.db, publications: "alltables" });
 
 	await sub.subscribe("*:test", (row, info) => seen.push(info));
 	await sql`insert into test (name) values ('a')`;
 	await sql`truncate test restart identity`;
 	await until(() => seen.length === 2);
-	const [insert, truncate] = seen;
+	const [insert, truncate] = seen as [ReplicationEvent, ReplicationEvent & { command: "truncate" }];
 	expect([
 		insert.command,
 		truncate.command,
@@ -316,7 +317,7 @@ test("subscribe gets truncate and the transaction of each change", async () => {
 test("subscribe with a persistent slot reconnects after the server ends it, without loss or repeats", async () => {
 	await using fixture = await replicating("postgresjs_reconnect");
 	const { sql, replica } = fixture,
-		seen = [];
+		seen: unknown[] = [];
 	await using sub = replica();
 	let subscribed = 0;
 
@@ -337,7 +338,7 @@ test("subscribe with a persistent slot reconnects after the server ends it, with
 });
 
 test("subscribe does not pile up listeners across reconnects (#1087)", async () => {
-	const wait_for = async (fn) => {
+	const wait_for = async (fn: () => unknown) => {
 		while (!fn()) {
 			await delay(20);
 		}
@@ -353,9 +354,9 @@ test("subscribe does not pile up listeners across reconnects (#1087)", async () 
 	await using _drop_publication = defer(() => sql`drop publication alltables`);
 	await sql`create table test (id serial primary key, name text)`;
 
-	const warnings = [],
-		onwarning = (x) => warnings.push(x.name),
-		result = [];
+	const warnings: string[] = [],
+		onwarning = (x: Error) => warnings.push(x.name),
+		result: unknown[] = [];
 	const seen = { subscribes: 0 };
 	process.on("warning", onwarning);
 	onTestFinished(() => {
@@ -399,7 +400,7 @@ test("subscribe parses custom array types and domains like queries do", async ()
 		),
 	);
 
-	const result = [];
+	const result: unknown[] = [];
 	const { unsubscribe } = await sql.subscribe("insert:test", (row) => result.push(row));
 	await sql`insert into test (moods, p) values ('{a,b}', 5)`;
 	const [queried] = await sql`select moods, p from test`;
@@ -422,7 +423,7 @@ test("subscribe without publications rejects each time it is called", async () =
 test("subscribe calls every handler of an event, until each unsubscribes", async () => {
 	await using fixture = await replicating();
 	const { sql } = fixture,
-		seen = [];
+		seen: unknown[] = [];
 	await using sub = postgres({ database: options.db, publications: "alltables" });
 
 	const a = await sub.subscribe("insert:test", (row) => seen.push("a" + row.id));
@@ -437,7 +438,7 @@ test("subscribe calls every handler of an event, until each unsubscribes", async
 });
 
 /** The message of the error that the last console.error (when stubbed by a test below) logged */
-let logged;
+let logged: string | undefined;
 
 /**
  * Subscribe, make the subscription's next connection fail once (its user function throws), and insert
@@ -446,12 +447,12 @@ let logged;
  * @returns the names of the rows that the subscription saw, and the message of the error that it
  * gave to onerror or logged
  */
-async function failing(onerror) {
+async function failing(onerror: boolean) {
 	await using fixture = await replicating();
 	const { sql } = fixture,
 		user = sql.options.user as string,
-		seen = [],
-		errors = [];
+		seen: unknown[] = [],
+		errors: unknown[] = [];
 	let fail = false,
 		subscribes = 0;
 
@@ -508,7 +509,7 @@ test("subscribe confirms its position to the server on an interval", async () =>
 			setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms === 10000 ? 50 : ms),
 		},
 	} as any);
-	const seen = [];
+	const seen: string[] = [];
 	// The start of the commit record of the inserted row's transaction
 	let commit_lsn;
 
@@ -531,8 +532,8 @@ test("subscribe confirms its position to the server on an interval", async () =>
 test("subscribe gives unchanged TOAST values as undefined, transforms values and reports a throwing handler", async () => {
 	await using fixture = await replicating();
 	const { sql } = fixture,
-		seen = [],
-		errors = [];
+		seen: unknown[] = [],
+		errors: unknown[] = [];
 	await using sub = postgres({
 		database: options.db,
 		publications: "alltables",
@@ -562,7 +563,7 @@ test("subscribe gives unchanged TOAST values as undefined, transforms values and
 test("subscribe gives a column named __proto__ as an own property of the row", async () => {
 	await using fixture = await replicating();
 	const { sql } = fixture,
-		seen = [];
+		seen: Record<string, any>[] = [];
 	await using sub = postgres({ database: options.db, publications: "alltables" });
 
 	await sql`alter table test add column "__proto__" json`;

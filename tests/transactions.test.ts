@@ -1,5 +1,5 @@
 import type net from "net";
-import type { TransactionSql } from "../types/index.js";
+import type { Sql, TransactionSql, Row } from "../types/index.js";
 import { expect, onTestFinished, test } from "vitest";
 import {
 	postgres,
@@ -92,7 +92,7 @@ test("Transaction succeeds on caught savepoint", async () => {
 });
 
 test("Savepoint returns Result", async () => {
-	let result;
+	let result: Row[];
 	await sql.begin(async (tx) => {
 		result = await tx.savepoint((sp) => sp`select 1 as x`);
 	});
@@ -237,7 +237,7 @@ test("Catches type serialize errors in transactions", async () => {
 			text: {
 				from: [25],
 				to: 25,
-				parse: (x) => x,
+				parse: (x: string) => x,
 				serialize: () => {
 					throw new Error("watSerialize");
 				},
@@ -258,7 +258,7 @@ test("Catches type parse errors in transactions", async () => {
 				parse: () => {
 					throw new Error("watParse");
 				},
-				serialize: (x) => x,
+				serialize: (x: unknown) => x,
 			},
 		},
 	});
@@ -492,7 +492,7 @@ test("Parameter failing to serialize aborts a pipelined transaction on a reserve
 test("Does not reject leftover begin onclose after commit", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	const rejections = [];
-	const on_unhandled = (reason) => rejections.push(reason);
+	const on_unhandled = (reason: unknown) => rejections.push(reason);
 	process.on("unhandledRejection", on_unhandled);
 	onTestFinished(() => {
 		process.off("unhandledRejection", on_unhandled);
@@ -535,7 +535,7 @@ test("Transaction queries fail after its connection is gone even if the callback
 
 test("Disconnect rejects queued transaction queries and allows reconnect", async () => {
 	await using sql = postgres({ ...options, max_pipeline: 1, fetch_types: false });
-	let queries;
+	let queries: Promise<unknown>[];
 
 	const error = await sql
 		.begin((tx) => {
@@ -584,7 +584,7 @@ test("Disconnected transaction cannot roll back a reused connection", async () =
 	expect(after).toBe(before);
 });
 
-function finishDisconnectedTransaction(error?) {
+function finishDisconnectedTransaction(error?: Error) {
 	return with_disconnected_transaction(({ sql, finish }) =>
 		sql.begin(async (tx) => {
 			const [{ x: before }] = await tx`select txid_current()::text as x`;
@@ -604,9 +604,15 @@ function finishDisconnectedTransaction(error?) {
  *   the error given to `finish`
  * @returns what `fn` returns, awaited
  */
-async function with_disconnected_transaction(fn) {
+/** What with_disconnected_transaction() gives its function: the pool, the transaction that lost its connection, and a way to end it */
+type Disconnected = { sql: Sql; disconnected: TransactionSql; finish: (error?: Error) => void };
+
+async function with_disconnected_transaction<T>(
+	fn: (x: Disconnected) => T | Promise<T>,
+): Promise<T> {
 	await using pool = postgres({ ...options, fetch_types: false });
-	let finish, ready;
+	let finish: (error?: Error) => void,
+		ready: (x: { disconnected: TransactionSql; pid: number }) => void;
 	const gate = new Promise<void>(
 		(resolve, reject) => (finish = (error) => (error ? reject(error) : resolve())),
 	);
@@ -935,7 +941,7 @@ test("sql.rollback() in a savepoint or nested begin rolls back only that, and th
 
 test("Queries, savepoints and nested begins after sql.rollback() are not sent and reject with TRANSACTION_ROLLED_BACK", async () => {
 	await sql`create table test (x int)`;
-	const codes = [];
+	const codes: string[] = [];
 	const outcome = await sql
 		.begin(async (tx) => {
 			await tx.rollback();
@@ -1003,7 +1009,7 @@ test("A transaction whose backend is terminated mid-query rejects with the FATAL
 
 test("A transaction terminated between statements rejects with the FATAL error, and its next query has it as cause (#1283)", async () => {
 	await using sql = postgres({ ...options, max: 1 });
-	let settled;
+	let settled: (value: unknown) => void;
 	const next = new Promise<any>((r) => (settled = r));
 	const error = await sql
 		.begin(async (tx) => {
@@ -1042,9 +1048,11 @@ test("A FATAL in answer to COMMIT rejects with CONNECTION_CLOSED, with the FATAL
 
 test("A savepoint or nested begin rejects when the connection is lost while its callback runs (#1281)", async () => {
 	const outcomes = [];
-	for (const method of ["savepoint", "begin"]) {
+	for (const method of ["savepoint", "begin"] as const) {
 		await using sql = postgres({ ...options, max: 1 });
-		let started, release, settled;
+		let started: (pid: number) => void,
+			release: (value?: unknown) => void,
+			settled: (value: unknown) => void;
 		const pid = new Promise<number>((r) => (started = r)),
 			gate = new Promise((r) => (release = r)),
 			child = new Promise((r) => (settled = r));
