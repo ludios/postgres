@@ -5,7 +5,7 @@ import { Errors } from "./errors.ts";
 export type PostgresType = {
 	/** The OID that values of this type are sent as, or the type's name (looked up when the pool starts) */
 	to: number | string;
-	/** The OIDs (or type names) whose values `parse` parses */
+	/** The OIDs (or type names) whose values `parse` parses, and that `serialize` also serializes */
 	from?: number | string | Array<number | string>;
 	serialize?: (value: any) => unknown;
 	parse?: (raw: any) => any;

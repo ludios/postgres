@@ -10,24 +10,30 @@ const begins = /\bbegin\b/i,
 	starts = /\bstart\b/gi,
 	transaction = /^transaction\b/i;
 
-/** A Connection, with the fields that the pool keeps on it. */
+/**
+ * A Connection, with the fields that the pool keeps on it. `opened` sets `index` and `loading`;
+ * the pool adds the other fields later, so each of them is undefined until then.
+ */
 type Pooled = ReturnType<typeof Connection> & {
 	/** The index of the host (in `options.host`) that the connection went to. */
 	index: number;
-	/** Whether the connection is busy loading the types that the pool needs. */
+	/**
+	 * Whether the connection waits for the pool's types to load (on this connection or on
+	 * another one) before it takes queries.
+	 */
 	loading: boolean;
 	/** When the connection last became idle. */
-	idleSince: number;
+	idleSince?: number;
 	/** Closes the connection after `idle_timeout`. */
-	idleTimer: any;
+	idleTimer?: any;
 	/** Retires the connection after `max_lifetime`. */
-	lifeTimer: any;
+	lifeTimer?: any;
 	/** Whether the lease was released while queries were still in flight. */
-	releasing: boolean;
+	releasing?: boolean;
 	/** Whether the connection closes as soon as it has no lease and nothing in flight. */
-	retiring: boolean;
+	retiring?: boolean;
 	/** Called once the connection closes. */
-	retired: Array<() => void>;
+	retired?: Array<() => void>;
 };
 
 export function Pool(options, types) {
@@ -639,6 +645,10 @@ export function Pool(options, types) {
 		});
 	}
 
+	/**
+	 * Leases connection `c` to `job`, and resolves the job's promise with the lease.
+	 * @returns the lease (whose type is `Lease`)
+	 */
 	function grant(c, job) {
 		started(job);
 		hold(c);

@@ -20,7 +20,7 @@ export class Query extends Promise<any> {
 	/** Called with this Query when it runs; it may carry `debug`, `options`, and `cancel`. */
 	declare handler: any;
 	declare options: any;
-	/** The backend state of the connection that ran this Query. */
+	/** The `{ pid, secret }` of the backend process whose connection ran this Query. */
 	declare state: any;
 	/** The connection's pipeline item that ran this Query. */
 	declare source: any;
