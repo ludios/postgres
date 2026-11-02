@@ -663,6 +663,14 @@ function off(value) {
 }
 
 /**
+ * @param value - the value of an option that is on or off, among other things that it may be
+ * @returns `true` for the text `true`; otherwise what `off` returns for `value`
+ */
+function on_or_off(value) {
+	return value === "true" ? true : off(value);
+}
+
+/**
  * @param value - the value of a numeric option
  * @returns `value` if it is a number; the number that `value` writes if it is the text of a
  *          non-negative decimal number, with or without whitespace around it; otherwise NaN
@@ -742,7 +750,7 @@ function one_of(...allowed) {
  * @throws for any other value
  */
 function boolean(value, source) {
-	const x = value === "true" ? true : off(value);
+	const x = on_or_off(value);
 	if (typeof x !== "boolean") {
 		throw new Error(source + " must be true or false, but it is " + shown(value));
 	}
@@ -761,9 +769,48 @@ function boolean_or_function(value, source) {
 	if (typeof value === "function") {
 		return value;
 	}
-	const x = value === "true" ? true : off(value);
+	const x = on_or_off(value);
 	if (typeof x !== "boolean") {
 		throw new Error(source + " must be true, false or a function, but it is " + shown(value));
+	}
+	return x;
+}
+
+/** The modes of ssl that encrypt the connection, besides `true` */
+const ssl_modes = ["allow", "prefer", "require", "verify-full"];
+
+/**
+ * Reads ssl, which says whether and how to encrypt the connection.
+ *
+ * @param value  - the value of the option
+ * @param source - where the value comes from (as for `seconds`)
+ * @returns `value` if it is an object of TLS options or one of `ssl_modes`; otherwise what
+ *          `boolean` returns for it, so that the text `disable` is `false`
+ * @throws for any other value, such as `verify-ca`, which libpq refuses with the system's
+ *         certificate authorities, the only ones that a mode can use
+ */
+function ssl_option(value, source) {
+	if (value === "verify-ca") {
+		throw new Error(
+			source +
+				' is "verify-ca", which checks only that a certificate authority signed the certificate, ' +
+				"and the only ones that a mode can use are the system's, which sign a certificate for any " +
+				'host name that its requester controls. Use "verify-full", or ' +
+				"ssl: { ca, checkServerIdentity: () => undefined } with a certificate authority of your own",
+		);
+	}
+	if ((value !== null && typeof value === "object") || ssl_modes.includes(value)) {
+		return value;
+	}
+	const x = on_or_off(value);
+	if (typeof x !== "boolean") {
+		throw new Error(
+			source +
+				" must be true, false, an object of TLS options, or one of " +
+				["disable", ...ssl_modes].map(shown).join(", ") +
+				", but it is " +
+				shown(value),
+		);
 	}
 	return x;
 }
@@ -830,8 +877,7 @@ const option_rules: Record<
 	prepare: { default: true, read: boolean },
 	fetch_types: { default: true, read: boolean },
 	infer: { default: false, read: boolean },
-	// Besides false: true, a mode such as "require", or options for tls.connect()
-	ssl: { default: false, read: off },
+	ssl: { default: false, read: ssl_option },
 	// Or a function that is called with every query
 	debug: { default: false, read: boolean_or_function },
 	sslnegotiation: { default: null, read: one_of(null, "postgres", "direct") },

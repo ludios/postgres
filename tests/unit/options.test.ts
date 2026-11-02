@@ -192,6 +192,39 @@ test("channel_binding from options, the url and PGCHANNELBINDING, as libpq reads
 	]).toEqual([["disable", "require", "prefer", undefined], must + '"yes"', must + "null"]);
 });
 
+test("ssl is true, false, TLS options or a mode, from options, the url and PGSSL", async () => {
+	const tls = { rejectUnauthorized: false };
+	const read = with_env({ PGSSL: "prefer" }, () => [
+		postgres({ max: 1 }).options.ssl,
+		postgres("postgres://u@h/db?ssl=true", { max: 1 }).options.ssl,
+		postgres("postgres://u@h/db?sslmode=disable", { max: 1 }).options.ssl,
+		postgres("postgres://u@h/db?sslmode=allow", { max: 1 }).options.ssl,
+		postgres({ max: 1, ssl: "require" }).options.ssl,
+		postgres({ max: 1, ssl: "verify-full" }).options.ssl,
+		postgres({ max: 1, ssl: tls }).options.ssl,
+	]);
+	expect(read).toEqual(["prefer", true, false, "allow", "require", "verify-full", tls]);
+	expect(read[6]).toBe(tls);
+});
+
+test("Another ssl throws, and so does verify-ca, which libpq refuses with the system's certificate authorities", async () => {
+	const must = (source, shown) =>
+		"The " +
+		source +
+		' must be true, false, an object of TLS options, or one of "disable", "allow", "prefer", ' +
+		'"require", "verify-full", but it is ' +
+		shown;
+	expect([
+		thrown(() => postgres("postgres://u@h/db?ssl=foo", { max: 1 })).message,
+		thrown(() => postgres({ max: 1, ssl: null })).message,
+		thrown(() => postgres("postgres://u@h/db?sslmode=verify-ca", { max: 1 })).message,
+	]).toEqual([
+		must("url parameter ssl", '"foo"'),
+		must("option ssl", "null"),
+		expect.stringMatching(/^The url parameter ssl is "verify-ca", which checks only that /),
+	]);
+});
+
 test("sslnegotiation from options, the url and PGSSLNEGOTIATION; another value throws", async () => {
 	const read = with_env({ PGSSLNEGOTIATION: "postgres" }, () => [
 		postgres({ max: 1 }).options.sslnegotiation,
