@@ -207,7 +207,7 @@ test("Async iterator cursor surfaces an error arriving between batches", async (
 });
 
 test("A cursor in a transaction that resumes while another query waits on its description gives each its own answer", async () => {
-	const sql = postgres(options);
+	await using sql = postgres(options);
 	const out = [];
 	await sql.begin(async (sql) => {
 		let release;
@@ -246,12 +246,11 @@ test("A cursor in a transaction that resumes while another query waits on its de
 			[5, 6],
 		],
 	]);
-	await sql.end();
 });
 
 test("A cursor on a reserved connection keeps its rows from a query made while it runs", async () => {
-	const sql = postgres(options);
-	const reserved = await sql.reserve();
+	await using sql = postgres(options);
+	using reserved = await sql.reserve();
 	const batches = [];
 	const cursor = reserved`select generate_series(1, 6) as x`.cursor(2, async (rows) => {
 		batches.push(rows.map((r) => r.x));
@@ -263,7 +262,6 @@ test("A cursor on a reserved connection keeps its rows from a query made while i
 	}
 	const [{ a }] = await reserved`select 'q1' as a`;
 	await cursor;
-	reserved.release();
 	expect([a, batches]).toEqual([
 		"q1",
 		[
@@ -272,11 +270,10 @@ test("A cursor on a reserved connection keeps its rows from a query made while i
 			[5, 6],
 		],
 	]);
-	await sql.end();
 });
 
 test("A cursor that outlives its transaction is rejected instead of running in the next one", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	await sql`create table test (a int)`;
 	let cursor;
 	const first = await sql
@@ -296,12 +293,10 @@ test("A cursor that outlives its transaction is rejected instead of running in t
 	const outlived = await cursor.catch((e) => e.code);
 	const [{ n }] = await sql`select count(*)::int as n from test`;
 	expect([first, second, n, outlived !== undefined]).toEqual(["22012", "committed", 2, true]);
-	await sql`drop table test`;
-	await sql.end();
 });
 
 test("A pool cursor whose parameter serializer returns a number rejects and frees the connection", async () => {
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		max: 1,
 		types: { ms: { to: 20, from: [], serialize: (x) => x.getTime() } },
@@ -318,7 +313,6 @@ test("A pool cursor whose parameter serializer returns a number rejects and free
 		"TypeError",
 		1,
 	]);
-	await sql.end();
 });
 
 test("A transaction waits for a cursor it did not await before it commits", async () => {
@@ -360,7 +354,7 @@ test("A transaction that returns right after starting a cursor still lets the cu
 });
 
 test("A pool cursor whose callback throws on the last batch rejects and frees the connection", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	const error = await sql`select generate_series(1, 3) as x`
 		.cursor(2, (rows) => {
 			if (rows[0].x === 3) {
@@ -372,11 +366,10 @@ test("A pool cursor whose callback throws on the last batch rejects and frees th
 			(e) => e.message,
 		);
 	expect([error, (await sql`select 1 as x`)[0].x]).toEqual(["last", 1]);
-	await sql.end();
 });
 
 test("A pool cursor whose column parser throws rejects and frees the connection", async () => {
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		max: 1,
 		types: {
@@ -399,12 +392,11 @@ test("A pool cursor whose column parser throws rejects and frees the connection"
 			(e) => e.message,
 		);
 	expect([error, (await sql`select 1 as x`)[0].x]).toEqual(["parser", 1]);
-	await sql.end();
 });
 
 test("A reserved cursor whose callback throws on the last batch rejects and leaves the connection usable", async () => {
-	const sql = postgres({ ...options, max: 1 });
-	const reserved = await sql.reserve();
+	await using sql = postgres({ ...options, max: 1 });
+	using reserved = await sql.reserve();
 	const error = await reserved`select generate_series(1, 3) as x`
 		.cursor(2, (rows) => {
 			if (rows[0].x === 3) {
@@ -416,13 +408,11 @@ test("A reserved cursor whose callback throws on the last batch rejects and leav
 			(e) => e.message,
 		);
 	const [{ x }] = await reserved`select 1 as x`;
-	reserved.release();
 	expect([error, x]).toEqual(["last", 1]);
-	await sql.end();
 });
 
 async function outlives(fn) {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	let cursor;
 	await sql
 		.begin((sql) => {
@@ -437,7 +427,7 @@ async function outlives(fn) {
 		(x) => "resolved " + x.length,
 		(e) => e.code || e.message,
 	);
-	return [second, outcome, await sql.end()];
+	return [second, outcome];
 }
 
 test("A cursor that throws in its failed transaction rejects with its own error, and the next transaction commits", async () => {
@@ -484,34 +474,30 @@ async function aborted(sql, how) {
 }
 
 test("Aborting a pool cursor while its callback runs stops it with 57014", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	const outcomes = [
 		await aborted(sql, "signal"),
 		await aborted(sql, "cancel"),
 		(await sql`select 1 as x`)[0].x,
 	];
 	expect(outcomes).toEqual([["57014", 1], ["57014", 1], 1]);
-	await sql.end();
 });
 
 test("Cancelling a reserved cursor while its callback runs stops it with 57014", async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		reserved = await sql.reserve();
+	await using sql = postgres({ ...options, max: 1 });
+	using reserved = await sql.reserve();
 	const outcome = await aborted(reserved, "cancel"),
 		[{ x }] = await reserved`select 1 as x`;
-	reserved.release();
 	expect([outcome, x]).toEqual([["57014", 1], 1]);
-	await sql.end();
 });
 
 test("Aborting a cursor in a transaction stops it with 57014, which rejects the transaction", async () => {
-	const sql = postgres({ ...options, max: 1 });
+	await using sql = postgres({ ...options, max: 1 });
 	let inside;
 	const outcome = await sql
 		.begin(async (sql) => (inside = await aborted(sql, "signal")))
 		.catch((e) => e.code);
 	expect([inside, outcome]).toEqual([["57014", 1], "57014"]);
-	await sql.end();
 });
 
 test("Aborting a cursor used as an async iterator stops it with 57014", async () => {
@@ -532,53 +518,49 @@ test("Aborting a cursor used as an async iterator stops it with 57014", async ()
 });
 
 test("A cursor waits for the callback of its last batch, and rejects if it does", async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		/**
-		 * Run a cursor over two batches, [1, 2] and [3], whose callback waits a little for each.
-		 * @param sql - the sql to run the query on: the pool or a reserved connection
-		 * @param fail - whether the callback throws for the last batch
-		 * @returns the first x of each batch that the callback got, and the cursor's outcome
-		 * ("resolved", or the message of the error it rejected with)
-		 */
-		last = async (sql, fail?) => {
-			const seen = [];
-			const outcome = await sql`select generate_series(1, 3) as x`
-				.cursor(2, async (rows) => {
-					await delay(20);
-					seen.push(rows[0].x);
-					if (fail && rows[0].x === 3) {
-						throw new Error("last");
-					}
-				})
-				.then(
-					() => "resolved",
-					(e) => e.message,
-				);
-			return [seen, outcome];
-		};
-	const outcomes = [await last(sql), await last(sql, true)],
-		reserved = await sql.reserve();
+	await using sql = postgres({ ...options, max: 1 });
+	/**
+	 * Run a cursor over two batches, [1, 2] and [3], whose callback waits a little for each.
+	 * @param sql - the sql to run the query on: the pool or a reserved connection
+	 * @param fail - whether the callback throws for the last batch
+	 * @returns the first x of each batch that the callback got, and the cursor's outcome
+	 * ("resolved", or the message of the error it rejected with)
+	 */
+	const last = async (sql, fail?) => {
+		const seen = [];
+		const outcome = await sql`select generate_series(1, 3) as x`
+			.cursor(2, async (rows) => {
+				await delay(20);
+				seen.push(rows[0].x);
+				if (fail && rows[0].x === 3) {
+					throw new Error("last");
+				}
+			})
+			.then(
+				() => "resolved",
+				(e) => e.message,
+			);
+		return [seen, outcome];
+	};
+	const outcomes = [await last(sql), await last(sql, true)];
+	using reserved = await sql.reserve();
 	outcomes.push(await last(reserved), await last(reserved, true));
-	reserved.release();
 	expect(outcomes).toEqual([
 		[[1, 3], "resolved"],
 		[[1, 3], "last"],
 		[[1, 3], "resolved"],
 		[[1, 3], "last"],
 	]);
-	await sql.end();
 });
 
 test("A reserved cursor whose callback throws at once rejects and leaves the connection open", async () => {
-	const sql = postgres({ ...options, max: 1 }),
-		reserved = await sql.reserve();
+	await using sql = postgres({ ...options, max: 1 });
+	using reserved = await sql.reserve();
 	const error = await reserved`select generate_series(1, 10) as x`
 		.cursor(2, () => {
 			throw new Error("at once");
 		})
 		.catch((e) => e.message);
 	const [{ x }] = await reserved`select 1 as x`;
-	reserved.release();
 	expect([error, x]).toEqual(["at once", 1]);
-	await sql.end();
 });
