@@ -463,9 +463,17 @@ function Listen(options) {
 		channel.timer = null;
 		send_listen(channel, name).then(
 			() => {
+				if (closing) {
+					return;
+				}
 				listeners.forEach((l) => {
 					if (channel.listeners.has(l) && l.onlisten) {
-						l.onlisten();
+						try {
+							l.onlisten();
+						} catch {
+							// As for a listener's fn in onnotify: one listener's error must not stop the
+							// calls of the others, or reject this promise, which nothing handles
+						}
 					}
 				});
 			},
