@@ -192,9 +192,13 @@ test("channel_binding from options, the url and PGCHANNELBINDING, as libpq reads
 	]).toEqual([["disable", "require", "prefer", undefined], must + '"yes"', must + "null"]);
 });
 
-test("ssl is true, false, TLS options or a mode, from options, the url and PGSSL", async () => {
+test("ssl is true, false, TLS options or a mode, from options, the url and PGSSLMODE, as libpq reads it", async () => {
 	const tls = { rejectUnauthorized: false };
-	const read = with_env({ PGSSL: "prefer" }, () => [
+	const unread = with_env(
+		{ PGSSL: "require", PGSSLMODE: undefined },
+		() => postgres({ max: 1 }).options.ssl,
+	);
+	const read = with_env({ PGSSLMODE: "prefer" }, () => [
 		postgres({ max: 1 }).options.ssl,
 		postgres("postgres://u@h/db?ssl=true", { max: 1 }).options.ssl,
 		postgres("postgres://u@h/db?sslmode=disable", { max: 1 }).options.ssl,
@@ -203,7 +207,10 @@ test("ssl is true, false, TLS options or a mode, from options, the url and PGSSL
 		postgres({ max: 1, ssl: "verify-full" }).options.ssl,
 		postgres({ max: 1, ssl: tls }).options.ssl,
 	]);
-	expect(read).toEqual(["prefer", true, false, "allow", "require", "verify-full", tls]);
+	expect([unread, read]).toEqual([
+		false,
+		["prefer", true, false, "allow", "require", "verify-full", tls],
+	]);
 	expect(read[6]).toBe(tls);
 });
 

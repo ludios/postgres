@@ -880,7 +880,7 @@ const option_rules: Record<
 	prepare: { default: true, read: boolean },
 	fetch_types: { default: true, read: boolean },
 	infer: { default: false, read: boolean },
-	ssl: { default: false, parameter: "sslmode", read: ssl_option },
+	ssl: { default: false, variable: "PGSSLMODE", parameter: "sslmode", read: ssl_option },
 	// Or a function that is called with every query
 	debug: { default: false, read: boolean_or_function },
 	sslnegotiation: { default: null, read: one_of(null, "postgres", "direct") },
