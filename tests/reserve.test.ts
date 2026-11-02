@@ -232,3 +232,17 @@ test("Releasing a reserved connection twice releases it once", async () => {
 	expect([a.x, b.x]).toEqual([1, 2]);
 	await sql.end();
 });
+
+test("A describe() that a reserved connection gets as it is released rejects instead of running", async () => {
+	const sql = postgres(options),
+		reserved = await sql.reserve();
+	const described = reserved`select ${"a"}::text as x`.describe().then(
+		() => "described",
+		(e) => e.code,
+	);
+	// The query is sent to the lease in one microtask, and goes to the connection in a later
+	// microtask; the lease is released in a microtask between those two
+	queueMicrotask(() => reserved.release());
+	expect(await described).toBe("UNSAFE_TRANSACTION");
+	await sql.end();
+});

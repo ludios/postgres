@@ -139,9 +139,7 @@ export function Pool(options, types) {
 				),
 				q.onwrite && q.onwrite()
 			);
-		lease
-			? run(lease.connection)
-			: place({ run, q, reject: (error) => q.reject(queryError(error, q, options.debug)) });
+		place({ run, q, reject: (error) => q.reject(queryError(error, q, options.debug)) }, lease);
 	}
 
 	function unbuilt(q, error, lease) {
