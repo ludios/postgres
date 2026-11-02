@@ -513,7 +513,7 @@ test("Decode int2, int4 and bool arrays in binary as their text parsers parse th
 			fc.property(arrays_of(element), (xs) => {
 				const bytes = binary_array_bytes(xs, write),
 					x = Buffer.concat([Buffer.from("12345"), bytes, Buffer.from("67890")]);
-				expect(utc_types.binary(oid)(x, 5, 5 + bytes.length)).toEqual(
+				expect(binary_decoder(utc_types, oid)(x, 5, 5 + bytes.length)).toEqual(
 					utc_types.parser(oid)(array_text(xs, show)),
 				);
 			}),
@@ -526,7 +526,7 @@ test("Decode bytea in binary as its text parser parses the hex text", async () =
 	fc.assert(
 		fc.property(fc.uint8Array({ maxLength: 64 }), (bytes) => {
 			const x = Buffer.concat([Buffer.from("12345"), bytes, Buffer.from("67890")]),
-				value = utc_types.binary(17)(x, 5, 5 + bytes.length);
+				value = binary_decoder(utc_types, 17)(x, 5, 5 + bytes.length);
 			// A copy, as the read buffer is reused
 			x.fill(0);
 			expect(value).toEqual(utc_types.parser(17)("\\x" + Buffer.from(bytes).toString("hex")));
@@ -542,7 +542,7 @@ test("Decode arrays with a lower bound other than 1 without the bounds, as their
 		),
 	);
 	expect([
-		utc_types.binary(1007)(bytes, 0, bytes.length),
+		binary_decoder(utc_types, 1007)(bytes, 0, bytes.length),
 		utc_types.parser(1007)("[0:1]={5,6}"),
 	]).toEqual([
 		[5, 6],
@@ -558,22 +558,54 @@ function custom_types(oid) {
 	return Types({ types: { x: { to: oid, from: [oid], serialize: String, parse: String } } });
 }
 
-test("Read as text the types without a binary decoder, and those that options.types parses, or whose elements it parses", async () => {
+/**
+ * @param pool_types - what Types() returned
+ * @param oid - the type of a column
+ * @returns the decoder of the binary format that a column of type `oid` gets, or null
+ */
+function binary_decoder(pool_types, oid) {
+	return pool_types.binary(oid, pool_types.parser(oid));
+}
+
+test("Read as text the types without a binary decoder, and those whose parser or elements' parser is not the built-in one", async () => {
 	const named = Types({
 			types: { x: { to: "ints", from: ["ints"], serialize: String, parse: String } },
 		}),
-		row = { oid: 1007, array: 0, delimiter: ",", name: "ints", schema: "public", visible: true };
+		row = { oid: 1007, array: 0, delimiter: ",", name: "ints", schema: "public", visible: true },
+		// As `sql.options.parsers[17] = String` does, before any query reads a bytea
+		replaced = Types({ infer: false }),
+		serialize_only = Types({ types: { x: { to: 1007, serialize: String } } });
 	// Answers only the query that looks up the named types
 	await named.load(async (text) => (text.includes("t.typname in") ? [row] : []));
+	replaced.parsers[17] = String;
+	replaced.parsers[23] = String;
 	expect([
-		utc_types.binary(25),
-		utc_types.binary(23),
-		utc_types.binary(1009),
-		utc_types.binary(1016),
-		custom_types(1007).binary(1007),
-		custom_types(23).binary(1007),
-		custom_types(17).binary(17),
-		named.binary(1007),
-		typeof custom_types(23).binary(1005),
-	]).toEqual([null, null, null, null, null, null, null, null, "function"]);
+		binary_decoder(utc_types, 25),
+		binary_decoder(utc_types, 23),
+		binary_decoder(utc_types, 1009),
+		binary_decoder(utc_types, 1016),
+		binary_decoder(custom_types(1007), 1007),
+		binary_decoder(custom_types(23), 1007),
+		binary_decoder(custom_types(17), 17),
+		binary_decoder(named, 1007),
+		binary_decoder(replaced, 17),
+		binary_decoder(replaced, 1007),
+		typeof binary_decoder(replaced, 1005),
+		typeof binary_decoder(custom_types(23), 1005),
+		typeof binary_decoder(serialize_only, 1007),
+	]).toEqual([
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		null,
+		"function",
+		"function",
+		"function",
+	]);
 });

@@ -513,14 +513,16 @@ export function Connection(ready, options, events) {
 	 *   Bind (1 for binary, 0 for text); or null, if no column is read in binary
 	 */
 	function binary_columns(columns) {
-		const formats = new Array(columns.length);
-		let binary = null;
+		let binary = null,
+			formats = null;
 		for (let i = 0; i < columns.length; i++) {
-			const decode = events.binary(columns[i].type);
-			formats[i] = decode ? 1 : 0;
+			// The parser that the column has as text, so that the decoder gives what it would
+			const decode = events.binary(columns[i].type, columns[i].parser);
 			if (decode) {
 				binary = binary || columns.slice();
+				formats = formats || columns.map(() => 0);
 				binary[i] = { ...columns[i], decode };
+				formats[i] = 1;
 			}
 		}
 		return binary && { columns: binary, formats };

@@ -278,15 +278,15 @@ function binary_array(read) {
 }
 
 /**
- * For each built-in array type that is read in binary: the type of its elements, and the decoder of
- * the array, which gives the elements as their built-in text parsers do. Not int8[]: its elements
- * are kept as text, and making that text from the binary takes longer than reading it
+ * For each built-in array type that is read in binary: the built-in parser of its elements, and the
+ * decoder of the array, which gives the elements as that parser does. Not int8[]: its elements are
+ * kept as text, and making that text from the binary takes longer than reading it
  * (tests/bench_decoders.ts).
  */
 const binary_arrays = {
-	1000: [16, binary_array((x, i) => x[i] === 1)],
-	1005: [21, binary_array((x, i) => ((x[i] << 24) | (x[i + 1] << 16)) >> 16)],
-	1007: [23, binary_array(int32)],
+	1000: [bool, binary_array((x, i) => x[i] === 1)],
+	1005: [number, binary_array((x, i) => ((x[i] << 24) | (x[i + 1] << 16)) >> 16)],
+	1007: [number, binary_array(int32)],
 };
 
 /** Decodes a bytea in the binary format, its bytes, by copying them out of the reused read buffer */
@@ -328,9 +328,6 @@ export function Types(options: Record<string, any> = {}) {
 		oids = new Map<string, number>();
 
 	register(custom.filter((x) => !named.includes(x)));
-
-	/** The types that options.types names, whose values only their own parsers read */
-	const own = new Set(custom.flatMap((x) => [x.to].concat(x.from || [])));
 
 	const bases = {};
 
@@ -380,17 +377,18 @@ export function Types(options: Record<string, any> = {}) {
 
 	/**
 	 * @param oid - the type of a column
+	 * @param parse - the parser that the column's values get, as text
 	 * @returns a decoder `(x, start, end) => value` of the column's values in the binary format,
-	 *   which gives what the built-in text parser of the type gives; or null, if the column is read
-	 *   as text: a type without such a decoder, or one that options.types parses itself, or whose
-	 *   elements it parses itself
+	 *   which gives what `parse` gives for the text; or null, if the column is read as text: a type
+	 *   without such a decoder, or one whose parser, or whose elements' parser, is not the built-in
+	 *   one (such as one from options.types or sql.options.parsers)
 	 */
-	function binary(oid) {
-		const array = binary_arrays[oid];
-		if (own.has(oid) || (array && own.has(array[0]))) {
-			return null;
+	function binary(oid, parse) {
+		if (oid === 17) {
+			return parse === types.bytea.parse ? binary_bytea : null;
 		}
-		return oid === 17 ? binary_bytea : array ? array[1] : null;
+		const array = binary_arrays[oid];
+		return array && parse && parse.element === array[0] ? array[1] : null;
 	}
 
 	function register(xs: Record<string, PostgresType> | PostgresType[]) {
@@ -418,7 +416,10 @@ export function Types(options: Record<string, any> = {}) {
 		if (oid in elements) {
 			const [element, delimiter] = elements[oid],
 				parse = parser(element);
-			return (parsers[oid] = (x) => parseArray(x, parse === identity ? null : parse, delimiter));
+			const array = (x) => parseArray(x, parse === identity ? null : parse, delimiter);
+			// So that binary() can tell which parser the elements get
+			array.element = parse;
+			return (parsers[oid] = array);
 		}
 
 		return identity;
@@ -484,13 +485,9 @@ export function Types(options: Record<string, any> = {}) {
 					: "The type " + missing[0] + " does not exist",
 			);
 		}
-		const resolved = named.map((x) => ({
-			...x,
-			to: resolve(x.to),
-			from: [].concat(x.from || []).map(resolve),
-		}));
-		register(resolved);
-		resolved.forEach((x) => [x.to].concat(x.from).forEach((oid) => own.add(oid)));
+		register(
+			named.map((x) => ({ ...x, to: resolve(x.to), from: [].concat(x.from || []).map(resolve) })),
+		);
 	}
 
 	function fetched(run) {

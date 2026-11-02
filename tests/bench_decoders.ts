@@ -146,7 +146,7 @@ function array_case(name, oid, element, random, write): Case {
 				"{" + xs.map((x) => (typeof x === "boolean" ? (x ? "t" : "f") : String(x))).join(",") + "}",
 		),
 		bytes: arrays.map((xs) => binary_array(xs, element, write)),
-		decode: oid === 1016 ? int8_array : types.binary(oid),
+		decode: oid === 1016 ? int8_array : types.binary(oid, types.parser(oid)),
 	};
 }
 
@@ -178,7 +178,7 @@ function cases(): Case[] {
 			oid: 17,
 			texts: bytea.map((x) => "\\x" + x.toString("hex")),
 			bytes: bytea,
-			decode: types.binary(17),
+			decode: types.binary(17, types.parser(17)),
 		},
 		array_case(
 			"int2[10]",

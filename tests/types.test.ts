@@ -715,6 +715,21 @@ test("A custom parser for an int4 array still gets the text once its statement i
 	expect([await query(), await query()]).toEqual(["text {1,2}", "text {1,2}"]);
 });
 
+test("A parser set in sql.options.parsers still gets the text of a bytea and of an int4 array once their statement is prepared", async () => {
+	await using pool = postgres(options);
+	pool.options.parsers[17] = (x) => "bytes " + x;
+	pool.options.parsers[1007] = (x) => "ints " + x;
+	const query = async () => {
+		const [{ b, a }] =
+			await pool`select '\\x01'::bytea as b, array[1]::int4[] as a, ${1}::int as k`;
+		return [b, a];
+	};
+	expect([await query(), await query()]).toEqual([
+		["bytes \\x01", "ints {1}"],
+		["bytes \\x01", "ints {1}"],
+	]);
+});
+
 test("A custom parser for int4 still gets the text of an int4 array's elements once its statement is prepared", async () => {
 	await using pool = postgres({
 		...options,
