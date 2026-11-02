@@ -60,9 +60,7 @@ export function Connection(ready, options, events) {
 		portals = 0,
 		traced = 0,
 		epoch = 0,
-		headSince = 0,
-		// How many exchanges in `sent` and `pending` have a `cost` of at least `notable`.
-		notables = 0;
+		headSince = 0;
 
 	const connection = {
 		id: ids++,
@@ -100,9 +98,9 @@ export function Connection(ready, options, events) {
 		ref: () => socket.ref(),
 		unref: () => socket.unref(),
 		backlog,
-		heavy,
+		heavy: () => costly(slow),
 		get notable() {
-			return notables > 0;
+			return costly(notable);
 		},
 	};
 
@@ -174,9 +172,6 @@ export function Connection(ready, options, events) {
 			);
 		}
 
-		if (x.cost >= notable) {
-			notables++;
-		}
 		x.query && (x.query.state = connection.backend);
 		if (fence) {
 			pending.splice(pending.indexOf(fence), 0, x);
@@ -238,7 +233,6 @@ export function Connection(ready, options, events) {
 			x.describing = x.synced = x.flushing = x.open = false;
 			if (!x.own || x.kind === "step" || !connection.lease) {
 				x.kind = "local";
-				x.cost >= notable && notables--;
 				x.cost = undefined;
 				return sent.length === 0 ? settle_soon(x) : sent.push(x);
 			}
@@ -317,7 +311,6 @@ export function Connection(ready, options, events) {
 		const t = timers.now();
 
 		if (x.cost !== undefined) {
-			x.cost >= notable && notables--;
 			const sample = t - headSince,
 				c = x.query.cost;
 			c.est = c.est === undefined || sample > c.est ? sample : c.est + (sample - c.est) * 0.1;
@@ -346,15 +339,19 @@ export function Connection(ready, options, events) {
 		return w;
 	}
 
-	function heavy() {
+	/**
+	 * Whether some exchange in `sent` or `pending` is estimated (by its `cost`) to take at least
+	 * `ms` milliseconds.
+	 */
+	function costly(ms) {
 		for (let i = 0; i < sent.length; i++) {
-			if (sent[i].cost >= slow) {
+			if (sent[i].cost >= ms) {
 				return true;
 			}
 		}
 
 		for (let i = 0; i < pending.length; i++) {
-			if (pending[i].cost >= slow) {
+			if (pending[i].cost >= ms) {
 				return true;
 			}
 		}
@@ -662,7 +659,6 @@ export function Connection(ready, options, events) {
 		if (i !== -1) {
 			const [x] = pending.splice(i, 1);
 			x === fence && (fence = null);
-			x.cost >= notable && notables--;
 			settleError(x, Errors.canceled());
 			release();
 			return Promise.resolve();
@@ -735,7 +731,6 @@ export function Connection(ready, options, events) {
 		out.take();
 		blocker = null;
 		fence = null;
-		notables = 0;
 		const orderly = terminated && idle(),
 			head = sent[0],
 			fatal =
@@ -1231,9 +1226,6 @@ export function Connection(ready, options, events) {
 			return queue(retry);
 		}
 
-		if (retry.cost >= notable) {
-			notables++;
-		}
 		pending.unshift(retry);
 		release();
 	}
