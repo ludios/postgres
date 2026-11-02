@@ -113,7 +113,8 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 		function first(message) {
 			const code = message.readInt32BE(4);
 			if (code === 80877103) {
-				return end.write("N");
+				end.write("N");
+				return;
 			}
 
 			if (code === 80877102) {
@@ -124,7 +125,8 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 						s.cancel();
 					}
 				}
-				return end.end();
+				end.end();
+				return;
 			}
 			started = true;
 			const mode = startup[host];
@@ -132,11 +134,13 @@ export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 				attempts.push(clock.now);
 			}
 			if (mode === "close") {
-				return end.end();
+				end.end();
+				return;
 			}
 
 			if (mode === "error") {
-				return end.end(error("FATAL", "53300", "sorry, too many clients already"));
+				end.end(error("FATAL", "53300", "sorry, too many clients already"));
+				return;
 			}
 
 			if (mode === "hang") {

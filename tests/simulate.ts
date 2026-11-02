@@ -431,7 +431,8 @@ async function simulate(seed) {
 				ms = random.int(10, 3000);
 			log("fault outage " + mode + " " + ms + "ms");
 			server.startup[0] = mode;
-			return clock.timers.setTimeout(() => (server.startup[0] = "ready"), ms);
+			clock.timers.setTimeout(() => (server.startup[0] = "ready"), ms);
+			return;
 		}
 		if (!x) {
 			return;

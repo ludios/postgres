@@ -179,14 +179,13 @@ export function Connection(ready, options, events) {
 
 	function queue(x) {
 		if (closed) {
-			return settleError(x, copy_error(closed));
+			settleError(x, copy_error(closed));
+			return;
 		}
 
 		if (blocker && blocker.streaming && blocker.open) {
-			return settleError(
-				x,
-				Errors.generic("COPY_IN_PROGRESS", "You cannot execute queries during copy"),
-			);
+			settleError(x, Errors.generic("COPY_IN_PROGRESS", "You cannot execute queries during copy"));
+			return;
 		}
 
 		if (x.query) {
@@ -200,7 +199,8 @@ export function Connection(ready, options, events) {
 			pending.push(x);
 		} else {
 			write(x);
-			return schedule();
+			schedule();
+			return;
 		}
 
 		release();
@@ -1239,7 +1239,8 @@ export function Connection(ready, options, events) {
 	async function PortalSuspended() {
 		const item = sent[0];
 		if (!item.flushing) {
-			return (item.suspended = true);
+			item.suspended = true;
+			return;
 		}
 
 		try {
@@ -1277,7 +1278,8 @@ export function Connection(ready, options, events) {
 			error = Errors.postgres(p.error(x, start, end));
 
 		if (!item) {
-			return (connection_error = error);
+			connection_error = error;
+			return;
 		}
 
 		// First, so that the stream's destroy knows that the server has already failed the COPY
@@ -1339,9 +1341,12 @@ export function Connection(ready, options, events) {
 		}
 
 		if (x.kind === "describe") {
-			return x.error
-				? x.reject(x.error)
-				: x.resolve({ params: x.params || [], columns: x.columns });
+			if (x.error) {
+				x.reject(x.error);
+			} else {
+				x.resolve({ params: x.params || [], columns: x.columns });
+			}
+			return;
 		}
 
 		const { query } = x,
@@ -1351,15 +1356,18 @@ export function Connection(ready, options, events) {
 		}
 
 		if (x.own) {
-			return query.reject(decorate(query, x.own));
+			query.reject(decorate(query, x.own));
+			return;
 		}
 
 		if (x.error) {
-			return failed(x);
+			failed(x);
+			return;
 		}
 
 		if (x.suspended) {
-			return suspended(x);
+			suspended(x);
+			return;
 		}
 
 		if (x.last) {
@@ -1389,33 +1397,48 @@ export function Connection(ready, options, events) {
 				drop(entry);
 			}
 			x.statement.name += "_";
-			return retryable(x) ? again(x, null) : settleError(x, x.error);
+			again_or_fail(x);
+			return;
 		}
 
 		if (!entry) {
-			return settleError(x, x.error);
+			settleError(x, x.error);
+			return;
 		}
 
 		if (entry.owner === x && entry.state === "parsing") {
 			drop(entry);
-			return settleError(x, x.error);
+			settleError(x, x.error);
+			return;
 		}
 
 		if (x.error.code === "26000") {
 			drop(entry);
-			return retryable(x) ? again(x, null) : settleError(x, x.error);
+			again_or_fail(x);
+			return;
 		}
 
 		if (x.bound) {
-			return settleError(x, x.error);
+			settleError(x, x.error);
+			return;
 		}
 
 		if (retryable(x)) {
-			return again(x, x.error);
+			again(x, x.error);
+			return;
 		}
 
 		stale(entry);
 		settleError(x, x.error);
+	}
+
+	/** Runs `x` again if it can be run again (see `retryable`), and otherwise fails it with its error */
+	function again_or_fail(x) {
+		if (retryable(x)) {
+			again(x, null);
+		} else {
+			settleError(x, x.error);
+		}
 	}
 
 	function stale(entry) {
@@ -1449,7 +1472,8 @@ export function Connection(ready, options, events) {
 		retry.cost = x.cost;
 
 		if (sent.length) {
-			return queue(retry);
+			queue(retry);
+			return;
 		}
 
 		pending.unshift(retry);
@@ -1493,6 +1517,13 @@ export function Connection(ready, options, events) {
 		return x;
 	}
 
+	/**
+	 * Writes a step of a cursor: an Execute of its portal, or a Close once the cursor ends.
+	 * @returns `skip` (and writes nothing) when the cursor's transaction has ended and the step
+	 *   only closes the cursor; otherwise null
+	 * @throws the step's failure, or UNSAFE_TRANSACTION for a step that would read from a cursor
+	 *   whose transaction has ended
+	 */
 	function stepped(x) {
 		const cursor = x.origin;
 
@@ -1513,6 +1544,7 @@ export function Connection(ready, options, events) {
 			p.execute(out, x.portal, x.rows);
 		}
 		sync(x);
+		return null;
 	}
 
 	function outlived() {
@@ -1527,7 +1559,8 @@ export function Connection(ready, options, events) {
 				x.results.push(x.result);
 			}
 			const results = x.results;
-			return query.resolve(results.length > 1 ? results : results[0] || x.result);
+			query.resolve(results.length > 1 ? results : results[0] || x.result);
+			return;
 		}
 
 		query.resolve(x.result);

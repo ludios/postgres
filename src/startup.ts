@@ -247,12 +247,13 @@ function attempt(options, host, port, signal) {
 
 				function ready(x, rest) {
 					if (!auth.authenticated) {
-						return reject(
+						reject(
 							Errors.generic(
 								"AUTHENTICATION_INCOMPLETE",
 								"The server was ready before it accepted the authentication",
 							),
 						);
+						return;
 					}
 
 					status = x;
@@ -261,9 +262,10 @@ function attempt(options, host, port, signal) {
 
 					if (options.target_session_attrs && !known && !probing) {
 						probing = true;
-						return socket.write(
+						socket.write(
 							p.Query("show transaction_read_only; select pg_catalog.pg_is_in_recovery()"),
 						);
+						return;
 					}
 
 					frames.pause();
@@ -298,14 +300,16 @@ async function negotiate(socket, options) {
 		tls = secureOptions(ssl);
 
 	if (options.sslnegotiation === "direct") {
-		return socket.upgrade({ ...tls, ALPNProtocols: ["postgresql"] });
+		await socket.upgrade({ ...tls, ALPNProtocols: ["postgresql"] });
+		return;
 	}
 
 	const answer = new Promise((r) => (socket.ondata = (x) => r(x[0])));
 	socket.write(p.SSLRequest());
 
 	if ((await answer) === S) {
-		return socket.upgrade(tls);
+		await socket.upgrade(tls);
+		return;
 	}
 
 	if (ssl !== "prefer" && ssl !== "allow") {

@@ -109,20 +109,22 @@ export function Pool(options, types) {
 
 	function query(q, lease?) {
 		if (ending && !lease) {
-			return q.reject(
+			q.reject(
 				queryError(
 					Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]),
 					q,
 					options.debug,
 				),
 			);
+			return;
 		}
 
 		let built;
 		try {
 			built = q.build();
 		} catch (error) {
-			return unbuilt(q, error, lease);
+			unbuilt(q, error, lease);
+			return;
 		}
 
 		const free = !lease && options.max !== 1;
@@ -133,11 +135,13 @@ export function Pool(options, types) {
 			if (options.scheduler) {
 				q.cost = known;
 			}
-			return place({ q, simple: built.text, exclusive: !!q.streaming || q.alone }, lease);
+			place({ q, simple: built.text, exclusive: !!q.streaming || q.alone }, lease);
+			return;
 		}
 
 		if (q.onlyDescribe) {
-			return describeOnly(q, built, lease);
+			describeOnly(q, built, lease);
+			return;
 		}
 
 		const statement = statements.get(built, options.prepare && q.options.prepare !== false);
@@ -168,7 +172,8 @@ export function Pool(options, types) {
 	function unbuilt(q, error, lease) {
 		error = queryError(error, q, options.debug);
 		if (!lease || lease.released || lease.connection.closed) {
-			return q.reject(error);
+			q.reject(error);
+			return;
 		}
 
 		q.connection = lease.connection;
@@ -183,35 +188,43 @@ export function Pool(options, types) {
 		const missing = !lease && retype();
 
 		if (missing) {
-			return reject(job, missing);
+			reject(job, missing);
+			return;
 		}
 
 		if (job.q && job.q.cancelled) {
-			return job.q.reject(queryError(Errors.canceled(), job.q, options.debug));
+			job.q.reject(queryError(Errors.canceled(), job.q, options.debug));
+			return;
 		}
 
 		if (lease) {
-			return lease.connection.closed
-				? job.q.reject(queryError(copy_error(lease.connection.closed), job.q, options.debug))
-				: lease.released
-					? job.q.reject(queryError(ended(lease), job.q, options.debug))
-					: run(lease.connection, job);
+			if (lease.connection.closed) {
+				job.q.reject(queryError(copy_error(lease.connection.closed), job.q, options.debug));
+			} else if (lease.released) {
+				job.q.reject(queryError(ended(lease), job.q, options.debug));
+			} else {
+				run(lease.connection, job);
+			}
+			return;
 		}
 
 		if (signal.aborted) {
-			return reject(
+			reject(
 				job,
 				Errors.connection("CONNECTION_DESTROYED", options, options.host[0], options.port[0]),
 			);
+			return;
 		}
 
 		if (failingFast()) {
-			return reject(job, copy_error(failure.error));
+			reject(job, copy_error(failure.error));
+			return;
 		}
 
 		const c = waiting.length === 0 && pick(job);
 		if (c) {
-			return run(c, job);
+			run(c, job);
+			return;
 		}
 
 		waiting.push(wait(job));
@@ -253,7 +266,8 @@ export function Pool(options, types) {
 		hold(c);
 
 		if (job.run) {
-			return job.run(c);
+			job.run(c);
+			return;
 		}
 
 		job.q.connection = c;
@@ -465,12 +479,15 @@ export function Pool(options, types) {
 				return;
 			}
 			const wait = nextAttempt - now();
-			return wait > 0
-				? (retryTimer = setTimeout(() => {
-						retryTimer = null;
-						grow();
-					}, wait))
-				: connect();
+			if (wait > 0) {
+				retryTimer = setTimeout(() => {
+					retryTimer = null;
+					grow();
+				}, wait);
+			} else {
+				connect();
+			}
+			return;
 		}
 
 		let loading = 0;
@@ -800,11 +817,13 @@ export function Pool(options, types) {
 
 			c.releasing = false;
 			if (c.status !== "I") {
-				return c.close();
+				c.close();
+				return;
 			}
 		}
 		if (c.inflight === 0 && !c.lease && (c.retiring || (ending && waiting.length === 0))) {
-			return c.close();
+			c.close();
+			return;
 		}
 
 		while (waiting.length > connections.size && has_room(c) && plain(waiting.peek())) {
@@ -936,11 +955,13 @@ export function Pool(options, types) {
 			},
 			send(q) {
 				if (c.closed) {
-					return q.reject(queryError(copy_error(c.closed), q, options.debug));
+					q.reject(queryError(copy_error(c.closed), q, options.debug));
+					return;
 				}
 
 				if (released) {
-					return q.reject(queryError(ended(x), q, options.debug));
+					q.reject(queryError(ended(x), q, options.debug));
+					return;
 				}
 
 				chain = chain.then(
@@ -966,7 +987,8 @@ export function Pool(options, types) {
 				}
 
 				if (c.inflight) {
-					return (c.releasing = true);
+					c.releasing = true;
+					return;
 				}
 
 				if (c.status === "I") {

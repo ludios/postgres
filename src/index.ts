@@ -158,7 +158,8 @@ function Postgres(a?, b?) {
 			const fileHandler = (query) =>
 				fs.readFile(path, "utf8", (err, string) => {
 					if (err) {
-						return query.reject(err);
+						query.reject(err);
+						return;
 					}
 					query.strings = [string];
 					handler(query);
@@ -264,7 +265,8 @@ function Postgres(a?, b?) {
 					Object.assign(
 						(q) => {
 							if (stopped()) {
-								return q.reject(after || (after = rolledBack()));
+								q.reject(after || (after = rolledBack()));
+								return;
 							}
 							q.catch((e) => uncaught || (uncaught = e));
 							lease.send(q);
