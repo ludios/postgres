@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 // @ts-nocheck
 import util from "util";
 
@@ -76,10 +77,19 @@ async function test(o, name, options, fn) {
 		});
 }
 
+/**
+ * Fail the running test with `err`; or, outside a test, report `err` and make the run fail (for
+ * example, when tests/setup.ts could not set up the servers, and no test runs).
+ *
+ * @param {unknown} err - an uncaught exception or an unhandled rejection
+ */
 function stray(err) {
-	current && !current.succeeded && !current.failed
-		? current.stray(err)
-		: console.error("\n⚠️", "Stray error outside a test", "\n", util.inspect(err));
+	if (current && !current.succeeded && !current.failed) {
+		current.stray(err);
+	} else {
+		console.error("\n⚠️", "Stray error outside a test", "\n", util.inspect(err));
+		process.exitCode = 1;
+	}
 }
 
 function exit() {
