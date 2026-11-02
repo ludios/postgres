@@ -25,6 +25,8 @@ export default defineConfig({
 					name: "integration",
 					include: ["tests/*.test.ts"],
 					globalSetup: ["tests/global_setup.ts"],
+					// Many of these tests need more than vitest's default of 5 seconds
+					testTimeout: 10_000,
 				},
 			},
 		],

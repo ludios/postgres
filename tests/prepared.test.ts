@@ -597,7 +597,6 @@ test("Stale statements pipelined on the pool are all run again", async () => {
 
 test(
 	"A statement name the server already has on a connection is prepared under a new name (#960)",
-	{ timeout: 5000 },
 	async () => {
 		const sql = postgres({ ...options, max: 2, prepare: true });
 		const one = await sql.reserve();

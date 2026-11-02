@@ -208,7 +208,6 @@ test("Async iterator cursor surfaces an error arriving between batches", async (
 
 test(
 	"A cursor in a transaction that resumes while another query waits on its description gives each its own answer",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres(options);
 		const out = [];
@@ -255,7 +254,6 @@ test(
 
 test(
 	"A cursor on a reserved connection keeps its rows from a query made while it runs",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres(options);
 		const reserved = await sql.reserve();
@@ -285,7 +283,6 @@ test(
 
 test(
 	"A cursor that outlives its transaction is rejected instead of running in the next one",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1 });
 		await sql`create table test (a int)`;
@@ -454,7 +451,6 @@ async function outlives(fn) {
 
 test(
 	"A cursor that throws in its failed transaction rejects with its own error, and the next transaction commits",
-	{ timeout: 10_000 },
 	async () => {
 		const [second, outcome] = await outlives(() => {
 			throw new Error("late");
@@ -465,7 +461,6 @@ test(
 
 test(
 	"A cursor that closes in its failed transaction rejects with 25P02, and the next transaction commits",
-	{ timeout: 10_000 },
 	async () => {
 		const [second, outcome] = await outlives((sql) => sql.CLOSE);
 		expect([second, outcome]).toEqual(["committed", "25P02"]);

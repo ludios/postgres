@@ -631,7 +631,6 @@ test("sql.end() resolves after the types fail to load for a waiting query", asyn
 
 test(
 	"A custom type created after a failed lookup is found on a later query",
-	{ timeout: 10_000 },
 	async () => {
 		await sql`drop type if exists later_t cascade`;
 		const sql2 = postgres({

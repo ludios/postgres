@@ -243,7 +243,6 @@ test("A copy from stdin writable has the count of rows copied once it finishes (
 
 test(
 	"Copy write waits for the socket to drain between large chunks",
-	{ timeout: 10_000 },
 	async () => {
 		await sql`create table test (x text)`;
 		const line = "x".repeat(1024 * 1024 - 1) + "\n",
@@ -257,7 +256,6 @@ test(
 
 test(
 	"Destroying a copy to stdout readable while back-pressure has paused it leaves the connection usable",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
@@ -278,7 +276,6 @@ test(
 
 test(
 	"Destroying a copy to stdout readable from a data handler leaves the connection usable",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null }),
 			xs = [];
@@ -311,7 +308,6 @@ const SLOW_COPY =
 
 test(
 	"Canceling a copy to stdout that is being read fails its readable with 57014",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
@@ -335,7 +331,6 @@ test(
 
 test(
 	"Canceling a copy to stdout whose readable was destroyed in a transaction stops it, and aborts the transaction",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
@@ -360,7 +355,6 @@ test(
 
 test(
 	"A query is not queued behind a copy to stdout that nobody reads",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 2 });
 		try {
@@ -382,7 +376,6 @@ test(
 
 test(
 	"Canceling a copy from stdin that waits for data fails its writable with 57014",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
@@ -406,7 +399,6 @@ test(
 
 test(
 	"Canceling a copy to stdout while back-pressure has paused it fails its readable with 57014",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
@@ -429,7 +421,6 @@ test(
 
 test(
 	"Destroying a copy both stream ends it with CopyDone, which keeps the connection",
-	{ timeout: 10_000 },
 	async () => {
 		await sql`drop publication if exists copy_both`;
 		await sql`create publication copy_both`;
@@ -461,7 +452,6 @@ test(
 
 test(
 	"Destroying a copy to stdout outside a transaction makes the server stop it",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
@@ -478,7 +468,6 @@ test(
 
 test(
 	"Destroying a copy to stdout in a transaction only drops the rest, which keeps the transaction",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
@@ -533,7 +522,6 @@ test(
 
 test(
 	"Destroying a copy to stdout after a begin in the same query keeps the transaction",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
@@ -558,7 +546,6 @@ test(
 
 test(
 	"Canceling a copy from stdin before it starts fails its query with 57014",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {
@@ -588,7 +575,6 @@ test(
 
 test(
 	"Canceling a query after the end of its copy to stdout stops the statements after the COPY",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, idle_timeout: null });
 		try {

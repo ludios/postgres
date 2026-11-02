@@ -79,7 +79,7 @@ test("Cancel running query", async () => {
 	expect(error.code).toBe("57014");
 });
 
-test("Cancel piped query", { timeout: 5000 }, async () => {
+test("Cancel piped query", async () => {
 	await sql`select 1`;
 	const last = sql`select pg_sleep(1)`.execute();
 	const query = sql`select pg_sleep(2) as dig`;

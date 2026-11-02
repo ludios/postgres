@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { postgres, options, delay, camel_case, snake_case } from "./setup.ts";
 
-test("subscribe", { timeout: 10_000 }, async () => {
+test("subscribe", async () => {
 	const sql = postgres({
 		database: options.db,
 		publications: "alltables",
@@ -54,7 +54,7 @@ test("subscribe", { timeout: 10_000 }, async () => {
 	}
 });
 
-test("subscribe with transform", { timeout: 10_000 }, async () => {
+test("subscribe with transform", async () => {
 	const sql = postgres({
 		transform: {
 			column: {
@@ -110,7 +110,7 @@ test("subscribe with transform", { timeout: 10_000 }, async () => {
 	}
 });
 
-test("subscribe reconnects and calls onsubscribe", { timeout: 10_000 }, async () => {
+test("subscribe reconnects and calls onsubscribe", async () => {
 	const sql = postgres({
 		database: options.db,
 		publications: "alltables",
@@ -195,7 +195,6 @@ async function replicating(name?) {
 
 test(
 	"subscribe with a persistent slot resumes where it left off",
-	{ timeout: 10_000 },
 	async () => {
 		const { sql, done, replica } = await replicating("postgresjs_resume"),
 			seen = [];
@@ -227,7 +226,6 @@ test(
 
 test(
 	"subscribe with a persistent slot runs async handlers in commit order",
-	{ timeout: 10_000 },
 	async () => {
 		const { sql, done, replica } = await replicating("postgresjs_order"),
 			seen = [],
@@ -252,7 +250,6 @@ test(
 
 test(
 	"subscribe with a persistent slot delivers a failed transaction again",
-	{ timeout: 10_000 },
 	async () => {
 		const { sql, done, replica } = await replicating("postgresjs_retry"),
 			seen = [],
@@ -286,7 +283,6 @@ test(
 
 test(
 	"subscribe confirms the slot only as far as handlers have finished",
-	{ timeout: 10_000 },
 	async () => {
 		const { sql, done, replica } = await replicating("postgresjs_confirm"),
 			sub = replica();
@@ -318,7 +314,6 @@ test(
 
 test(
 	"subscribe gets truncate and the transaction of each change",
-	{ timeout: 10_000 },
 	async () => {
 		const { sql, done } = await replicating(),
 			seen = [],
@@ -356,7 +351,6 @@ test(
 
 test(
 	"subscribe with a persistent slot reconnects after the server ends it, without loss or repeats",
-	{ timeout: 10_000 },
 	async () => {
 		const { sql, done, replica } = await replicating("postgresjs_reconnect"),
 			seen = [],
@@ -440,7 +434,6 @@ test(
 
 test(
 	"subscribe parses custom array types and domains like queries do",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({
 			database: options.db,
@@ -486,7 +479,6 @@ test("subscribe without publications rejects each time it is called", async () =
 
 test(
 	"subscribe calls every handler of an event, until each unsubscribes",
-	{ timeout: 10_000 },
 	async () => {
 		const { sql, done } = await replicating(),
 			sub = postgres({ database: options.db, publications: "alltables" }),
@@ -559,7 +551,6 @@ async function failing(onerror) {
 
 test(
 	"subscribe reports a failed reconnect to onerror and retries",
-	{ timeout: 10_000 },
 	async () => {
 		expect(await failing(true)).toEqual([["after"], "no user now"]);
 	},
@@ -567,7 +558,6 @@ test(
 
 test(
 	"subscribe logs a failed reconnect when no subscription has onerror",
-	{ timeout: 10_000 },
 	async () => {
 		const error = console.error;
 		logged = undefined;
@@ -582,7 +572,6 @@ test(
 
 test(
 	"subscribe confirms its position to the server on an interval",
-	{ timeout: 10_000 },
 	async () => {
 		const { sql, done } = await replicating();
 		const sub = postgres({
@@ -658,7 +647,6 @@ test(
 
 test(
 	"subscribe gives a column named __proto__ as an own property of the row",
-	{ timeout: 10_000 },
 	async () => {
 		const { sql, done } = await replicating(),
 			sub = postgres({ database: options.db, publications: "alltables" }),

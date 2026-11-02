@@ -297,7 +297,7 @@ test("Prevent premature end of connection in transaction", async () => {
 	expect(result).toBe("yay");
 });
 
-test("Ensure reconnect after max_lifetime with transactions", { timeout: 5000 }, async () => {
+test("Ensure reconnect after max_lifetime with transactions", async () => {
 	const sql = postgres({
 		max_lifetime: 0.01,
 		idle_timeout,
@@ -539,7 +539,7 @@ test("Does not reject leftover begin onclose after commit", async () => {
 	expect(rejections.length).toBe(0);
 });
 
-test("idle_in_transaction_session_timeout rejects the transaction", { timeout: 5000 }, async () => {
+test("idle_in_transaction_session_timeout rejects the transaction", async () => {
 	const sql = postgres(options);
 	const error = await sql
 		.begin(async (sql) => {
@@ -554,7 +554,6 @@ test("idle_in_transaction_session_timeout rejects the transaction", { timeout: 5
 
 test(
 	"Transaction queries fail after its connection is gone even if the callback continues",
-	{ timeout: 5000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1 });
 		setTimeout(() => sql`select 1`.catch(() => {}), 1200);
@@ -914,7 +913,6 @@ test("A tagged savepoint runs its query in a savepoint", async () => {
 
 test(
 	"Queries in a Promise.all inside a transaction are pipelined in the order they were made (#951)",
-	{ timeout: 10_000 },
 	async () => {
 		const net = await import("net"),
 			proxy = net.createServer((client) => {
@@ -1076,7 +1074,6 @@ test("A transaction terminated between statements rejects with the FATAL error, 
 
 test(
 	"A savepoint or nested begin rejects when the connection is lost while its callback runs (#1281)",
-	{ timeout: 10_000 },
 	async () => {
 		const outcomes = [];
 		for (const method of ["savepoint", "begin"]) {

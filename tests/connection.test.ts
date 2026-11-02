@@ -525,7 +525,7 @@ test("onnotice: false silences notices", async () => {
 	await sql.end();
 });
 
-test("Multiple hosts errors when all hosts are down", { timeout: 10_000 }, async () => {
+test("Multiple hosts errors when all hosts are down", async () => {
 	const sql = postgres({
 		...options,
 		host: ["localhost", "localhost"],
@@ -537,7 +537,6 @@ test("Multiple hosts errors when all hosts are down", { timeout: 10_000 }, async
 
 test(
 	"Multiple hosts continues to next host after connect timeout",
-	{ timeout: 10_000 },
 	async () => {
 		const server = net.createServer();
 		await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -556,7 +555,6 @@ test(
 
 test(
 	"prefer-standby connects to the primary when the standby host is down",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({
 			...options,
@@ -573,7 +571,6 @@ test(
 
 test(
 	"prefer-standby connects to a primary when no host is a standby",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({
 			idle_timeout,
@@ -590,7 +587,6 @@ test(
 
 test(
 	"target_session_attrs standby errors when no host is a standby",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({
 			idle_timeout,
@@ -605,7 +601,6 @@ test(
 
 test(
 	"Multiple hosts rejects within connect_timeout × hosts when every host times out",
-	{ timeout: 10_000 },
 	async () => {
 		const connect_timeout = 0.3;
 		const a = await listening(net.createServer());
@@ -628,7 +623,6 @@ test(
 
 test(
 	"prefer-standby tries every host for a standby before accepting a primary",
-	{ timeout: 10_000 },
 	async () => {
 		let probe = 0;
 		const server = await listening(net.createServer((socket) => (probe++, socket.destroy())));
@@ -725,7 +719,6 @@ test("Clean closes during startup reject queries and reserves instead of reconne
 
 test(
 	"Clean closes while fetching array types reject queries once connect_timeout has passed",
-	{ timeout: 10_000 },
 	async () => {
 		let attempts = 0;
 
@@ -856,7 +849,7 @@ test("Failed array type fetch on a live connection is not an unhandled rejection
 	expect(unhandled).toBe(0);
 });
 
-test("end() completes after the backend is terminated mid-query", { timeout: 5000 }, async () => {
+test("end() completes after the backend is terminated mid-query", async () => {
 	const sql = postgres({ ...options, max: 1 });
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
 	const query = sql`select pg_sleep(1)`.catch((e) => e);
@@ -975,7 +968,6 @@ test("Cancel query while its connection is opening", async () => {
 
 test(
 	"A query cancelled while its connection starts up leaves the connection in the pool (#1266)",
-	{ timeout: 10_000 },
 	async () => {
 		const results = [];
 		for (const [phase, o] of [
@@ -1080,7 +1072,6 @@ test("sql.stats is current, not a snapshot from creation", async () => {
 
 test(
 	"A socket error without a close rejects the query in flight instead of hanging (#1246, #1089)",
-	{ timeout: 5000 },
 	async () => {
 		let raw;
 		const sql = postgres({
@@ -1259,7 +1250,7 @@ test("A server that ends SCRAM without its signature is not trusted", async () =
 	expect(code).toBe("SASL_SIGNATURE_MISMATCH");
 });
 
-test("A cancel request on a TLS connection is sent over TLS", { timeout: 10_000 }, async () => {
+test("A cancel request on a TLS connection is sent over TLS", async () => {
 	const firsts = [];
 	const server = net.createServer((c) => {
 		const up = net.connect(pg_port, "localhost");
@@ -1345,7 +1336,6 @@ test("With several hosts every new connection tries the first host first, as in 
 
 test(
 	"A query waiting while new connections fail and the only one is reserved is rejected instead of waiting forever",
-	{ timeout: 10_000 },
 	async () => {
 		const admin = postgres({ ...options, user: "postgres", pass: "", max: 1 });
 		await admin`drop role if exists postgres_js_test_limit`;
@@ -1421,7 +1411,6 @@ test("Errors from fast failures are separate objects for each query", async () =
 
 test(
 	"A failed connection attempt does not give up on queries a connection still loading types will serve",
-	{ timeout: 10_000 },
 	async () => {
 		const admin = postgres({ ...options, user: "postgres", pass: "", max: 1 });
 		await admin`drop role if exists postgres_js_test_loading`;
@@ -1453,7 +1442,6 @@ test(
 
 test(
 	"Connections refused for too many connections are retried until connect_timeout",
-	{ timeout: 10_000 },
 	async () => {
 		const admin = postgres({ ...options, user: "postgres", pass: "", max: 1 });
 		await admin`drop role if exists postgres_js_test_burst`;
@@ -1486,7 +1474,6 @@ test(
 
 test(
 	"Connections refused for too many connections reject once connect_timeout has passed",
-	{ timeout: 10_000 },
 	async () => {
 		const admin = postgres({ ...options, user: "postgres", pass: "", max: 1 });
 		await admin`drop role if exists postgres_js_test_none`;
@@ -1629,7 +1616,6 @@ test("user can be a function, called for each connection", async () => {
 
 test(
 	"min keeps that many connections open once the pool is used",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 4, min: 2, idle_timeout: 0.2 });
 		const before = sql.stats.connections;
@@ -1695,7 +1681,6 @@ async function passfile(content, mode, fn) {
 
 test(
 	"queue_timeout rejects a query that waits too long for a connection, without sending it",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, queue_timeout: 0.2 });
 		const reserved = await sql.reserve();
@@ -1718,7 +1703,6 @@ test(
 
 test(
 	"queue_timeout applies to transactions and reserves waiting for a connection",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1, queue_timeout: 0.2 });
 		const reserved = await sql.reserve();
@@ -1740,7 +1724,7 @@ test(
 	},
 );
 
-test("A query that waits less than queue_timeout runs", { timeout: 10_000 }, async () => {
+test("A query that waits less than queue_timeout runs", async () => {
 	const sql = postgres({ ...options, max: 1, queue_timeout: 1 });
 	const reserved = await sql.reserve();
 	const query = sql`select 1 as x`;
@@ -1751,7 +1735,6 @@ test("A query that waits less than queue_timeout runs", { timeout: 10_000 }, asy
 
 test(
 	"An AbortSignal removes a waiting query and cancels a running one",
-	{ timeout: 10_000 },
 	async () => {
 		const sql = postgres({ ...options, max: 1 });
 		const reserved = await sql.reserve();
