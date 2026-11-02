@@ -334,7 +334,9 @@ export function Pool(options, types) {
 			return null;
 		}
 
-		best && options.scheduler && job.q && needed(job) && (best = scheduled(job) || best);
+		if (best && options.scheduler && job.q && needed(job)) {
+			best = scheduled(job) || best;
+		}
 		return best && opening && best.inflight >= Math.ceil(waiting.length / (opening + 1))
 			? null
 			: best;
@@ -403,7 +405,9 @@ export function Pool(options, types) {
 		for (const c of connections) {
 			const v = has_room(c) && (!heavy || c.costly(slow)) ? c.backlog(t) : Infinity;
 			if (v <= most && v < value) {
-				((best = c), (value = v), (ties = 1));
+				best = c;
+				value = v;
+				ties = 1;
 			} else if (v <= most && v === value && v !== Infinity && Math.random() * ++ties < 1) {
 				best = c;
 			}
