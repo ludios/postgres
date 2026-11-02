@@ -349,7 +349,7 @@ function Postgres(a?, b?) {
 
 			function savepoint(label, callback?) {
 				if (label && Array.isArray(label.raw)) {
-					return savepoint((sql) => sql.apply(sql, arguments));
+					return savepoint((sp) => sp.apply(sp, arguments));
 				}
 
 				if (arguments.length === 1) {

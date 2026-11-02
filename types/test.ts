@@ -129,12 +129,12 @@ async function transactions() {
 
 	const result = await sql.begin("read write", async (tx) => {
 		const typed: TransactionSql<{ bigint: bigint }> = tx;
-		await tx.savepoint(async (sql) => sql`select 1`);
-		await tx.savepoint("named", (sql) => sql`select 1`);
+		await tx.savepoint(async (sp) => sp`select 1`);
+		await tx.savepoint("named", (sp) => sp`select 1`);
 		expect<Equal<ReturnType<typeof tx.prepare>, string>>();
 		tx.prepare("tx1");
 		expect<Equal<ReturnType<typeof tx.rollback>, Promise<void>>>();
-		await tx.savepoint((sql) => sql.rollback());
+		await tx.savepoint((sp) => sp.rollback());
 		return 42;
 	});
 	expect<Equal<typeof result, number>>();

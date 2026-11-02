@@ -49,8 +49,8 @@ test("Transaction throws on uncaught savepoint", async () => {
 		await sql
 			.begin(async (tx) => {
 				await tx`insert into test values(1)`;
-				await tx.savepoint(async (sql) => {
-					await sql`insert into test values(2)`;
+				await tx.savepoint(async (sp) => {
+					await sp`insert into test values(2)`;
 					throw new Error("fail");
 				});
 			})
@@ -65,8 +65,8 @@ test("Transaction throws on uncaught named savepoint", async () => {
 		await sql
 			.begin(async (tx) => {
 				await tx`insert into test values(1)`;
-				await tx.savepoint("watpoint", async (sql) => {
-					await sql`insert into test values(2)`;
+				await tx.savepoint("watpoint", async (sp) => {
+					await sp`insert into test values(2)`;
 					throw new Error("fail");
 				});
 			})
@@ -79,8 +79,8 @@ test("Transaction succeeds on caught savepoint", async () => {
 	await sql.begin(async (tx) => {
 		await tx`insert into test values(1)`;
 		await tx
-			.savepoint(async (sql) => {
-				await sql`insert into test values(2)`;
+			.savepoint(async (sp) => {
+				await sp`insert into test values(2)`;
 				throw new Error("please rollback");
 			})
 			.catch(() => {});
@@ -93,7 +93,7 @@ test("Transaction succeeds on caught savepoint", async () => {
 test("Savepoint returns Result", async () => {
 	let result;
 	await sql.begin(async (tx) => {
-		result = await tx.savepoint((sql) => sql`select 1 as x`);
+		result = await tx.savepoint((sp) => sp`select 1 as x`);
 	});
 
 	expect(result[0].x).toBe(1);
@@ -181,8 +181,8 @@ test("Transaction waits", async () => {
 	await sql.begin(async (tx) => {
 		await tx`insert into test values(1)`;
 		await tx
-			.savepoint(async (sql) => {
-				await sql`insert into test values(2)`;
+			.savepoint(async (sp) => {
+				await sp`insert into test values(2)`;
 				throw new Error("please rollback");
 			})
 			.catch(() => {});
@@ -328,8 +328,8 @@ test("Transaction rejects when the server rolls back the commit", async () => {
 			[{ xid }] = await tx`select pg_current_xact_id()::text as xid`;
 			await tx`savepoint parent_marker`;
 			await tx
-				.savepoint(async (sql) => {
-					await sql`rollback to savepoint parent_marker`;
+				.savepoint(async (sp) => {
+					await sp`rollback to savepoint parent_marker`;
 					throw new Error("force");
 				})
 				.catch(() => {});
@@ -637,10 +637,10 @@ async function with_disconnected_transaction(fn) {
 test("Savepoint names are quoted", async () => {
 	await sql`create table test (a int)`;
 	await sql.begin(async (tx) => {
-		await tx.savepoint("with space", (sql) => sql`insert into test values (1)`);
+		await tx.savepoint("with space", (sp) => sp`insert into test values (1)`);
 		await tx.savepoint(
 			'a";create table test_injected (a int);--',
-			(sql) => sql`insert into test values (2)`,
+			(sp) => sp`insert into test values (2)`,
 		);
 	});
 	const [{ injected }] = await sql`select to_regclass('test_injected') is not null as injected`;
@@ -916,9 +916,9 @@ test("sql.rollback() in a savepoint or nested begin rolls back only that, and th
 	await sql`create table test (x int)`;
 	await sql.begin(async (tx) => {
 		await tx`insert into test values (1)`;
-		await tx.savepoint(async (sql) => {
-			await sql`insert into test values (2)`;
-			return sql.rollback();
+		await tx.savepoint(async (sp) => {
+			await sp`insert into test values (2)`;
+			return sp.rollback();
 		});
 		await tx.begin(async (sp) => {
 			await sp`insert into test values (3)`;
@@ -937,7 +937,7 @@ test("Queries, savepoints and nested begins after sql.rollback() are not sent an
 		.begin(async (tx) => {
 			await tx.rollback();
 			codes.push(await tx`insert into test values (1)`.catch((e) => e.code));
-			codes.push(await tx.savepoint((sql) => sql`select 1`).catch((e) => e.code));
+			codes.push(await tx.savepoint((sp) => sp`select 1`).catch((e) => e.code));
 			codes.push(await tx.begin((sp) => sp`select 1`).catch((e) => e.code));
 		})
 		.catch((e) => e.code);
