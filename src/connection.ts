@@ -937,7 +937,7 @@ export function Connection(ready, options, events) {
 					ErrorResponse(x, start, end);
 					break;
 				case 115:
-					void PortalSuspended();
+					PortalSuspended();
 					break;
 				case 73:
 					EmptyQueryResponse();
@@ -1187,13 +1187,21 @@ export function Connection(ready, options, events) {
 		}
 	}
 
-	async function PortalSuspended() {
+	function PortalSuspended() {
 		const item = sent[0];
 		if (!item.flushing) {
 			item.suspended = true;
 			return;
 		}
+		void resume(item);
+	}
 
+	/**
+	 * Gives the cursor's callback the rows of exchange `item`, the head of `sent`, and then, by
+	 * what the callback returned, fetches the next rows or closes the portal. Async, so its errors
+	 * cannot reach frame()'s catch: it fails `item` with them itself.
+	 */
+	async function resume(item) {
 		try {
 			item.awaiting = true;
 			const next = await item.query.cursorFn(item.result);
