@@ -380,7 +380,7 @@ function located() {
 	const limit = Error.stackTraceLimit;
 	Error.stackTraceLimit = 8;
 	try {
-		return trim(String(new Error().stack));
+		return trim(new Error().stack || "");
 	} catch {
 		return "";
 	} finally {

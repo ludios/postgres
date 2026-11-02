@@ -573,7 +573,20 @@ export function parseArray(x, parse, delimiter = ",") {
 	}
 }
 
-export function serializeArray(xs, serialize = string, delimiter = ",", undefinedValue?) {
+/**
+ * Serializes array `xs` as a PostgreSQL array literal.
+ * @param serialize serializes one element; a custom type's serializer may return anything, so
+ *   the literal gets the text of its result
+ * @param delimiter the element type's delimiter, `,` for all but box
+ * @param undefinedValue what stands in for an undefined element; if it is undefined too, an
+ *   undefined element throws UNDEFINED_VALUE
+ */
+export function serializeArray(
+	xs,
+	serialize: (x: any) => unknown = string,
+	delimiter = ",",
+	undefinedValue?,
+) {
 	return (
 		"{" +
 		xs
@@ -588,11 +601,15 @@ export function serializeArray(xs, serialize = string, delimiter = ",", undefine
 				if (x === undefined) {
 					throw Errors.generic("UNDEFINED_VALUE", "Undefined values are not allowed");
 				}
-				return Array.isArray(x) && !typed
-					? serializeArray(x, serialize, delimiter, undefinedValue)
-					: x === null
-						? "NULL"
-						: '"' + ("" + serialize(x)).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+				if (Array.isArray(x) && !typed) {
+					return serializeArray(x, serialize, delimiter, undefinedValue);
+				}
+				if (x === null) {
+					return "NULL";
+				}
+				// oxlint-disable-next-line typescript/no-base-to-string -- see the docstring: the serializer returns unknown
+				const text = String(serialize(x));
+				return '"' + text.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
 			})
 			.join(delimiter) +
 		"}"
