@@ -73,7 +73,7 @@ test("Socket rejects when the user socket fails", async () => {
 test("Socket reads plain TCP through a shared buffer unless onread is false", async () => {
 	const net = await import("net"),
 		server = net.createServer((x) => x.end());
-	await new Promise((r) => server.listen(0, "127.0.0.1", r));
+	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 	const port = server.address().port,
 		shared = await Socket({ ssl: false }, "127.0.0.1", port),
 		stream = await Socket({ ssl: false, onread: false }, "127.0.0.1", port);

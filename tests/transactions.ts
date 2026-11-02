@@ -631,7 +631,7 @@ function finishDisconnectedTransaction(error?) {
 async function withDisconnectedTransaction(fn) {
 	const pool = postgres({ ...options, fetch_types: false });
 	let finish, ready;
-	const gate = new Promise(
+	const gate = new Promise<void>(
 		(resolve, reject) => (finish = (error) => (error ? reject(error) : resolve())),
 	);
 	const connected = new Promise((resolve) => (ready = resolve));
@@ -906,7 +906,7 @@ test(
 				client.on("error", () => {});
 				server.on("error", () => {});
 			});
-		await new Promise((r) => proxy.listen(0, "127.0.0.1", r));
+		await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
 		const sql = postgres({
 			...options,
 			host: "127.0.0.1",
@@ -1040,7 +1040,7 @@ test("A transaction terminated between statements rejects with the FATAL error, 
 	const sql = postgres({ ...options, max: 1 }),
 		killer = postgres({ ...options, max: 1 });
 	let settled;
-	const next = new Promise((r) => (settled = r));
+	const next = new Promise<any>((r) => (settled = r));
 	const error = await sql
 		.begin(async (sql) => {
 			const [{ pid }] = await sql`select pg_backend_pid() as pid`;

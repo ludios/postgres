@@ -1,8 +1,10 @@
+// Model-output: Claude Opus 5.5
 import Stream from "stream";
 import * as p from "./protocol.ts";
 import { Errors, queryError } from "./errors.ts";
 import Result from "./result.ts";
 import { CLOSE } from "./query.ts";
+import type { Query } from "./query.ts";
 import { now, channels, listened } from "./diagnostics.ts";
 
 export const slow = 100;
@@ -28,7 +30,7 @@ export function Connection(ready, options, events) {
 		{ transform } = options,
 		sent = [],
 		pending = [],
-		running = new Set(),
+		running = new Set<Query>(),
 		open = new Set(),
 		prepared = new Map(),
 		out = p.Writer(),
@@ -541,7 +543,7 @@ export function Connection(ready, options, events) {
 		socket.end(p.Terminate());
 	}
 
-	function destroy(error) {
+	function destroy(error?) {
 		closing || (closing = Promise.resolve());
 		socket.destroy(error);
 	}

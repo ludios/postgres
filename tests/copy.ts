@@ -145,7 +145,7 @@ test("Copy read with back-pressure", async () => {
 
 	await Promise.all([
 		new Promise((r) => readable.on("end", r)),
-		new Promise((r) =>
+		new Promise<void>((r) =>
 			readable.on("readable", () => {
 				if (readable.readableBuffer.length === bufferSize) {
 					readable.removeAllListeners("readable");

@@ -152,7 +152,7 @@ test("Writing to a closed reserved connection rejects instead of crashing", asyn
 		upstream.on("error", () => x.destroy());
 	});
 
-	await new Promise((r) => proxy.listen(0, "127.0.0.1", r));
+	await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
 
 	const sql = postgres({ ...options, host: "127.0.0.1", port: proxy.address().port, max: 1 }),
 		reserved = await sql.reserve();

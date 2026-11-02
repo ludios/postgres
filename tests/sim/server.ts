@@ -7,7 +7,7 @@ const select =
 
 export function Server({ clock, random, delay, split, hosts = 1, log = null }) {
 	const { setTimeout } = clock.timers,
-		sessions = new Set(),
+		sessions = new Set<ReturnType<typeof Session>>(),
 		violations = [],
 		attempts = [],
 		scopes = new Map(),

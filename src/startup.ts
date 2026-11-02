@@ -1,3 +1,4 @@
+// Model-output: Claude Opus 5.5
 import crypto from "crypto";
 import fs from "fs";
 import * as p from "./protocol.ts";
@@ -15,7 +16,14 @@ const R = 82,
 	D = 68,
 	Z = 90;
 
-export async function open(options, signal = { aborted: false, sockets: new Set() }, first = 0) {
+/** Lets the pool stop the attempts of `open`, and destroy the sockets that they opened. */
+export type Signal = { aborted: boolean; sockets: Set<Awaited<ReturnType<typeof Socket>>> };
+
+export async function open(
+	options,
+	signal: Signal = { aborted: false, sockets: new Set() },
+	first = 0,
+) {
 	const hosts = options.path ? [null] : options.host,
 		wanted = options.target_session_attrs,
 		passes = wanted === "prefer-standby" ? ["standby", "any"] : [wanted || "any"];
@@ -273,7 +281,7 @@ async function cancel(options, host, port, { pid, secret }) {
 		socket.destroy();
 		throw error;
 	}
-	return new Promise((resolve) => {
+	return new Promise<void>((resolve) => {
 		socket.onclose = () => resolve();
 		socket.end(p.Cancel(pid, secret));
 	});

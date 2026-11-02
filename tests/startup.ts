@@ -20,7 +20,7 @@ const session = async (options?) => {
 };
 
 const server = (fn) =>
-	new Promise((r) => {
+	new Promise<net.Server>((r) => {
 		const x = net.createServer(fn).listen(0, "localhost", () => r(x));
 	});
 

@@ -1,4 +1,6 @@
+// Model-output: Claude Opus 5.5
 import { open as startup } from "./startup.ts";
+import type { Signal } from "./startup.ts";
 import { Connection, slow, notable } from "./connection.ts";
 import { Query } from "./query.ts";
 import { Errors, PostgresError, queryError } from "./errors.ts";
@@ -8,10 +10,30 @@ const begins = /\bbegin\b/i,
 	starts = /\bstart\b/gi,
 	transaction = /^transaction\b/i;
 
+/** A Connection, with the fields that the pool keeps on it. */
+type Pooled = ReturnType<typeof Connection> & {
+	/** The index of the host (in `options.host`) that the connection went to. */
+	index: number;
+	/** Whether the connection is busy loading the types that the pool needs. */
+	loading: boolean;
+	/** When the connection last became idle. */
+	idleSince: number;
+	/** Closes the connection after `idle_timeout`. */
+	idleTimer: any;
+	/** Retires the connection after `max_lifetime`. */
+	lifeTimer: any;
+	/** Whether the lease was released while queries were still in flight. */
+	releasing: boolean;
+	/** Whether the connection closes as soon as it has no lease and nothing in flight. */
+	retiring: boolean;
+	/** Called once the connection closes. */
+	retired: Array<() => void>;
+};
+
 export function Pool(options, types) {
 	const { setTimeout, clearTimeout, now } = options.timers,
 		statements = Statements(options.scheduler),
-		connections = new Set(),
+		connections = new Set<Pooled>(),
 		waiting = Queue(),
 		events = {
 			parser: types.parser,
@@ -25,7 +47,7 @@ export function Pool(options, types) {
 		},
 		work = { fast: 0, slow: 0, at: 0 };
 
-	const signal = { aborted: false, sockets: new Set() },
+	const signal: Signal = { aborted: false, sockets: new Set() },
 		replacing = [];
 
 	let opening = 0,
@@ -389,7 +411,7 @@ export function Pool(options, types) {
 		}
 
 		Object.entries(ready.parameters).forEach(([k, v]) => onparameter(k, v));
-		const c = Connection(ready, options, events);
+		const c = Connection(ready, options, events) as Pooled;
 		c.index = ready.index || 0;
 		connections.add(c);
 		lifetime(c);
@@ -607,7 +629,7 @@ export function Pool(options, types) {
 		const missing = retype();
 		if (missing) throw missing;
 
-		return new Promise((resolve, reject) => {
+		return new Promise<Lease>((resolve, reject) => {
 			waiting.push(
 				wait({ lease: true, kind, resolve, reject, queued: listened(channels.pool) ? now() : 0 }),
 			);
@@ -669,7 +691,10 @@ export function Pool(options, types) {
 		listened(channels.pool) &&
 			event("lease", c, { kind: job.kind, waited: job.queued ? now() - job.queued : 0 });
 		job.resolve(x);
+		return x;
 	}
+
+	type Lease = ReturnType<typeof grant>;
 
 	function ended(lease) {
 		return Errors.generic("UNSAFE_TRANSACTION", "The " + lease.kind + " has ended");
@@ -750,7 +775,7 @@ export function Pool(options, types) {
 		return Promise.all(
 			[...connections].map((c) =>
 				c.lease
-					? new Promise((r) => ((c.retiring = true), (c.retired || (c.retired = [])).push(r)))
+					? new Promise<void>((r) => ((c.retiring = true), (c.retired || (c.retired = [])).push(r)))
 					: c.close(),
 			),
 		);
