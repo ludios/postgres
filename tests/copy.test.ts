@@ -299,7 +299,7 @@ test(
 	},
 );
 
-/** A COPY TO STDOUT that sends 5000 rows at once, then one row a second for a day. */
+/** A COPY TO STDOUT whose server produces 5000 rows at once, and then one row a second for about a day. */
 const SLOW_COPY =
 	"copy (select i, case when i > 5000 then pg_sleep(1)::text end from generate_series(1, 90000) i) to stdout";
 
@@ -411,7 +411,11 @@ test(
 	async () => {
 		await sql`drop publication if exists copy_both`;
 		await sql`create publication copy_both`;
-		const replication = postgres({ database: options.db, max: 1, connection: { replication: "database" } });
+		const replication = postgres({
+			database: options.db,
+			max: 1,
+			connection: { replication: "database" },
+		});
 		try {
 			await replication.unsafe(
 				"CREATE_REPLICATION_SLOT copy_both TEMPORARY LOGICAL pgoutput NOEXPORT_SNAPSHOT",
@@ -429,6 +433,45 @@ test(
 		} finally {
 			await replication.end();
 			await sql`drop publication copy_both`;
+		}
+	},
+);
+
+test(
+	"Destroying a copy to stdout outside a transaction makes the server stop it",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1 });
+		try {
+			const readable = await sql.unsafe(SLOW_COPY).readable();
+			await new Promise((resolve) => readable.once("data", resolve));
+			readable.destroy();
+			const [{ x }] = await sql`select 1 as x`;
+			expect(x).toBe(1);
+		} finally {
+			await sql.end({ timeout: 0 });
+		}
+	},
+);
+
+test(
+	"Destroying a copy to stdout in a transaction only drops the rest, which keeps the transaction",
+	{ timeout: 10_000 },
+	async () => {
+		const sql = postgres({ ...options, max: 1 });
+		try {
+			const x = await sql.begin(async (sql) => {
+				// Still running when destroyed, but only for about a second more
+				const readable =
+					await sql`copy (select i, case when i > 5000 then pg_sleep(0.01)::text end from generate_series(1, 5100) i) to stdout`.readable();
+				await new Promise((resolve) => readable.once("data", resolve));
+				readable.destroy();
+				const [{ x }] = await sql`select 1 as x`;
+				return x;
+			});
+			expect(x).toBe(1);
+		} finally {
+			await sql.end({ timeout: 0 });
 		}
 	},
 );

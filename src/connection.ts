@@ -986,9 +986,10 @@ export function Connection(ready, options, events) {
 			return (connection_error = error);
 		}
 
+		// First, so that the stream's destroy knows that the server has already failed the COPY
+		fail(item, error);
 		item.stream && item.stream.destroy(error);
 		item.final && (item.final(error), (item.final = null));
-		fail(item, error);
 	}
 
 	function ReadyForQuery(x, start) {
@@ -1262,18 +1263,20 @@ export function Connection(ready, options, events) {
 	 * COPY data, instead of waiting for the stream to ask for more.
 	 *
 	 * @param item the exchange whose COPY the stream belonged to
+	 * @returns whether that COPY was still in progress
 	 */
 	function discard(item) {
 		if (!item.stream) {
-			return;
+			return false;
 		}
 		item.stream = null;
 		// After the connection closes, `sent` is empty, and the buffered frames must stay unread
 		if (sent[0] !== item) {
-			return;
+			return false;
 		}
 		frames.own(false);
 		unpause();
+		return true;
 	}
 
 	function writeData(chunk, callback) {
@@ -1334,7 +1337,10 @@ export function Connection(ready, options, events) {
 		item.stream = new Stream.Readable({
 			read: readable(item),
 			destroy(error, callback) {
-				discard(item);
+				// In a transaction block, a cancel would abort the transaction, so the rest is only dropped
+				if (discard(item) && status === "I" && !item.error) {
+					stop(item).catch(noop);
+				}
 				callback(error);
 			},
 		});
