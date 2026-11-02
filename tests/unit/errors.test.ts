@@ -1,5 +1,6 @@
+import util from "util";
 import { expect, test } from "vitest";
-import { PostgresError } from "../../src/errors.ts";
+import { PostgresError, copy_error, queryError } from "../../src/errors.ts";
 import postgres from "../../src/index.ts";
 
 const here = new URL(import.meta.url).pathname;
@@ -19,6 +20,31 @@ test("PostgresError from server fields", async () => {
 test("PostgresError from a message string", async () => {
 	const e = new PostgresError("Error message.");
 	expect([e.message, "0" in e]).toEqual(["Error message.", false]);
+});
+
+test("copy_error copies an error as a native error of the same class, without a query's properties", async () => {
+	const error = new PostgresError({ message: "terminating connection", code: "57P01" });
+	queryError(error, { strings: ["select 1"], args: [1], origin: "" }, false);
+	const copy = copy_error(error);
+	expect([
+		copy !== error,
+		util.types.isNativeError(copy),
+		copy instanceof PostgresError,
+		copy.message,
+		copy.code,
+		copy.stack === error.stack,
+		"query" in copy,
+		"args" in copy,
+		error.query,
+	]).toEqual([true, true, true, "terminating connection", "57P01", true, false, false, "select 1"]);
+});
+
+test("copy_error returns a value that is not an object as is", async () => {
+	expect([copy_error("wat"), copy_error(null), copy_error(undefined)]).toEqual([
+		"wat",
+		null,
+		undefined,
+	]);
 });
 
 test("PostgresError is exported from the package", async () => {

@@ -114,16 +114,22 @@ export function withOrigin(error, origin) {
 /**
  * Copies an error, so that each of several queries that fail for one reason can get its own error
  * from `queryError`, which adds properties to the error that it is given.
- * @param error - the error to copy (if it is not an object, it is returned as is)
- * @returns a new object with the prototype, own properties, and stack of `error`, except the
- *   properties that `queryError` adds
+ * @param error - the error to copy
+ * @returns `error` itself if it is not an object. Otherwise, a new object with the prototype, the
+ *   own properties and the `stack` of `error`, except the properties that `queryError` adds (if
+ *   `error` has them). If `error` is an `Error`, the copy is a native `Error` too, so that
+ *   `Error.isError` and `structuredClone` treat it as one.
  */
 export function copy_error(error) {
 	if (!error || typeof error !== "object") {
 		return error;
 	}
 
-	const x = Object.create(Object.getPrototypeOf(error), Object.getOwnPropertyDescriptors(error));
+	const x = Object.setPrototypeOf(
+		error instanceof Error ? new Error() : {},
+		Object.getPrototypeOf(error),
+	);
+	Object.defineProperties(x, Object.getOwnPropertyDescriptors(error));
 	Object.defineProperty(x, "stack", { value: error.stack, writable: true, configurable: true });
 	for (const k of ["query", "parameters", "args", "types"]) {
 		delete x[k];
