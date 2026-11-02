@@ -596,8 +596,10 @@ test(
 			});
 
 		await sub.subscribe("insert:test", (row) => seen.push(row.name));
-		await sql`insert into test (name) values ('a')`;
-		const [{ lsn }] = await sql`select pg_current_wal_lsn() as lsn`;
+		// The position just after the insert, which is before its commit even while other test files
+		// write WAL (unlike pg_current_wal_lsn() after the commit)
+		const [{ lsn }] =
+			await sql`insert into test (name) values ('a') returning pg_current_wal_insert_lsn() as lsn`;
 		await until(() => seen.length);
 		await delay(200);
 		const [{ confirmed }] = await sql`
