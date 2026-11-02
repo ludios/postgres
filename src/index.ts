@@ -597,8 +597,9 @@ function Listen(options) {
 			try {
 				onlisten();
 			} catch (error) {
-				// As when the LISTEN fails, a listen() that rejects leaves no listener behind
-				await unlisten();
+				// As when the LISTEN fails, a listen() that rejects leaves no listener behind. It
+				// rejects with onlisten's error even if the UNLISTEN fails.
+				await unlisten().catch(() => {});
 				throw error;
 			}
 		}
