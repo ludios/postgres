@@ -161,6 +161,17 @@ test("Cancel destroys a TCP connection still in progress when connect_timeout pa
 	expect([code, sockets.map((x) => x.destroyed)]).toEqual(["CONNECT_TIMEOUT", [true]]);
 });
 
+test("Cancel fails at once when its connection closes before the server answers SSLRequest", async () => {
+	const ready = await open({ ...base, ssl: "prefer" } as Options);
+	await using _end = defer(() => ready.socket.end());
+	const closer = await server((socket) => socket.once("data", () => socket.end()));
+	await using _close = defer(() => closer.close());
+	stub_connect((target, connect) =>
+		connect({ ...target, host: "localhost", port: port_of(closer) }),
+	);
+	expect(await ready.cancel().catch((e) => e.code)).toBe("CONNECTION_CLOSED");
+});
+
 const message = (type: string, body: Buffer) => {
 	const head = Buffer.alloc(5);
 	head[0] = type.charCodeAt(0);

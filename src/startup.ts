@@ -463,10 +463,15 @@ function cancel(options: Options, host: string | null, port: number, { pid, secr
 		async function send() {
 			const socket = await Socket(options, host, port, (x) => (raw = x));
 			opened = socket;
+			// Before the CancelRequest is written, a close means that it never will be
+			socket.onclose = (error) =>
+				settle(
+					error && error.code ? error : Errors.connection("CONNECTION_CLOSED", options, host, port),
+				);
 			if (!settled) {
 				await negotiate(socket, options);
 			}
-			// After the timeout, also a socket that only connected since
+			// The timeout or a close may have settled the request meanwhile; then send nothing
 			if (settled) {
 				socket.destroy();
 				return;
