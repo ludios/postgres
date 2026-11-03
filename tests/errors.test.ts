@@ -109,15 +109,14 @@ test("throws correct error when authentication fails", async () => {
 test("notice", async () => {
 	const records = await log_records();
 	await using sql = postgres(options);
-	// A rerun in watch mode keeps the file's database, where `users` would make two notices
-	await using _drop = defer(() => sql`drop table users`);
 
-	await sql`create table if not exists users()`;
-	await sql`create table if not exists users()`;
+	// tests/setup.ts drops `test` before each test, so that only the second create sends a notice
+	await sql`create table if not exists test()`;
+	await sql`create table if not exists test()`;
 
 	expect(log_lines(records, "notice")).toEqual([
 		expect.stringMatching(
-			/^info server notice NOTICE 42P07 on connection \d+ to \S+: relation "users" already exists, skipping$/,
+			/^info server notice NOTICE 42P07 on connection \d+ to \S+: relation "test" already exists, skipping$/,
 		),
 	]);
 });
@@ -128,10 +127,9 @@ test("notice hook", async () => {
 		...options,
 		onnotice: (x) => (notice = x),
 	});
-	await using _drop = defer(() => sql`drop table users`);
 
-	await sql`create table if not exists users()`;
-	await sql`create table if not exists users()`;
+	await sql`create table if not exists test()`;
+	await sql`create table if not exists test()`;
 
 	expect(notice.severity).toBe("NOTICE");
 });
