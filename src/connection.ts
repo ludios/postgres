@@ -1837,7 +1837,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 				if (query.settled) {
 					return unfence(origin);
 				}
-				queue(StepExchange(origin, true, error));
+				queue(StepExchange(origin, true, as_error(error)));
 			},
 		);
 	}

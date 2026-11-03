@@ -586,3 +586,14 @@ test("A reserved cursor whose callback throws at once rejects and leaves the con
 	const [{ x }] = await reserved`select 1 as x`;
 	expect([error, x]).toEqual(["at once", 1]);
 });
+
+test("A cursor in a transaction whose callback rejects with no value rejects too", async () => {
+	await using sql = postgres({ ...options, max: 1 });
+	const outcome = await sql
+		.begin((tx) => tx`select generate_series(1, 5) as x`.cursor(1, () => Promise.reject()))
+		.then(
+			() => "resolved",
+			(e) => e.message,
+		);
+	expect(outcome).toBe("undefined");
+});
