@@ -1290,7 +1290,9 @@ export function Queue<T>() {
 		get length() {
 			return xs.length - head;
 		},
-		push: (x: T) => xs.push(x),
+		push(x: T) {
+			xs.push(x);
+		},
 		/** @returns the first element, or undefined if the queue is empty */
 		peek: () => xs[head],
 		/** @returns the first element, which the queue drops; throws if the queue is empty */
