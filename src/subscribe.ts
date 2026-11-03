@@ -1,4 +1,6 @@
 import { own } from "./connection.ts";
+import { log_at, log, reason, target } from "./log.ts";
+import type { LogLevel } from "@logtape/logtape";
 import type postgres from "../types/index.js";
 import type { Duplex } from "stream";
 import type { Options, Timer, Timers } from "./index.ts";
@@ -59,7 +61,9 @@ export default function Subscribe(
 		// The pid and secret key of the backend that streams the replication. `subscribe`
 		// returns this object to its caller.
 		state: { pid?: number; secret?: number } = {},
-		timers = options.timers;
+		timers = options.timers,
+		// The pool's target, as the log lines name it
+		where = target(options);
 
 	let connection: Promise<unknown> | null,
 		current: ReturnType<typeof Stream> | null = null,
@@ -87,6 +91,7 @@ export default function Subscribe(
 			}
 		},
 		no_subscribe: true,
+		role: "replication",
 	}));
 
 	const end = sql.end,
@@ -147,8 +152,17 @@ export default function Subscribe(
 	}
 
 	function restart() {
-		const delay = Math.min(100 * 2 ** retries++, 10000);
-		connection = new Promise<void>((r) => timers.setTimeout(r, retries === 1 ? 0 : delay))
+		// At once the first time, then with an exponential backoff of at most 10 s
+		const delay = retries === 0 ? 0 : Math.min(100 * 2 ** retries, 10000);
+		retries++;
+		log.subscribe.warn(
+			"restarting replication from slot {slot} on {target} in {delay} ms (attempt {retries})" +
+				(persistent
+					? ""
+					: "; the temporary slot was dropped with its connection, so changes committed before the new one exists are not delivered"),
+			{ slot, target: where, delay, retries },
+		);
+		connection = new Promise<void>((r) => timers.setTimeout(r, delay))
 			.then(() => (ended ? null : init()))
 			.then(
 				(x) => {
@@ -159,7 +173,10 @@ export default function Subscribe(
 					return x;
 				},
 				(error: Error) => {
-					report(error);
+					report(error, "replication from slot {slot} on {target} failed", "", "warning", {
+						slot,
+						target: where,
+					});
 					if (!ended) {
 						restart();
 					}
@@ -177,11 +194,27 @@ export default function Subscribe(
 			.unsafe(
 				`CREATE_REPLICATION_SLOT ${slot}${persistent ? "" : " TEMPORARY"} LOGICAL pgoutput NOEXPORT_SNAPSHOT`,
 			)
-			.catch((error: Failure) => {
-				if (!persistent || error.code !== "42710") {
-					throw error;
-				}
-			});
+			.then(
+				() => {
+					log_at(
+						log.subscribe,
+						persistent ? "info" : "debug",
+						persistent
+							? "created replication slot {slot} on {target}"
+							: "created temporary replication slot {slot} on {target}",
+						{ slot, target: where },
+					);
+				},
+				(error: Failure) => {
+					if (!persistent || error.code !== "42710") {
+						throw error;
+					}
+					log.subscribe.debug("using existing replication slot {slot} on {target}", {
+						slot,
+						target: where,
+					});
+				},
+			);
 
 		const query = sql.unsafe(
 			`START_REPLICATION SLOT ${slot} LOGICAL 0/0 (proto_version '1', publication_names '${options.publications}')`,
@@ -191,6 +224,10 @@ export default function Subscribe(
 		current = Stream(stream);
 		state.pid = query.state && query.state.pid;
 		state.secret = query.state && query.state.secret;
+		log.subscribe.info(
+			"replication stream started from slot {slot} on {target} for publications {publications} (backend pid {pid})",
+			{ slot, target: where, publications: options.publications, pid: state.pid },
+		);
 		return current;
 	}
 
@@ -207,7 +244,15 @@ export default function Subscribe(
 			soon: ReturnType<Timers["setImmediate"]> | null = null;
 
 		stream.on("data", data);
-		stream.on("error", (error: Error) => failed || report(error));
+		stream.on(
+			"error",
+			(error: Error) =>
+				failed ||
+				report(error, "replication from slot {slot} on {target} failed", "", "warning", {
+					slot,
+					target: where,
+				}),
+		);
 		stream.on("close", () => {
 			const unexpected = !stopped;
 			stop();
@@ -351,18 +396,34 @@ export default function Subscribe(
 						// The change has the transaction's fields by now: it is a ReplicationEvent
 						result = subscriber.fn(row, info as postgres.ReplicationEvent, event);
 					} catch (error) {
-						return fail(error, subscriber);
+						return fail(error, subscriber, event);
 					}
 					if (thenable(result)) {
-						pending.push(Promise.resolve(result).catch((error) => fail(error, subscriber)));
+						pending.push(Promise.resolve(result).catch((error) => fail(error, subscriber, event)));
 					}
 				});
 			}
 		}
 
-		function fail(error: unknown, subscriber: Subscriber) {
-			report(error, subscriber);
-			if (!persistent || failed) {
+		/**
+		 * Reports that `subscriber` (of `event`) threw or rejected, and, with a persistent slot, ends
+		 * the stream so that the transaction is delivered again, once the stream has restarted.
+		 */
+		function fail(error: unknown, subscriber: Subscriber, event: string) {
+			const retrying = persistent && !failed;
+			report(
+				error,
+				"subscriber of {event} on {target} failed",
+				retrying
+					? "; restarting replication from slot {slot} to deliver the transaction again"
+					: persistent
+						? ""
+						: "; the callback is not retried",
+				persistent ? "warning" : "error",
+				{ event, target: where, slot },
+				subscriber,
+			);
+			if (!retrying) {
 				return;
 			}
 
@@ -418,6 +479,10 @@ export default function Subscribe(
 					stream.end();
 				});
 			}
+			log.subscribe.debug("replication from slot {slot} on {target} stopped", {
+				slot,
+				target: where,
+			});
 		}
 
 		function stop() {
@@ -436,7 +501,21 @@ export default function Subscribe(
 		}
 	}
 
-	function report(error: unknown, subscriber?: Subscriber) {
+	/**
+	 * Gives `error` to the onerror handlers (`subscriber`'s, or every subscriber's for an error of
+	 * the stream), and logs it: at `level`, or at error if no handler got it, as this line is then
+	 * the only report.
+	 * @param what - what failed, with `{name}` placeholders of `properties`
+	 * @param then - what follows, such as `; restarting ...`; "" for nothing
+	 */
+	function report(
+		error: unknown,
+		what: string,
+		then: string,
+		level: LogLevel,
+		properties: Record<string, unknown>,
+		subscriber?: Subscriber,
+	) {
 		const handlers = subscriber
 			? [subscriber.onerror]
 			: [...subscribers.values()].flatMap((subs) => [...subs].map((s) => s.onerror));
@@ -444,11 +523,13 @@ export default function Subscribe(
 		const listeners = handlers.filter(
 			(fn): fn is (error: Error) => void => typeof fn === "function",
 		);
-		if (listeners.length) {
-			listeners.forEach((fn) => fn(error as Error));
-		} else {
-			console.error("postgres.js: logical replication error", error);
-		}
+		listeners.forEach((fn) => fn(error as Error));
+		log_at(
+			log.subscribe,
+			listeners.length ? level : "error",
+			what + (listeners.length ? "" : " (no onerror handler)") + then + ": {reason}",
+			{ ...properties, reason: reason(error), error },
+		);
 	}
 }
 

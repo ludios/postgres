@@ -13,6 +13,18 @@ import type { Built } from "./build.ts";
 import type { Failure } from "./errors.ts";
 import type { Types, Serializer } from "./types.ts";
 import { now, channels, listened } from "./diagnostics.ts";
+import {
+	log_at,
+	excerpt,
+	log,
+	logged_every_ms,
+	notice as log_notice,
+	reason,
+	target,
+	tenths,
+	unanswered_ms,
+	unanswered_again_ms,
+} from "./log.ts";
 
 const text = p.text,
 	noop = (..._: any[]) => {},
@@ -87,6 +99,10 @@ type Base = {
 	own: Failure | null;
 	/** The scheduler's estimate of the exchange's time, in ms, or undefined without an estimate */
 	cost: number | undefined;
+	/** When the exchange became the head of `sent`, by `timers.now()`, so that the server works on it; 0 until then */
+	headed: number;
+	/** When the watchdog last logged the exchange as not finished (see unanswered()); 0 if never */
+	reported: number;
 };
 
 /** What the exchanges of a user's query have */
@@ -282,7 +298,8 @@ export type Events = Pick<
 	/** Called once the connection has closed; pool.ts's onclose() says what the arguments are */
 	onclose(c: Connection, error: Failure, lease_error: Failure | null, orderly: boolean): void;
 	onnotify: Options["onnotify"];
-	onparameter: (key: string, value: string) => void;
+	/** Called with each ParameterStatus of connection `c`, at its startup and after */
+	onparameter(key: string, value: string, c: Connection): void;
 	/** Called with how long the head of `sent` took, for the scheduler */
 	ontimed: (sample: number, t: number) => void;
 };
@@ -306,7 +323,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		open = new Set<Exchange>(),
 		prepared = new Map<string, Entry>(),
 		out = p.Writer(),
-		frames = p.Frames(frame, socket.shared, abandon);
+		frames = p.Frames(frame, socket.shared, abandon),
+		// The connection's target, as its log lines name it
+		where = target(options, ready.host, ready.port);
 
 	let blocker: Exchange | null = null,
 		rolling = false,
@@ -333,7 +352,15 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		portals = 0,
 		traced = 0,
 		epoch = 0,
-		head_since = 0;
+		head_since = 0,
+		// When the connection last had nothing in flight, for the log line of a close
+		idle_since = timers.now(),
+		// Why close() was called, for the log line of an orderly close; null if it was not called
+		close_reason: string | null = null;
+
+	// When the server's errors of its own trouble (see ErrorResponse()) were last logged, and how
+	// many came since
+	const trouble = { at: 0, count: 0 };
 
 	const connection = {
 		id: ids++,
@@ -385,6 +412,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		unref: () => socket.unref(),
 		backlog,
 		costly,
+		unanswered,
 	};
 
 	socket.ondata = (x) => frames.push(x);
@@ -525,8 +553,8 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			epoch++;
 		}
 		x.epoch = epoch;
-		if (options.scheduler && sent.length === 0) {
-			head_since = timers.now();
+		if (sent.length === 0) {
+			headed(x, timers.now());
 		}
 		sent.push(x);
 		if (holds(x)) {
@@ -665,6 +693,18 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			cost(x);
 		}
 		queue(x);
+	}
+
+	/**
+	 * Records that exchange `x` became the head of `sent` at `t`: the server works on it from then
+	 * on, so its time is counted from `t`.
+	 */
+	function headed(x: Exchange, t: number) {
+		x.headed = t;
+		head_since = t;
+		if (x.query) {
+			x.query.headed = t;
+		}
 	}
 
 	function timed(x: Exchange) {
@@ -988,6 +1028,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			if (error?.code === "CONNECT_TIMEOUT") {
 				abandon(error);
 			} else {
+				log.connection.warn(
+					"cancel request for connection {id} to {target} failed; the query may still be running: {reason}",
+					{ id: connection.id, target: where, reason: reason(error), error },
+				);
 				done();
 			}
 		});
@@ -1059,8 +1103,13 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		return x.kind !== "step" && x.copy ? cancel_copy(x) : stop(x);
 	}
 
-	function close() {
+	/**
+	 * Closes the connection once nothing is in flight: see finish_closing().
+	 * @param why - why the pool closes it, such as `idle for 30 s`, for the log line of the close
+	 */
+	function close(why?: string) {
 		if (!closing) {
+			close_reason = why ?? null;
 			closing = new Promise<void>((r) => {
 				resolve_closing = r;
 			});
@@ -1151,6 +1200,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		);
 		closed = ended;
 		ended.cause = fatal || error || undefined;
+		log_close(error, fatal, orderly);
 		// A FATAL error that came with no query to give it to, such as from
 		// idle_in_transaction_session_timeout, is what ended the lease (if any)
 		let lease_error =
@@ -1175,18 +1225,14 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			}
 			// The head's own FATAL error is copied too, because it may be `closed.cause`, which every
 			// copy of `closed` shares
-			const reason = x === head && x.error && x.error.severity === "FATAL" ? x.error : ended,
-				copied = copy_error(reason);
+			const cause = x === head && x.error && x.error.severity === "FATAL" ? x.error : ended,
+				copied = copy_error(cause);
 			// settle_error adds x's query to `copied`
 			settle_error(x, copied);
 			// Otherwise the lease rejects with the head's error, the head being the lease's own query.
 			// Not with a FATAL error for a statement that ends a transaction (such as COMMIT), which
 			// the server may have committed: then the lease rejects with `closed`, whose cause it is.
-			if (
-				x === head &&
-				lease_error === null &&
-				(reason === ended || (reason === fatal && !x.ends))
-			) {
+			if (x === head && lease_error === null && (cause === ended || (cause === fatal && !x.ends))) {
 				lease_error = copied;
 			}
 		});
@@ -1198,6 +1244,80 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			resolve_closing();
 		}
 		events.onclose(connection, ended, lease_error, orderly);
+	}
+
+	/**
+	 * Logs the close, before the queries in flight are failed: at debug if the pool asked for it,
+	 * at error for a protocol error, at info for a server's idle-session timeout that hit an idle
+	 * connection, and at warning otherwise (the callers get the errors).
+	 * @param error - the socket's error, if it failed
+	 * @param fatal - the server's FATAL error, or the error that abandon() closed the socket for
+	 * @param orderly - whether Terminate was sent and nothing was in flight
+	 */
+	function log_close(error: Error | null, fatal: Failure | false | null, orderly: boolean) {
+		const lost =
+				sent.concat(pending).filter((x) => user(x) && !x.query.settled).length + running.size,
+			kind = connection.lease ? connection.lease.kind : null,
+			held =
+				kind === "transaction"
+					? "held by sql.begin()"
+					: kind === "reserve"
+						? "held by sql.reserve()"
+						: "",
+			// What the close cost, or how long the connection had been idle
+			impact =
+				lost || held
+					? " (" +
+						[lost ? "{lost} queries in flight failed" : "", held].filter(Boolean).join("; ") +
+						")"
+					: " after {idle} s idle",
+			properties: Record<string, unknown> = {
+				id: connection.id,
+				target: where,
+				lost,
+				idle: tenths(timers.now() - idle_since),
+			};
+
+		if (orderly) {
+			log.connection.debug("connection {id} to {target} closed: {why}", {
+				...properties,
+				why: close_reason ?? "close() called",
+			});
+		} else if (destroyed && !connection_error) {
+			log.connection.debug("connection {id} to {target} destroyed" + impact, properties);
+		} else if (connection_error && connection_error.code === "CONNECT_TIMEOUT") {
+			log.connection.warn(
+				"cancel request for connection {id} to {target} timed out after {connect_timeout} s; closed the connection, since the request could still arrive and cancel a later query" +
+					impact,
+				{ ...properties, connect_timeout: options.connect_timeout },
+			);
+		} else if (connection_error && connection_error.severity !== "FATAL") {
+			log.connection.error("closed connection {id} to {target}" + impact + ": {reason}", {
+				...properties,
+				reason: reason(connection_error),
+				error: connection_error,
+			});
+		} else if (fatal) {
+			log_at(
+				log.connection,
+				fatal.code === "57P05" && !lost && !kind ? "info" : "warning",
+				"server closed connection {id} to {target}" + impact + ": {reason}",
+				{ ...properties, reason: reason(fatal), error: fatal },
+			);
+		} else if (error) {
+			log.connection.warn("connection {id} to {target} lost" + impact + ": {reason}", {
+				...properties,
+				reason: reason(error),
+				error,
+			});
+		} else {
+			log.connection.warn(
+				"connection {id} to {target} lost" +
+					impact +
+					": the socket closed, and neither the server nor the OS gave a reason",
+				properties,
+			);
+		}
 	}
 
 	function decorate(query: Query, error: unknown) {
@@ -1317,11 +1437,19 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 					break;
 			}
 		} catch (error) {
-			const item = sent[0];
+			const item = sent[0],
+				failure = as_error(error);
 			if (item) {
-				fail(item, as_error(error));
+				// Not for what a parser or a transform of the application's threw
+				if (failure.code === "UNEXPECTED_MESSAGE") {
+					log.connection.error(
+						"protocol error on connection {id} to {target}; failing the query in flight: {reason}",
+						{ id: connection.id, target: where, reason: reason(failure), error: failure },
+					);
+				}
+				fail(item, failure);
 			} else {
-				abandon(as_error(error));
+				abandon(failure);
 			}
 		}
 		if (blocker && !holds(blocker)) {
@@ -1545,6 +1673,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function unsafe(item: Exchange) {
+		log.connection.warn(
+			"query on pooled connection {id} to {target} left a transaction block open; rolling it back and rejecting the queries in flight (UNSAFE_TRANSACTION); use sql.begin() or sql.reserve(); sql: {text}",
+			{ id: connection.id, target: where, text: excerpt(text_of(item)) },
+		);
 		rolling = true;
 		item.own = unsafe_transaction();
 		for (const x of sent) {
@@ -1616,8 +1748,41 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function ErrorResponse(x: Buffer, start: number, end: number) {
 		const item = sent[0],
-			error = Errors.postgres(p.error(x, start, end));
+			error = Errors.postgres(p.error(x, start, end)),
+			// The class of the SQLSTATE: 53 is insufficient resources (disk full, out of memory), 58
+			// a system error (I/O), XX an internal error (corruption): the server's trouble, not the query's
+			klass = error.code ? error.code.slice(0, 2) : "";
 
+		if (klass === "53" || klass === "58" || klass === "XX") {
+			// Logged at most once per `logged_every_ms`: a full disk fails every write
+			const t = timers.now();
+			trouble.count++;
+			if (trouble.at === 0 || t - trouble.at >= logged_every_ms) {
+				const suppressed = trouble.count - 1,
+					since = tenths(t - trouble.at);
+				trouble.at = t;
+				trouble.count = 0;
+				log.connection.error(
+					"server reports {what} on connection {id} to {target}" +
+						(suppressed ? " ({suppressed} more such errors in the last {since} s)" : "") +
+						": {reason}",
+					{
+						what:
+							klass === "53"
+								? "insufficient resources"
+								: klass === "58"
+									? "a system error"
+									: "an internal error",
+						id: connection.id,
+						target: where,
+						suppressed,
+						since,
+						reason: reason(error),
+						error,
+					},
+				);
+			}
+		}
 		if (!item) {
 			connection_error = error;
 			return;
@@ -1674,6 +1839,11 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			settle(settled);
 		}
 		const next = sent[0];
+		if (next === undefined) {
+			idle_since = timers.now();
+		} else {
+			headed(next, timers.now());
+		}
 		if (next && user(next)) {
 			next.query.active = true;
 			const { cancel: requested } = next;
@@ -1756,8 +1926,14 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			if (entry) {
 				drop(entry);
 			}
+			const name = x.statement.name;
 			x.statement.name += "_";
-			again_or_fail(x, error);
+			again_or_fail(
+				x,
+				error,
+				"prepared statement {name} already exists on connection {id} to {target}; retrying the query under another name (behind a pooler that shares server connections, set prepare: false)",
+				name,
+			);
 			return;
 		}
 
@@ -1774,7 +1950,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 		if (error.code === "26000") {
 			drop(entry);
-			again_or_fail(x, error);
+			again_or_fail(
+				x,
+				error,
+				"prepared statement {name} no longer exists on connection {id} to {target}; retrying the query with a new one",
+				entry.name,
+			);
 			return;
 		}
 
@@ -1784,6 +1965,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 
 		if (retryable(x)) {
+			log.connection.debug(
+				"re-describing statement {name} on connection {id} to {target} to decide whether to retry the query: {reason}",
+				{ name: entry.name, id: connection.id, target: where, reason: reason(error), error },
+			);
 			again(x, error);
 			return;
 		}
@@ -1792,9 +1977,15 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		settle_error(x, error);
 	}
 
-	/** Runs `x` again if it can be run again (see `retryable`), and otherwise fails it with `error` */
-	function again_or_fail(x: QueryExchange, error: Failure) {
+	/**
+	 * Runs `x` again if it can be run again (see `retryable`), and logs `template` then; otherwise
+	 * fails it with `error`.
+	 * @param template - the line, with `{name}` for `name`, `{id}` and `{target}`
+	 * @param name - the name of the prepared statement that the server refused
+	 */
+	function again_or_fail(x: QueryExchange, error: Failure, template: string, name: string) {
 		if (retryable(x)) {
+			log.connection.warn(template, { name, id: connection.id, target: where });
 			again(x, null);
 		} else {
 			settle_error(x, error);
@@ -1904,8 +2095,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function NotificationResponse(x: Buffer, start: number) {
 		const { pid, channel, payload } = p.notification(x, start);
+		log.connection.trace(
+			"received notification on channel {channel} from backend pid {pid} on connection {id} ({bytes} payload bytes)",
+			() => ({ channel, pid, id: connection.id, bytes: Buffer.byteLength(payload) }),
+		);
 		if (events.onnotify) {
-			guard(events.onnotify, channel, payload, pid);
+			guard("onnotify", events.onnotify, channel, payload, pid);
 		}
 	}
 
@@ -1922,10 +2117,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			});
 		}
 		if (options.onnotice) {
-			guard(options.onnotice, notice);
+			guard("onnotice", options.onnotice, notice);
 		} else if (options.onnotice !== false) {
-			// oxlint-disable-next-line no-console -- the default onnotice prints to stdout, as documented
-			console.log(notice);
+			log_notice(notice, "on connection {id} to {target}", { id: connection.id, target: where });
 		}
 	}
 
@@ -1933,8 +2127,61 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		const [k, v] = p.parameter_status(x, start);
 		connection.parameters[k] = v;
 		if (events.onparameter) {
-			guard(events.onparameter, k, v);
+			events.onparameter(k, v, connection);
 		}
+	}
+
+	/**
+	 * Calls `fn`, a handler of the application's, and logs what it throws, so that a handler that
+	 * throws does not break the connection.
+	 * @param name - the handler's option, such as `onnotify`
+	 */
+	function guard<A extends unknown[]>(name: string, fn: (...xs: A) => void, ...xs: A) {
+		try {
+			fn(...xs);
+		} catch (error) {
+			log.connection.error(
+				"{handler} handler threw on connection {id} to {target}; ignored: {reason}",
+				{ handler: name, id: connection.id, target: where, reason: reason(error), error },
+			);
+		}
+	}
+
+	/**
+	 * Logs the exchange at the head of `sent`, if the server has not finished it (sent no
+	 * ReadyForQuery) for `unanswered_ms` since it became the head, and again every
+	 * `unanswered_again_ms`; the pool's watchdog calls this. Not a COPY stream or a cursor, which
+	 * wait for the application as much as for the server.
+	 * @param t - now, by `timers.now()`
+	 */
+	function unanswered(t: number) {
+		const x = sent[0];
+		if (
+			x === undefined ||
+			!user(x) ||
+			x.kind === "local" ||
+			x.kind === "step" ||
+			x.streaming ||
+			is_cursor(x) ||
+			t - x.headed < unanswered_ms ||
+			(x.reported !== 0 && t - x.reported < unanswered_again_ms)
+		) {
+			return;
+		}
+
+		x.reported = t;
+		log.query.warn(
+			"query on connection {id} to {target} running for {secs} s" +
+				(sent.length > 1 ? ", {behind} more queued behind it" : "") +
+				": {text}",
+			{
+				id: connection.id,
+				target: where,
+				secs: tenths(t - x.headed),
+				behind: sent.length - 1,
+				text: excerpt(text_of(x)),
+			},
+		);
 	}
 
 	/** Resumes reading the socket, if a COPY stream's back-pressure paused it. */
@@ -2251,11 +2498,20 @@ function finish(x: UserExchange | LocalExchange) {
 	query.resolve(x.result);
 }
 
-function guard<A extends unknown[]>(fn: (...xs: A) => void, ...xs: A) {
-	try {
-		fn(...xs);
-	} catch {
-		// A handler that throws must not break the connection
+/** @returns the text of the statement of exchange `x`; "" for an exchange that has none */
+function text_of(x: Exchange): string {
+	switch (x.kind) {
+		case "query":
+			return x.statement.text;
+		case "simple":
+		case "describe":
+			return x.text;
+		case "step":
+			return x.origin.statement.text;
+		case "internal":
+			return "rollback";
+		default:
+			return x.origin ? x.origin.statement.text : "";
 	}
 }
 
@@ -2288,6 +2544,8 @@ function base(lease: Lease | null, query: Query | null): Base {
 		error: null,
 		own: null,
 		cost: undefined,
+		headed: 0,
+		reported: 0,
 	};
 }
 
@@ -2466,8 +2724,12 @@ function read(state: Shape, array: boolean, from: From) {
 
 	try {
 		return (state[kind] = compile(state.columns, array, from));
-	} catch {
+	} catch (error) {
 		compiles = state.compilable = false;
+		log.connection.info(
+			"cannot compile row readers; reading rows with the slower generic reader: {reason}",
+			{ reason: reason(error), error },
+		);
 		return null;
 	}
 }

@@ -39,7 +39,8 @@ function dropping_listens(numbers: number[], dropped: () => void) {
 
 /**
  * @returns `timers`, to give as `options.timers`, and `pending`, the set of the timers that were
- *   set through `timers` and have neither been cleared nor run yet
+ *   set through `timers`, have neither been cleared nor run yet, and keep the process alive: a
+ *   timer that is unref()ed (the pool's watchdog) leaves the set, as it is no pending work
  */
 function tracked_timers() {
 	const pending = new Set<NodeJS.Timeout>(),
@@ -50,6 +51,11 @@ function tracked_timers() {
 					fn(...args);
 				}, ms);
 				pending.add(timer);
+				const unref = timer.unref.bind(timer);
+				timer.unref = () => {
+					pending.delete(timer);
+					return unref();
+				};
 				return timer;
 			},
 			clearTimeout(timer: NodeJS.Timeout) {

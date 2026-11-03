@@ -1,5 +1,6 @@
 import net from "net";
 import { expect, onTestFinished, test, vi } from "vitest";
+import { log_lines, log_records } from "./helpers.ts";
 import type { ISql, Notice } from "../types/index.js";
 import {
 	postgres,
@@ -106,21 +107,17 @@ test("throws correct error when authentication fails", async () => {
 });
 
 test("notice", async () => {
-	let notice!: Notice;
-	const log = console.log;
-	console.log = function (x) {
-		notice = x;
-	};
-	onTestFinished(() => {
-		console.log = log;
-	});
-
-	const sql = postgres(options);
+	const records = await log_records();
+	await using sql = postgres(options);
 
 	await sql`create table if not exists users()`;
 	await sql`create table if not exists users()`;
 
-	expect(notice.severity).toBe("NOTICE");
+	expect(log_lines(records, "notice")).toEqual([
+		expect.stringMatching(
+			/^info server notice NOTICE 42P07 on connection \d+ to \S+: relation "users" already exists, skipping$/,
+		),
+	]);
 });
 
 test("notice hook", async () => {

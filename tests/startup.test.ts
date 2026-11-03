@@ -20,6 +20,7 @@ const base: Partial<Options> = {
 	database: options.db,
 	connect_timeout: 3,
 	timers: { setTimeout, clearTimeout, setImmediate, clearImmediate, now: () => performance.now() },
+	shared: { once: new Set() },
 	...login,
 };
 

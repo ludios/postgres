@@ -12,6 +12,7 @@ import { Errors, PostgresError, throw_on_casing_transforms } from "./errors.ts";
 import Subscribe from "./subscribe.ts";
 import largeObject from "./large.ts";
 import { channels, active, start, finish, user_name } from "./diagnostics.ts";
+import { log_at, log, reason, target, tenths } from "./log.ts";
 import type postgres from "../types/index.js";
 import type { open } from "./startup.ts";
 import type { RawSocket } from "./socket.ts";
@@ -364,7 +365,22 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 						await did.rolled.catch(() => {});
 					}
 				} else if (!lease.connection.closed) {
-					await control(lease, name ? "rollback to " + identifier(name) : "rollback");
+					try {
+						await control(lease, name ? "rollback to " + identifier(name) : "rollback");
+					} catch (failure) {
+						log.connection.warn(
+							"{rollback} on connection {id} to {target} failed, so the caller gets its error ({reason}) instead of the one that caused the rollback: {original}",
+							{
+								rollback: name ? "ROLLBACK TO SAVEPOINT " + name : "ROLLBACK",
+								id: lease.connection.id,
+								target: target(options, lease.connection.host, lease.connection.port),
+								original: reason(error),
+								reason: reason(failure),
+								error: failure,
+							},
+						);
+						throw failure;
+					}
 				}
 				throw (error instanceof PostgresError && error.code === "25P02" && did.uncaught) || error;
 			}
@@ -484,13 +500,18 @@ function identifier(x: string) {
 }
 
 function Listen(options: Options) {
-	const { setTimeout, clearTimeout } = options.timers,
+	const { setTimeout, clearTimeout, now } = options.timers,
 		// Channel name → channel
-		channel_by_name = new Map<string, Channel>();
+		channel_by_name = new Map<string, Channel>(),
+		// The pool's target, as the log lines name it
+		where = target(options);
 	// The listener connection: a pool of one connection, opened when a channel is listened on
 	let sql: postgres.Sql | null = null,
 		// The promise that end() returns (null until end() is called)
-		closing: Promise<unknown> | null = null;
+		closing: Promise<unknown> | null = null,
+		// The channels whose LISTEN is sent again since the listener connection closed (at
+		// `since`), so that one line can say when all of them listen again; null outside that
+		relistening: { channels: Set<Channel>; n: number; since: number } | null = null;
 
 	return {
 		listen,
@@ -519,7 +540,8 @@ function Listen(options: Options) {
 			max_lifetime: null,
 			fetch_types: false,
 			no_subscribe: true,
-			onclose() {
+			role: "LISTEN",
+			onclose(id: number) {
 				// Not after end(), and not for a connection that retire() ended, which may close
 				// after a LISTEN on its replacement succeeded
 				if (closing || sql !== pool) {
@@ -531,16 +553,39 @@ function Listen(options: Options) {
 				// that await it, and makes relisten() retry if the LISTEN was its own. A channel
 				// that waits to retry is on its way already. A second chain of retries would send a
 				// second LISTEN, call each onlisten twice, and leave a timer that end() cannot clear.
-				channel_by_name.forEach((channel, name) => {
-					if (channel.listening) {
-						relisten(channel, name);
-					}
-				});
+				const lost = [...channel_by_name].filter(([, channel]) => channel.listening);
+				if (lost.length) {
+					log.listen.warn(
+						"LISTEN connection {id} to {target} closed; sending LISTEN again for {n} channels; notifications sent until the new LISTENs succeed are lost",
+						{ id, target: where, n: lost.length },
+					);
+					relistening = {
+						channels: new Set(lost.map(([, channel]) => channel)),
+						n: lost.length,
+						since: now(),
+					};
+				}
+				lost.forEach(([name, channel]) => relisten(channel, name));
 			},
 			onnotify(channel: string, payload: string) {
 				const listening = channel_by_name.get(channel);
 				if (listening) {
-					[...listening.listeners].forEach((l) => l.fn(payload));
+					[...listening.listeners].forEach((l) => {
+						try {
+							l.fn(payload);
+						} catch (error) {
+							// One listener's error must not stop the calls of the others
+							log.listen.error(
+								"listener of channel {channel} at {target} threw; ignored: {reason}",
+								{
+									channel,
+									target: where,
+									reason: reason(error),
+									error,
+								},
+							);
+						}
+					});
 				}
 			},
 		});
@@ -582,33 +627,71 @@ function Listen(options: Options) {
 				if (closing) {
 					return;
 				}
+				log.listen.debug("listening on channel {channel} at {target} again", {
+					channel: name,
+					target: where,
+				});
+				relistened(channel);
 				listeners.forEach((l) => {
 					if (channel.listeners.has(l) && l.onlisten) {
 						try {
 							l.onlisten();
-						} catch {
+						} catch (error) {
 							// As for a listener's fn in onnotify: one listener's error must not stop the
 							// calls of the others, or reject this promise, which nothing handles
+							log.listen.error(
+								"onlisten of channel {channel} at {target} threw; ignored: {reason}",
+								{ channel: name, target: where, reason: reason(error), error },
+							);
 						}
 					}
 				});
 			},
-			() => {
+			(error: unknown) => {
 				if (closing || channel_by_name.get(name) !== channel) {
 					return;
 				}
 
 				channel.retries++;
-				channel.timer = setTimeout(
-					() => {
-						if (!closing && channel_by_name.get(name) === channel) {
-							relisten(channel, name);
-						}
+				const delay = backoff_seconds(options.backoff, channel.retries);
+				channel.timer = setTimeout(() => {
+					if (!closing && channel_by_name.get(name) === channel) {
+						relisten(channel, name);
+					}
+				}, delay * 1000);
+				// The LISTEN connection's own lines say why it cannot connect
+				log_at(
+					log.listen,
+					String((error as Failure).code).startsWith("CONNECTION_") ? "debug" : "warning",
+					"LISTEN {channel} at {target} failed ({retries} in a row); next attempt in {delay} ms: {reason}",
+					{
+						channel: name,
+						target: where,
+						retries: channel.retries,
+						delay: Math.round(delay * 1000),
+						reason: reason(error),
+						error,
 					},
-					backoff_seconds(options.backoff, channel.retries) * 1000,
 				);
 			},
 		);
+	}
+
+	/**
+	 * Takes `channel` off the channels whose LISTEN is sent again since the listener connection
+	 * closed, and logs once the last of them listens again.
+	 */
+	function relistened(channel: Channel) {
+		if (relistening === null || !relistening.channels.delete(channel)) {
+			return;
+		}
+		if (relistening.channels.size === 0) {
+			log.listen.info(
+				"listening again on all {n} channels at {target}, {secs} s after their connection closed",
+				{ n: relistening.n, target: where, secs: tenths(now() - relistening.since) },
+			);
+			relistening = null;
+		}
 	}
 
 	/**
@@ -626,6 +709,12 @@ function Listen(options: Options) {
 		if (channel.timer !== null) {
 			clearTimeout(channel.timer);
 		}
+		if (relistening !== null) {
+			relistening.channels.delete(channel);
+			if (relistening.channels.size === 0) {
+				relistening = null;
+			}
+		}
 		const x = sql;
 		if (closing || !x) {
 			return;
@@ -637,6 +726,13 @@ function Listen(options: Options) {
 					throw e;
 				}
 			});
+			log.listen.debug(
+				"stopped listening on channel {channel} at {target}: its last listener left",
+				{
+					channel: name,
+					target: where,
+				},
+			);
 		}
 		if (channel_by_name.size === 0 && sql === x) {
 			sql = null;
@@ -655,7 +751,14 @@ function Listen(options: Options) {
 			timer: null,
 		};
 		// Not stored if the LISTEN cannot be sent, which connection() may throw for
-		void send_listen(channel, name);
+		send_listen(channel, name).then(
+			() =>
+				log.listen.debug("listening on channel {channel} at {target}", {
+					channel: name,
+					target: where,
+				}),
+			() => {},
+		);
 		channel_by_name.set(name, channel);
 		return channel;
 	}
@@ -1069,12 +1172,14 @@ export type Options = postgres.ParsedOptions<Record<string, any>> & {
 	open?: typeof open;
 	/** Whether the pool makes no Subscribe (which would make a pool of its own) */
 	no_subscribe?: boolean;
+	/** What the pool is for, if not for the application's queries: "LISTEN" or "replication"; log lines say so */
+	role?: string;
 	/** The password file (PGPASSFILE, or ~/.pgpass) */
 	passfile: string | undefined;
 	/** The types of the pool that made this one (a Subscribe's), so that they are looked up once */
 	shared_types?: ReturnType<typeof Types>;
-	/** What the pools made from one set of options share */
-	shared: { retries: number };
+	/** What the pools made from one set of options share: the keys of the log lines that are logged once (see log.ts's once()) */
+	shared: { once: Set<string> };
 	timers: Timers;
 	/** Resolves a type given by name to its oid, once the types are loaded */
 	resolve: ReturnType<typeof Types>["resolve"];
@@ -1106,7 +1211,7 @@ function parse_options(a?: string | Record<string, any>, b?: Record<string, any>
 		o.prepare = false;
 	}
 	if ("timeout" in o) {
-		console.warn("The timeout option is deprecated, use idle_timeout instead");
+		log.pool.warn('option "timeout" is deprecated and sets idle_timeout; set idle_timeout instead');
 		o.idle_timeout = o.timeout;
 	}
 	// As in libpq, the url's sslrootcert, or else PGSSLROOTCERT, names the certificate authorities
@@ -1157,7 +1262,7 @@ function parse_options(a?: string | Record<string, any>, b?: Record<string, any>
 		shared_types: o.shared_types,
 		transform: parse_transform(o.transform || { undefined: undefined }),
 		parameters: {},
-		shared: { retries: 0 },
+		shared: { once: new Set() },
 		timers: o.timers || default_timers(),
 	};
 

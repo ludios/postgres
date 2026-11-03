@@ -2,6 +2,8 @@
 // effects (unlike tests/common.ts, which imports the library).
 import type net from "net";
 import util from "util";
+import { configure } from "@logtape/logtape";
+import type { LogRecord } from "@logtape/logtape";
 
 /**
  * @param server - a server that listens on a TCP port (not on a Unix socket or a pipe)
@@ -93,4 +95,69 @@ export function defer(fn: () => unknown): AsyncDisposable {
 			await fn();
 		},
 	};
+}
+
+/** The records that the library has logged since log_records() was last called */
+const kept: LogRecord[] = [];
+
+/** The configuration of LogTape, once log_records() has made it */
+let capturing: Promise<void> | null = null;
+
+/**
+ * Configures LogTape (once per test file) to keep every record that the library logs, at every
+ * level, and forgets the records kept so far.
+ * @returns the array that gets each record from now on
+ */
+export async function log_records() {
+	capturing ??= configure({
+		reset: true,
+		sinks: {
+			memory(record) {
+				kept.push(record);
+			},
+		},
+		loggers: [
+			{ category: "postgres", lowestLevel: "trace", sinks: ["memory"] },
+			{ category: ["logtape", "meta"], sinks: [] },
+		],
+	});
+	await capturing;
+	kept.length = 0;
+	return kept;
+}
+
+/**
+ * @param record - a record of log_records()
+ * @returns its message as a text sink shows it, with the values bare
+ */
+export function rendered(record: LogRecord) {
+	return record.message.map((x) => (typeof x === "string" ? x : String(x))).join("");
+}
+
+/**
+ * @param records - the records of log_records()
+ * @param category - the last part of a category, such as "pool" for postgres.pool
+ * @param level - a level, to keep only the records of that level; undefined for every level
+ * @returns the messages (see rendered()) of the records kept, each prefixed with its level and a space
+ */
+export function log_lines(records: LogRecord[], category: string, level?: string) {
+	return records
+		.filter((x) => x.category[1] === category && (level === undefined || x.level === level))
+		.map((x) => x.level + " " + rendered(x));
+}
+
+/**
+ * Waits for what `check` tests for, polling every 10 ms.
+ * @param check - truthy once what the caller waits for has happened
+ * @param ms - how long to wait at most, in milliseconds
+ * @throws if `check` is still falsy after `ms`
+ */
+export async function until(check: () => unknown, ms = 5000) {
+	const deadline = Date.now() + ms;
+	while (!check()) {
+		if (Date.now() > deadline) {
+			throw new Error("Gave up waiting after " + ms + " ms");
+		}
+		await new Promise((r) => setTimeout(r, 10));
+	}
 }

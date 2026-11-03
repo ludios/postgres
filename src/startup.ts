@@ -6,6 +6,7 @@ import { Socket, secured, secure_options } from "./socket.ts";
 import type { RawSocket } from "./socket.ts";
 import type { Options } from "./index.ts";
 import { Errors } from "./errors.ts";
+import { log, notice as log_notice, once, reason, target } from "./log.ts";
 import {
 	channels,
 	active,
@@ -53,7 +54,23 @@ export async function open(
 				return ready;
 			}
 			if (!failed) {
+				log.pool.debug(
+					wanted === "prefer-standby"
+						? "{target} is {actual}; trying the other hosts first, as target_session_attrs is {wanted}"
+						: "{target} is {actual}, but target_session_attrs is {wanted}; skipping it",
+					{
+						target: target(options, host, port),
+						actual: actual(want, ready.attributes),
+						wanted,
+					},
+				);
 				ready.socket.end(p.Terminate());
+			} else if (n + 1 < hosts.length) {
+				log.pool.debug("connecting to {target} failed; trying the next host: {reason}", {
+					target: target(options, host, port),
+					reason: reason(error),
+					error,
+				});
 			}
 			last = failed ? error : Errors.connection("CONNECTION_DESTROYED", options, host, port);
 			if (signal.aborted) {
@@ -109,6 +126,18 @@ function fits(want: string | null, { readOnly, standby }: Ready["attributes"]) {
 	);
 }
 
+/**
+ * @param want - the kind of server that a pass of open() wants, which the server does not fit
+ * @param attributes - what the server is
+ * @returns how a log line describes the server: "read-only", "read-write", "a standby" or "a primary"
+ */
+function actual(want: string | null, { readOnly, standby }: Ready["attributes"]) {
+	if (want === "read-write" || want === "read-only") {
+		return readOnly ? "read-only" : "read-write";
+	}
+	return standby ? "a standby" : "a primary";
+}
+
 /** A connection that is ready for queries, as attempt() resolves it */
 export type Ready = {
 	socket: Connected;
@@ -127,10 +156,18 @@ export type Ready = {
 	index?: number;
 	/** Sends a cancel request for the connection's backend */
 	cancel: () => ReturnType<typeof cancel>;
+	/** How long the attempt took, from before the socket connected to ReadyForQuery, in ms */
+	elapsed: number;
+	/** How the server authenticated the connection: Auth()'s `method` */
+	auth: string;
+	/** "verified" (TLS, and the certificate checked), "unverified" (TLS, but not checked) or "off" */
+	tls: string;
 };
 
 function attempt(options: Options, host: string | null, port: number, signal: Signal) {
-	const { setTimeout, clearTimeout } = options.timers,
+	const { setTimeout, clearTimeout, now } = options.timers,
+		since = now(),
+		where = target(options, host, port),
 		fail = (code: string) => Errors.connection(code, options, host, port);
 
 	return new Promise<Ready>((resolve, reject) => {
@@ -209,6 +246,12 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 				);
 			socket.keep_alive(options.keep_alive);
 			await negotiate(socket, options);
+			if (secured(options) && !socket.negotiated && once(options, "tls " + where)) {
+				log.pool.warn('{target} refused TLS; continuing unencrypted, since ssl is "{mode}"', {
+					target: where,
+					mode: options.ssl,
+				});
+			}
 			const user = typeof options.user === "function" ? await options.user() : options.user;
 			return startup(socket, user, options.database || user);
 		}
@@ -216,7 +259,7 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 		function startup(socket: Connected, user: string, database: string) {
 			return new Promise<Ready>((succeed, refuse) => {
 				const stored = () =>
-						pgpass(options.passfile, options.path ? "localhost" : host, port, database, user) || "",
+						pgpass(options, options.path ? "localhost" : host, port, database, user) || "",
 					auth = Auth({
 						user,
 						pass: options.pass || stored,
@@ -262,19 +305,34 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 				}
 
 				function notice(x: Record<string, string>) {
-					try {
-						if (options.onnotice) {
+					if (options.onnotice) {
+						try {
 							options.onnotice(x);
-						} else if (options.onnotice !== false) {
-							// oxlint-disable-next-line no-console -- the default onnotice prints to stdout, as documented
-							console.log(x);
+						} catch (error) {
+							// An onnotice that throws must not break the connection
+							log.connection.error(
+								"onnotice handler threw during the startup of a connection to {target}; ignored: {reason}",
+								{ target: where, reason: reason(error), error },
+							);
 						}
-					} catch {
-						// An onnotice that throws must not break the connection
+					} else if (options.onnotice !== false) {
+						log_notice(x, "from {target} during startup", { target: where });
 					}
 				}
 
 				function authenticate(x: Buffer) {
+					// Not over a Unix-domain socket, which crosses no network
+					if (
+						x.readInt32BE(5) === 3 &&
+						!socket.negotiated &&
+						!options.path &&
+						once(options, "cleartext")
+					) {
+						log.pool.warn(
+							"{target} asked for the password in cleartext over an unencrypted connection; sending it",
+							{ target: where },
+						);
+					}
 					authing = authing.then(() => auth(x)).then((reply) => reply && socket.write(reply));
 					authing.catch((error) => {
 						refuse(error);
@@ -328,6 +386,14 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 						host,
 						port,
 						cancel: () => (backend ? cancel(options, host, port, backend) : Promise.resolve()),
+						elapsed: now() - since,
+						auth: auth.method,
+						tls: socket.negotiated
+							? (secure_options(options.ssl) as { rejectUnauthorized?: boolean })
+									.rejectUnauthorized === false
+								? "unverified"
+								: "verified"
+							: "off",
 					});
 				}
 			});
@@ -450,6 +516,12 @@ function Auth({
 		header = "n,,";
 
 	respond.authenticated = false;
+	/**
+	 * The method that the server asked for: "cleartext", "md5", "scram-sha-256" or
+	 * "scram-sha-256-plus"; or "not asked", while the server has asked for none (as with trust,
+	 * peer and certificate authentication)
+	 */
+	respond.method = "not asked";
 	return respond;
 
 	async function respond(x: Buffer) {
@@ -460,24 +532,26 @@ function Auth({
 			);
 		}
 
+		if (type === 3) {
+			respond.method = "cleartext";
+			return p.Password(await password());
+		}
+		if (type === 5) {
+			respond.method = "md5";
+			return p.Password(
+				"md5" +
+					md5(Buffer.concat([Buffer.from(md5((await password()) + user)), x.subarray(9, 13)])),
+			);
+		}
 		return type === 0
 			? ok()
-			: type === 3
-				? p.Password(await password())
-				: type === 5
-					? p.Password(
-							"md5" +
-								md5(
-									Buffer.concat([Buffer.from(md5((await password()) + user)), x.subarray(9, 13)]),
-								),
-						)
-					: type === 10
-						? start(x)
-						: type === 11
-							? proceed(x, await password())
-							: type === 12
-								? finish(x)
-								: unsupported(type);
+			: type === 10
+				? start(x)
+				: type === 11
+					? proceed(x, await password())
+					: type === 12
+						? finish(x)
+						: unsupported(type);
 	}
 
 	function start(x: Buffer) {
@@ -504,6 +578,7 @@ function Auth({
 		header = plus ? "p=tls-server-end-point,," : hash ? "y,," : "n,,";
 		bound = plus ? hash : false;
 		verified = false;
+		respond.method = plus ? "scram-sha-256-plus" : "scram-sha-256";
 		return p.SASL(plus ? "SCRAM-SHA-256-PLUS" : "SCRAM-SHA-256", header + "n=*,r=" + nonce);
 	}
 
@@ -611,8 +686,8 @@ function unsupported(type: number) {
 	);
 }
 
-function unbound(reason: string) {
-	return Errors.generic("CHANNEL_BINDING_REQUIRED", "channel_binding is require, but " + reason);
+function unbound(why: string) {
+	return Errors.generic("CHANNEL_BINDING_REQUIRED", "channel_binding is require, but " + why);
 }
 
 /** The hash of a certificate's signature algorithm, by the algorithm's OID (as hex) */
@@ -717,13 +792,19 @@ function xor(a: Buffer, b: Buffer) {
 	return x;
 }
 
+/**
+ * @param options - the options of the pool, with the password file in `passfile`
+ * @returns the password that the file gives for the connection, or null if the file gives none, is
+ *   missing, is not a file, or (except on Windows) lets other users access it, as libpq refuses it
+ */
 function pgpass(
-	file: string | undefined,
+	options: Options,
 	host: string | null,
 	port: number,
 	database: string,
 	user: string,
 ) {
+	const file = options.passfile;
 	if (!file) {
 		return null;
 	}
@@ -731,7 +812,16 @@ function pgpass(
 	let text: string;
 	try {
 		const stat = fs.statSync(file);
-		if (!stat.isFile() || (process.platform !== "win32" && stat.mode & 0o077)) {
+		if (!stat.isFile()) {
+			return null;
+		}
+		if (process.platform !== "win32" && stat.mode & 0o077) {
+			if (once(options, "pgpass")) {
+				log.pool.warn(
+					"ignoring password file {file}: its mode {mode} gives group or others access; it should be 0600 or stricter",
+					{ file, mode: (stat.mode & 0o777).toString(8).padStart(4, "0") },
+				);
+			}
 			return null;
 		}
 		text = fs.readFileSync(file, "utf8");

@@ -93,6 +93,7 @@ const postgres = require('postgres').default
 * [Connection details](#connection-details)
 * [Custom Types](#custom-types)
 * [Teardown / Cleanup](#teardown--cleanup)
+* [Logging](#logging)
 * [Tracing](#tracing)
 * [Error handling](#error-handling)
 * [TypeScript support](#typescript-support)
@@ -1120,7 +1121,7 @@ const sql = postgres('postgres://username:password@host:port/database', {
   prepare              : true,          // Automatic creation of prepared statements
   infer                : false,         // true types parameters from JS values, as v3 did
   types                : [],            // Array of custom types, see more below
-  onnotice             : fn,            // Default console.log, set false to silence NOTICE
+  onnotice             : fn,            // Default logs the notice (see Logging), false silences it
   onnotify             : fn,            // (channel, payload, pid) for every notification
   onparameter          : fn,            // (key, value) when server param change
   onclose              : fn,            // (connection id) when a connection closes
@@ -1513,6 +1514,34 @@ await reserved.release()
 ### `reserved.release()`
 
 Once you have finished with the reserved connection, call `release` to add it back to the pool. `using reserved = await sql.reserve()` releases it when it goes out of scope.
+
+## Logging
+
+Postgres.js logs through [LogTape](https://logtape.org), so the application chooses the sinks and the levels, and nothing is printed until it does. Configure LogTape before the first query; a record logged before that is dropped.
+
+```js
+import { configure, getConsoleSink, getTextFormatter } from '@logtape/logtape'
+
+await configure({
+  sinks: { console: getConsoleSink({ formatter: getTextFormatter({ value: 'bare' }) }) },
+  loggers: [{ category: 'postgres', lowestLevel: 'info', sinks: ['console'] }]
+})
+```
+
+`value: 'bare'` shows text values without the quotes that the default formatter puts around them.
+
+| Category | Logs |
+| -------- | ---- |
+| `postgres.pool` | Connecting, failed attempts and when the next comes, requests waiting for a connection, `QUEUE_TIMEOUT`, ending |
+| `postgres.connection` | A connection closed by the server or lost, protocol errors, handlers of yours that threw, prepared statements that a pooler disturbed |
+| `postgres.query` | Every query at `debug`; at `warning`, one that ran for a second or more, and one that the server has not answered for 10 seconds |
+| `postgres.notice` | The server's notices, at the level of their severity (`NOTICE` at `info`, `WARNING` at `warning`), unless `onnotice` is given |
+| `postgres.listen` | LISTEN sent, and sent again after the connection closed |
+| `postgres.subscribe` | Replication slots, the stream starting and restarting, subscribers that failed |
+
+At `info`, a line marks the pool's first connection (and the first after failed attempts), the end of a congestion, every channel listening again, and the start of replication. At `warning`, what an operator should know about and the application still handles. At `error`, what nothing else reports: a handler that threw, a server error about the server's own trouble (a full disk, say), and replication errors when no subscriber has an `onerror`.
+
+Every line names its pool as `user@host:port/database` (the pool of `sql.listen` adds ` (LISTEN)`, that of `sql.subscribe` ` (replication)`), and a connection by its number, which is unique in the process. The text of a query appears at `debug`, in the lines about slow queries, and in the line about a transaction left open, cut to 200 characters; parameter values never appear.
 
 ## Tracing
 

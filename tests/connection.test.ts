@@ -2,6 +2,7 @@ import net from "net";
 import tls from "tls";
 import crypto from "crypto";
 import { expect, onTestFinished, test } from "vitest";
+import { log_lines, log_records } from "./helpers.ts";
 import type { Sql, ReservedSql } from "../types/index.js";
 import { notable } from "../src/pool.ts";
 import {
@@ -514,14 +515,9 @@ test("A max_lifetime of 30 days, longer than setTimeout can wait, does not close
 
 test("onnotice: false silences notices", async () => {
 	await using sql = postgres({ ...options, onnotice: false });
-	const log = console.log;
-	let logged = false;
-	console.log = () => (logged = true);
-	onTestFinished(() => {
-		console.log = log;
-	});
+	const records = await log_records();
 	await sql`do $$ begin raise notice 'hi'; end $$`;
-	expect(logged).toBe(false);
+	expect(log_lines(records, "notice")).toEqual([]);
 });
 
 test("Multiple hosts errors when all hosts are down", async () => {

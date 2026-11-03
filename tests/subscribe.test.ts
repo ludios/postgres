@@ -1,6 +1,8 @@
 import { expect, onTestFinished, test } from "vitest";
+import type { LogRecord } from "@logtape/logtape";
 import type { ReplicationEvent } from "../types/index.js";
 import { postgres, options, delay, camel_case, snake_case, defer } from "./setup.ts";
+import { log_records } from "./helpers.ts";
 
 test("subscribe", async () => {
 	await using sql = postgres({
@@ -436,8 +438,15 @@ test("subscribe calls every handler of an event, until each unsubscribes", async
 	expect(seen).toEqual(["a1", "b1", "b2"]);
 });
 
-/** The message of the error that the last console.error (when stubbed by a test below) logged */
-let logged: string | undefined;
+/** The records that the library logs, once a test below captures them */
+let records: LogRecord[] = [];
+
+/**
+ * @returns the reason of the first error that the subscription logged (as no subscriber has an
+ * onerror); undefined while it has logged none
+ */
+const reported = () =>
+	records.find((x) => x.category[1] === "subscribe" && x.level === "error")?.properties.reason;
 
 /**
  * Subscribe, make the subscription's next connection fail once (its user function throws), and insert
@@ -475,12 +484,12 @@ async function failing(onerror: boolean) {
 	);
 	fail = true;
 	await replication.close();
-	await until(() => (onerror ? errors.length : logged));
+	await until(() => (onerror ? errors.length : reported()));
 	fail = false;
 	await until(() => subscribes === 2);
 	await sql`insert into test (name) values ('after')`;
 	await until(() => seen.length);
-	return [seen, errors[0] || logged];
+	return [seen, errors[0] || reported()];
 }
 
 test("subscribe reports a failed reconnect to onerror and retries", async () => {
@@ -488,12 +497,7 @@ test("subscribe reports a failed reconnect to onerror and retries", async () => 
 });
 
 test("subscribe logs a failed reconnect when no subscription has onerror", async () => {
-	const error = console.error;
-	logged = undefined;
-	console.error = (...xs) => (logged = xs[1] && xs[1].message);
-	onTestFinished(() => {
-		console.error = error;
-	});
+	records = await log_records();
 	expect(await failing(false)).toEqual([["after"], "no user now"]);
 });
 

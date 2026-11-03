@@ -2,6 +2,7 @@ import util from "util";
 import { build, is_query, Join, join_strings } from "./build.ts";
 import { ours } from "./errors.ts";
 import { channels, active, start, finish, now, user_name } from "./diagnostics.ts";
+import { log_at, excerpt, log, reason, slow_query_ms, target } from "./log.ts";
 import { statement } from "./result.ts";
 import type postgres from "../types/index.js";
 import type { Built } from "./build.ts";
@@ -77,6 +78,13 @@ export class Query extends Promise<any> {
 	declare cancelled: boolean | undefined;
 	/** The error that a cancel() of a cursor between two of its steps fails the cursor with */
 	declare aborted: Failure | null | undefined;
+	/** When run() was called, by the options' `timers.now()`; 0 until then */
+	declare started: number;
+	/**
+	 * When the query's exchange last became the head of its connection's pipeline, so that the
+	 * server works on it, by the same clock; 0 until then
+	 */
+	declare headed: number;
 	/** Marks a Query, which build.ts's is_fragment() tests for */
 	declare [is_query]: true;
 
@@ -115,6 +123,8 @@ export class Query extends Promise<any> {
 		this.streaming = false;
 		this.cursor_fn = null;
 		this.cursor_rows = 0;
+		this.started = 0;
+		this.headed = 0;
 
 		this.origin_error = handler.debug ? new Error() : null;
 		if (this.tagged && !handler.debug && !origins.has(strings)) {
@@ -347,6 +357,7 @@ export class Query extends Promise<any> {
 	}
 
 	run() {
+		this.started = this.handler.options.timers.now();
 		const t = channels.query;
 		if (t && active(t)) {
 			start(t, (this.trace = context(this)), () => this.handler(this));
@@ -410,8 +421,76 @@ function context(q: Query): postgres.QueryTrace {
 	};
 }
 
-/** Ends the trace of `q`, if it has one, with `error` (null for success) and `result` */
+/**
+ * Logs that `q` has settled: at debug; or at warning if it was slow (see `slow_query_ms`), unless
+ * it is a cursor or a COPY stream, which the application paces.
+ * @param error - what `q` was rejected with; null if it resolved
+ * @param result - what `q` resolved with: a Result, or a COPY stream
+ */
+function logged(q: Query, error: unknown, result: unknown) {
+	// Not the pool's own queries (the lookup of the types), which run without run()
+	if (!q.started) {
+		return;
+	}
+
+	const { options } = q.handler,
+		t = options.timers.now(),
+		ms = t - (q.headed || q.started),
+		sent = q.headed !== 0,
+		slow = sent && ms >= slow_query_ms && !q.cursor_fn && !q.streaming;
+	if (!slow && !log.query.isEnabledFor("debug")) {
+		return;
+	}
+
+	const c = q.connection,
+		done =
+			result && typeof result === "object" && "command" in result
+				? (result as { command: string | null; count: number | null })
+				: null,
+		prefix = slow ? "slow query" : "query";
+	let template: string;
+	if (!sent) {
+		template =
+			"query to {target} failed after {wait} ms in the queue, before it was sent: {reason}; sql: {text}";
+	} else if (error) {
+		template =
+			prefix +
+			" on connection {id} to {target} failed after {ms} ms, queued {wait} ms before: {reason}; sql: {text}";
+	} else {
+		template =
+			prefix +
+			" on connection {id} to {target} took {ms} ms, queued {wait} ms before" +
+			(done && done.command ? " ({command}" + (done.count !== null ? " {count}" : "") + ")" : "") +
+			"; sql: {text}";
+	}
+	log_at(log.query, slow ? "warning" : "debug", template, {
+		id: c ? c.id : null,
+		target: c ? target(options, c.host, c.port) : target(options),
+		ms: Math.round(ms),
+		wait: Math.round((q.headed || t) - q.started),
+		command: done ? done.command : null,
+		count: done ? done.count : null,
+		text: text_of(q),
+		reason: error ? reason(error) : null,
+	});
+}
+
+/**
+ * @returns the text of `q` for a log line: the built text, or the strings of an unbuilt query
+ *   around an ellipsis for each parameter; "" if the strings cannot be shown (a toString() of the
+ *   application's threw)
+ */
+function text_of(q: Query) {
+	try {
+		return excerpt(q.built ? q.built.text : q.strings.join("…"));
+	} catch {
+		return "";
+	}
+}
+
+/** Logs that `q` has settled, and ends its trace, if it has one, with `error` (null for success) and `result` */
 function traced(q: Query, error: unknown, result?: unknown) {
+	logged(q, error, result);
 	const x = q.trace,
 		t = channels.query;
 	if (x === null || t === null) {
