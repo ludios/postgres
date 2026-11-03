@@ -2463,6 +2463,10 @@ function usable(entry: Entry, statement: Statement): entry is Entry & { oids: nu
 	);
 }
 
+/**
+ * @param built - a query's text and parameters, as built for the wire
+ * @returns true if the type of some parameter is left for the server to infer (its oid is 0)
+ */
 function inferred(built: Built) {
 	for (let i = 0; i < built.oids.length; i++) {
 		if (!built.oids[i]) {
@@ -2472,6 +2476,12 @@ function inferred(built: Built) {
 	return false;
 }
 
+/**
+ * @param entry   - a cached prepared statement
+ * @param params  - the types of the parameters, as the server just described the statement again
+ * @param columns - the columns of the rows, as the server just described the statement again
+ * @returns true if `entry` was described too, with the same parameter types and column types
+ */
 function same(entry: Entry, params: number[], columns: Column[]) {
 	const a = entry.oids || [],
 		b = entry.columns;
