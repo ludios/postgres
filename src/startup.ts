@@ -65,7 +65,8 @@ export async function open(
 }
 
 function traced(options: Options, host: string | null, port: number, signal: Signal) {
-	if (!active(channels.connect)) {
+	const t = channels.connect;
+	if (!t || !active(t)) {
 		return attempt(options, host, port, signal);
 	}
 
@@ -78,13 +79,11 @@ function traced(options: Options, host: string | null, port: number, signal: Sig
 		ssl: secured(options),
 		sslnegotiation: options.sslnegotiation || "postgres",
 	};
-	const promise = trace_start(channels.connect, context, () =>
-		attempt(options, host, port, signal),
-	);
+	const promise = trace_start(t, context, () => attempt(options, host, port, signal));
 
 	return promise.then(
 		(ready) => {
-			trace_finish(channels.connect, context, null, {
+			trace_finish(t, context, null, {
 				pid: ready.backend.pid,
 				status: ready.status,
 				readOnly: ready.attributes.readOnly,
@@ -93,7 +92,7 @@ function traced(options: Options, host: string | null, port: number, signal: Sig
 			return ready;
 		},
 		(error) => {
-			trace_finish(channels.connect, context, error);
+			trace_finish(t, context, error);
 			throw error;
 		},
 	);

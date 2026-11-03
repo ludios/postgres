@@ -1877,9 +1877,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function NoticeResponse(x: Buffer, start: number, end: number) {
-		const notice = p.error(x, start, end);
-		if (listened(channels.notice)) {
-			channels.notice.publish({
+		const notice = p.error(x, start, end),
+			channel = channels.notice;
+		if (channel && listened(channel)) {
+			channel.publish({
 				notice,
 				connection: connection.id,
 				host: connection.host,

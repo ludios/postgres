@@ -702,8 +702,10 @@ declare namespace postgres {
 		parameters: any[] | undefined;
 		/** The name it is prepared as, '' if unnamed; null until sent */
 		statement: string | null;
-		database: string;
-		user: string;
+		/** The database; null if none was given and the user is given as a function */
+		database: string | null;
+		/** The user; null if given as a function */
+		user: string | null;
 		connection: number | null;
 		host: string | null;
 		port: number | null;
@@ -723,8 +725,10 @@ declare namespace postgres {
 		host: string | null;
 		port: number | null;
 		path: string | null;
-		database: string;
-		user: string;
+		/** The database; null if none was given and the user is given as a function */
+		database: string | null;
+		/** The user; null if given as a function */
+		user: string | null;
 		ssl: boolean;
 		sslnegotiation: "postgres" | "direct";
 		result?: { pid: number; status: string; readOnly: boolean; standby: boolean };
@@ -734,8 +738,10 @@ declare namespace postgres {
 	/** The context of the `postgres:transaction` tracing channel */
 	interface TransactionTrace {
 		mode: string;
-		database: string;
-		user: string;
+		/** The database; null if none was given and the user is given as a function */
+		database: string | null;
+		/** The user; null if given as a function */
+		user: string | null;
 		connection: number | null;
 		host: string | null;
 		port: number | null;

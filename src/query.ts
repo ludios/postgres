@@ -85,7 +85,8 @@ export class Query extends Promise<any> {
 		handler: Handler,
 		options: QueryOptions = {},
 	) {
-		let resolve, reject;
+		// The executor runs before super() returns
+		let resolve!: (x: any) => void, reject!: (error: any) => void;
 
 		super((a, b) => {
 			resolve = a;
@@ -138,9 +139,7 @@ export class Query extends Promise<any> {
 		}
 		this.active = false;
 		this.settled = true;
-		if (this.trace) {
-			traced(this, null, x);
-		}
+		traced(this, null, x);
 		this.fulfil(x);
 	}
 
@@ -150,9 +149,7 @@ export class Query extends Promise<any> {
 		}
 		this.active = false;
 		this.settled = true;
-		if (this.trace) {
-			traced(this, x);
-		}
+		traced(this, x);
 		this.fail(x);
 	}
 
@@ -290,17 +287,13 @@ export class Query extends Promise<any> {
 						this.resolve = (x) => {
 							this.active = false;
 							this.settled = true;
-							if (this.trace) {
-								traced(this, null, x);
-							}
+							traced(this, null, x);
 							resolve({ done: true });
 						};
 						this.reject = (x) => {
 							this.active = false;
 							this.settled = true;
-							if (this.trace) {
-								traced(this, x);
-							}
+							traced(this, x);
 							reject(x);
 						};
 					});
@@ -353,8 +346,9 @@ export class Query extends Promise<any> {
 	}
 
 	run() {
-		if (active(channels.query)) {
-			start(channels.query, (this.trace = context(this)), () => this.handler(this));
+		const t = channels.query;
+		if (t && active(t)) {
+			start(t, (this.trace = context(this)), () => this.handler(this));
 		} else {
 			this.handler(this);
 		}
@@ -415,8 +409,13 @@ function context(q: Query): postgres.QueryTrace {
 	};
 }
 
+/** Ends the trace of `q`, if it has one, with `error` (null for success) and `result` */
 function traced(q: Query, error: unknown, result?: unknown) {
-	const x = q.trace;
+	const x = q.trace,
+		t = channels.query;
+	if (x === null || t === null) {
+		return;
+	}
 	q.trace = null;
 	x.complete = now();
 	if (result && typeof result === "object" && "command" in result) {
@@ -425,7 +424,7 @@ function traced(q: Query, error: unknown, result?: unknown) {
 		x.command = done.command;
 		x.count = done.count;
 	}
-	finish(channels.query, x, error, result);
+	finish(t, x, error, result);
 }
 
 function located() {

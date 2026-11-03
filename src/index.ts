@@ -234,8 +234,9 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 	}
 
 	function begin(first: string | Body, second?: Body) {
-		const [mode, fn] = second ? [first as string, second] : ["", first as Body];
-		if (!active(channels.transaction)) {
+		const [mode, fn] = second ? [first as string, second] : ["", first as Body],
+			t = channels.transaction;
+		if (!t || !active(t)) {
 			return transaction(mode, fn, null);
 		}
 
@@ -248,15 +249,15 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 			port: null,
 			outcome: null,
 		};
-		const promise = start(channels.transaction, context, () => transaction(mode, fn, context));
+		const promise = start(t, context, () => transaction(mode, fn, context));
 
 		return promise.then(
 			(result) => {
-				finish(channels.transaction, context, null, result);
+				finish(t, context, null, result);
 				return result;
 			},
 			(error) => {
-				finish(channels.transaction, context, error);
+				finish(t, context, error);
 				throw error;
 			},
 		);

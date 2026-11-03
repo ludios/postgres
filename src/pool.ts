@@ -804,11 +804,12 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	 * @param extra - more fields for the message
 	 */
 	function event(name: string, c: Pooled | null, extra?: Record<string, unknown>) {
-		if (!listened(channels.pool)) {
+		const channel = channels.pool;
+		if (!channel || !listened(channel)) {
 			return;
 		}
 
-		channels.pool.publish({
+		channel.publish({
 			event: name,
 			connection: c ? c.id : null,
 			host: c ? c.host : null,
@@ -1008,7 +1009,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 					kind,
 					resolve,
 					reject: fail,
-					queued: listened(channels.pool) ? now() : 0,
+					queued: channels.pool && listened(channels.pool) ? now() : 0,
 				}),
 			);
 			drain();

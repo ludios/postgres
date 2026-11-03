@@ -20,22 +20,20 @@ export const now = () => performance.now();
 export const userName = (options: Options) =>
 	typeof options.user === "function" ? null : options.user;
 
-export function active(t: Tracing | null) {
-	return (
-		!!t &&
-		(t.hasSubscribers !== undefined
-			? t.hasSubscribers
-			: t.start.hasSubscribers ||
+/** @returns whether any channel of tracing channel `t` has subscribers, so that tracing is worth the work */
+export function active(t: Tracing) {
+	return t.hasSubscribers !== undefined
+		? t.hasSubscribers
+		: t.start.hasSubscribers ||
 				t.end.hasSubscribers ||
 				t.asyncStart.hasSubscribers ||
 				t.asyncEnd.hasSubscribers ||
-				t.error.hasSubscribers)
-	);
+				t.error.hasSubscribers;
 }
 
-/** @returns whether `channel` exists and has subscribers, so that publishing to it is worth the work */
-export function listened(channel: Channel | null): channel is Channel {
-	return channel !== null && channel.hasSubscribers;
+/** @returns whether `channel` has subscribers, so that publishing to it is worth the work */
+export function listened(channel: Channel) {
+	return channel.hasSubscribers;
 }
 
 export function start<T>(t: Tracing, context: object, fn: () => T): T {
