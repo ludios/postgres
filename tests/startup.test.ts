@@ -35,6 +35,35 @@ const server = (fn: (socket: net.Socket) => void) =>
 		const x = net.createServer(fn).listen(0, "localhost", () => r(x));
 	});
 
+/**
+ * Replaces net.connect until the test ends, and then destroys every socket that it made
+ * @param make - makes the socket for one call of net.connect, from the call's options and the
+ *   real net.connect
+ * @returns the sockets made so far, in the order of the calls
+ */
+function stub_connect(
+	make: (target: net.NetConnectOpts, connect: typeof net.connect) => net.Socket,
+) {
+	const connect = net.connect,
+		sockets: net.Socket[] = [];
+	net.connect = ((target: net.NetConnectOpts) => {
+		const socket = make(target, connect);
+		sockets.push(socket);
+		return socket;
+	}) as typeof net.connect;
+	// Unlike a finally block, this runs even if the test times out
+	onTestFinished(() => {
+		net.connect = connect;
+		for (const x of sockets) {
+			x.destroy();
+		}
+	});
+	return sockets;
+}
+
+/** Makes a socket that never connects, standing in for one to an address that never answers */
+const never_connecting = () => new net.Socket();
+
 test("Startup reaches ReadyForQuery", async () => {
 	const { status, backend, parameters, rest } = await session();
 	expect([
@@ -125,19 +154,8 @@ test("Cancel destroys a TCP connection still in progress when connect_timeout pa
 	const o = { ...base } as Options,
 		ready = await open(o);
 	await using _end = defer(() => ready.socket.end());
-	const connect = net.connect,
-		sockets: net.Socket[] = [];
-	// Sends the cancel request's connection to an address that never answers
-	net.connect = (...xs: [any, any?, any?]) => {
-		const socket = connect({ ...xs[0], host: "10.255.255.1" });
-		sockets.push(socket);
-		return socket;
-	};
-	// Unlike a finally block, this runs even if the test times out while the request is pending
-	onTestFinished(() => {
-		net.connect = connect;
-	});
-	// The cancel request reads connect_timeout from the session's options when it starts
+	const sockets = stub_connect(never_connecting);
+	// Each call of ready.cancel() reads connect_timeout from `o` again
 	o.connect_timeout = 0.2;
 	const code = await ready.cancel().catch((e) => e.code);
 	expect([code, sockets.map((x) => x.destroyed)]).toEqual(["CONNECT_TIMEOUT", [true]]);
@@ -241,22 +259,8 @@ test("Startup with a throwing onnotice still connects", async () => {
 });
 
 test("Startup destroys a TCP connection still in progress when connect_timeout passes", async () => {
-	const connect = net.connect,
-		sockets: net.Socket[] = [];
-	net.connect = (...xs: [any, any?, any?]) => {
-		const socket = connect(...xs);
-		sockets.push(socket);
-		return socket;
-	};
-	// Unlike a finally block, this runs even if the test times out while the session is pending
-	onTestFinished(() => {
-		net.connect = connect;
-	});
-	const code = await session({
-		host: ["10.255.255.1"],
-		port: [pg_port],
-		connect_timeout: 0.2,
-	}).catch((e) => e.code);
+	const sockets = stub_connect(never_connecting);
+	const code = await session({ connect_timeout: 0.2 }).catch((e) => e.code);
 	expect([code, sockets.map((x) => x.destroyed)]).toEqual(["CONNECT_TIMEOUT", [true]]);
 });
 
