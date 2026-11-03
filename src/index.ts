@@ -351,9 +351,8 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 					context.outcome = "rollback";
 				}
 				if (stopped()) {
-					if (rolled) {
-						await rolled.catch(() => {});
-					}
+					// Waits for the rollback that sql.rollback() sent, if any, however it ended
+					await Promise.allSettled([rolled]);
 				} else if (!lease.connection.closed) {
 					await control(lease, name ? "rollback to " + identifier(name) : "rollback");
 				}
@@ -399,12 +398,10 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 					return savepoint((sp: any) => sp.apply(sp, arguments));
 				}
 
-				if (arguments.length === 1) {
-					callback = label as Body;
-					label = null;
-				}
-				const suffix = label ? "_" + (label as string) : "";
-				return scope(callback, "s" + savepoints++ + suffix, false, stopped);
+				// With one argument, that is the callback, and the savepoint has no label
+				const inner = callback === undefined ? (label as Body) : callback,
+					suffix = callback === undefined ? "" : "_" + (label as string);
+				return scope(inner, "s" + savepoints++ + suffix, false, stopped);
 			}
 
 			async function nested(first: string | Body, second?: Body) {
@@ -488,7 +485,11 @@ function Listen(options: Options) {
 	return {
 		listen,
 		end() {
-			channel_by_name.forEach((channel) => clearTimeout(channel.timer));
+			channel_by_name.forEach((channel) => {
+				if (channel.timer !== null) {
+					clearTimeout(channel.timer);
+				}
+			});
 			if (!closing) {
 				closing = sql ? sql.end({ timeout: 0 }) : Promise.resolve();
 			}
@@ -497,42 +498,44 @@ function Listen(options: Options) {
 	};
 
 	/** @returns the listener connection, opened if there is none */
-	function connection() {
-		if (!sql) {
-			const pool = Postgres({
-				...options,
-				max: 1,
-				idle_timeout: null,
-				max_lifetime: null,
-				fetch_types: false,
-				no_subscribe: true,
-				onclose() {
-					// Not after end(), and not for a connection that retire() ended, which may close
-					// after a LISTEN on its replacement succeeded
-					if (closing || sql !== pool) {
-						return;
-					}
-
-					// Only a channel that was listening on the closed connection needs a new LISTEN. A
-					// channel whose LISTEN is in flight sees it fail, which rejects the listen() calls
-					// that await it, and makes relisten() retry if the LISTEN was its own. A channel
-					// that waits to retry is on its way already. A second chain of retries would send a
-					// second LISTEN, call each onlisten twice, and leave a timer that end() cannot clear.
-					channel_by_name.forEach((channel, name) => {
-						if (channel.listening) {
-							relisten(channel, name);
-						}
-					});
-				},
-				onnotify(channel: string, payload: string) {
-					if (channel_by_name.has(channel)) {
-						[...channel_by_name.get(channel).listeners].forEach((l) => l.fn(payload));
-					}
-				},
-			});
-			sql = pool;
+	function connection(): postgres.Sql {
+		if (sql) {
+			return sql;
 		}
-		return sql;
+		const pool = Postgres({
+			...options,
+			max: 1,
+			idle_timeout: null,
+			max_lifetime: null,
+			fetch_types: false,
+			no_subscribe: true,
+			onclose() {
+				// Not after end(), and not for a connection that retire() ended, which may close
+				// after a LISTEN on its replacement succeeded
+				if (closing || sql !== pool) {
+					return;
+				}
+
+				// Only a channel that was listening on the closed connection needs a new LISTEN. A
+				// channel whose LISTEN is in flight sees it fail, which rejects the listen() calls
+				// that await it, and makes relisten() retry if the LISTEN was its own. A channel
+				// that waits to retry is on its way already. A second chain of retries would send a
+				// second LISTEN, call each onlisten twice, and leave a timer that end() cannot clear.
+				channel_by_name.forEach((channel, name) => {
+					if (channel.listening) {
+						relisten(channel, name);
+					}
+				});
+			},
+			onnotify(channel: string, payload: string) {
+				const listening = channel_by_name.get(channel);
+				if (listening) {
+					[...listening.listeners].forEach((l) => l.fn(payload));
+				}
+			},
+		});
+		sql = pool;
+		return pool;
 	}
 
 	/**
@@ -544,12 +547,13 @@ function Listen(options: Options) {
 	function send_listen(channel: Channel, name: string) {
 		const x = connection();
 		channel.listening = false;
-		channel.result = x`listen ${x.unsafe(identifier(name))}`.then((result) => {
+		const sent = x`listen ${x.unsafe(identifier(name))}`.then((result) => {
 			channel.listening = true;
 			Object.assign(channel.state, result.state);
 			return result;
 		});
-		return channel.result;
+		channel.result = sent;
+		return sent;
 	}
 
 	/**
@@ -609,7 +613,9 @@ function Listen(options: Options) {
 		if (channel_by_name.get(name) === channel) {
 			channel_by_name.delete(name);
 		}
-		clearTimeout(channel.timer);
+		if (channel.timer !== null) {
+			clearTimeout(channel.timer);
+		}
 		const x = sql;
 		if (closing || !x) {
 			return;
@@ -628,6 +634,22 @@ function Listen(options: Options) {
 		}
 	}
 
+	/** @returns a new channel named `name`, with its LISTEN sent, and recorded in `channel_by_name` */
+	function opened(name: string) {
+		const channel: Channel = {
+			listeners: new Set(),
+			state: {},
+			result: null,
+			listening: false,
+			retries: 0,
+			timer: null,
+		};
+		// Not stored if the LISTEN cannot be sent, which connection() may throw for
+		void send_listen(channel, name);
+		channel_by_name.set(name, channel);
+		return channel;
+	}
+
 	/**
 	 * Listens on a channel, on the listener connection, which is opened if there is none.
 	 * @param name - the channel's name
@@ -642,21 +664,9 @@ function Listen(options: Options) {
 			throw Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]);
 		}
 
-		const listener = { fn, onlisten };
-		let channel = channel_by_name.get(name);
-		if (!channel) {
-			channel = {
-				listeners: new Set<Listener>(),
-				state: {},
-				result: null,
-				listening: false,
-				retries: 0,
-				timer: null,
-			};
-			// Not stored if the LISTEN cannot be sent, which connection() may throw for
-			void send_listen(channel, name);
-			channel_by_name.set(name, channel);
-		} else if (channel.timer !== null) {
+		const listener = { fn, onlisten },
+			channel = channel_by_name.get(name) ?? opened(name);
+		if (channel.timer !== null) {
 			// The channel's latest LISTEN failed, and the channel waits to send it again. Sending it
 			// now makes this listen() await a new attempt, instead of rejecting with the failed
 			// LISTEN's error. relisten() runs before this listener joins, so that only listen() calls
