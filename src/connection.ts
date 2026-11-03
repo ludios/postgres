@@ -27,6 +27,24 @@ const text = p.text,
 let ids = 1,
 	compiles = true;
 
+/** The kinds of exchange that the server answers with each message, for answered() */
+const answers = {
+	/** ParseComplete, ParameterDescription, NoData */
+	statement: ["query", "describe"],
+	/** BindComplete */
+	bind: ["query"],
+	/** RowDescription */
+	description: ["query", "simple", "describe"],
+	/** DataRow */
+	rows: ["query", "simple", "step"],
+	/** CommandComplete */
+	completion: ["query", "simple", "step", "internal"],
+	/** EmptyQueryResponse, and the COPY messages */
+	query: ["query", "simple"],
+	/** PortalSuspended */
+	cursor: ["query", "step"],
+} as const;
+
 /**
  * One exchange with the server: the messages of a query (Parse to Sync, or one Query), or of the
  * connection's own work, and what the connection learns while they are in flight. A union by
@@ -1337,7 +1355,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 * @throws UNEXPECTED_MESSAGE if nothing is in flight, or the head is of another kind: the server
 	 *   broke the protocol, or this file has a bug
 	 */
-	function answered<K extends Exchange["kind"]>(message: string, ...kinds: K[]) {
+	function answered<K extends Exchange["kind"]>(message: string, kinds: readonly K[]) {
 		const x = sent[0];
 		if (x === undefined) {
 			throw Errors.generic(
@@ -1345,7 +1363,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 				"A " + message + " came while nothing was in flight",
 			);
 		}
-		if (!(kinds as string[]).includes(x.kind)) {
+		if (!(kinds as readonly string[]).includes(x.kind)) {
 			throw Errors.generic(
 				"UNEXPECTED_MESSAGE",
 				"A " + message + " came for a " + x.kind + " exchange",
@@ -1355,7 +1373,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function ParseComplete() {
-		const x = answered("ParseComplete", "query", "describe");
+		const x = answered("ParseComplete", answers.statement);
 		if (x.kind === "describe") {
 			return;
 		}
@@ -1372,7 +1390,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function BindComplete() {
-		const x = answered("BindComplete", "query");
+		const x = answered("BindComplete", answers.bind);
 		x.bound = true;
 		if (!x.columns && x.entry) {
 			x.columns = x.entry.columns;
@@ -1381,21 +1399,18 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function ParameterDescription(x: Buffer, start: number) {
-		answered("ParameterDescription", "query", "describe").params = p.parameter_description(
-			x,
-			start,
-		);
+		answered("ParameterDescription", answers.statement).params = p.parameter_description(x, start);
 	}
 
 	function RowDescription(x: Buffer, start: number) {
 		received(
-			answered("RowDescription", "query", "simple", "describe"),
+			answered("RowDescription", answers.description),
 			p.row_description(x, start, 0, column),
 		);
 	}
 
 	function NoData() {
-		received(answered("NoData", "query", "describe"), []);
+		received(answered("NoData", answers.statement), []);
 	}
 
 	function received(x: QueryExchange | SimpleExchange | DescribeExchange, columns: Column[]) {
@@ -1433,7 +1448,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function DataRow(x: Buffer, start: number) {
-		const item = answered("DataRow", "query", "simple", "step"),
+		const item = answered("DataRow", answers.rows),
 			{ query, columns } = item,
 			raw = query.is_raw,
 			from = raw !== true ? transform.value.from : null;
@@ -1493,7 +1508,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function CommandComplete(x: Buffer, start: number, end: number) {
-		const item = answered("CommandComplete", "query", "simple", "step", "internal"),
+		const item = answered("CommandComplete", answers.completion),
 			{ command, count } = p.command_complete(x, start, end),
 			result = item.result;
 
@@ -1541,7 +1556,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function EmptyQueryResponse() {
-		const item = answered("EmptyQueryResponse", "query", "simple");
+		const item = answered("EmptyQueryResponse", answers.query);
 		if (item.kind === "simple") {
 			item.results.push(item.result);
 			item.result = new Result();
@@ -1549,7 +1564,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function PortalSuspended() {
-		const item = answered("PortalSuspended", "query", "step");
+		const item = answered("PortalSuspended", answers.cursor);
 		if (item.kind === "query" && !is_cursor(item)) {
 			throw Errors.generic(
 				"UNEXPECTED_MESSAGE",
@@ -2027,7 +2042,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function CopyInResponse() {
-		const item = answered("CopyInResponse", "query", "simple");
+		const item = answered("CopyInResponse", answers.query);
 		item.copy = "in";
 		// The server holds back a cancel request while it waits for COPY data, so a
 		// cancelled COPY FROM ends with CopyFail
@@ -2046,7 +2061,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function CopyOutResponse() {
-		const item = answered("CopyOutResponse", "query", "simple");
+		const item = answered("CopyOutResponse", answers.query);
 		item.copy = "out";
 		item.stream = new Stream.Readable({
 			read: readable(item),
@@ -2066,7 +2081,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function CopyBothResponse() {
-		const item = answered("CopyBothResponse", "query", "simple");
+		const item = answered("CopyBothResponse", answers.query);
 		item.copy = "both";
 		// The server holds back a cancel request while it waits for COPY data, so a
 		// cancelled COPY BOTH ends with CopyDone, which fails nothing
@@ -2080,7 +2095,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function CopyData(x: Buffer, start: number, end: number) {
-		const item = answered("CopyData", "query", "simple");
+		const item = answered("CopyData", answers.query);
 
 		if (!item.stream) {
 			return;
@@ -2100,7 +2115,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function CopyDone() {
 		frames.own(false);
-		const item = answered("CopyDone", "query", "simple");
+		const item = answered("CopyDone", answers.query);
 		if (item.stream) {
 			(item.stream as Stream.Readable).push(null);
 		}
