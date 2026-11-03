@@ -211,9 +211,12 @@ export class Query extends Promise<any> {
 	 * Cancels this Query: removes it from the queue if it has not been sent, and otherwise sends a
 	 * cancel request.
 	 *
-	 * @returns A promise that rejects if the cancel request cannot be sent (say, because the
-	 *   network is down). A cancel request is only a best effort, so leaving the rejection
-	 *   unhandled does not crash the process; the query then runs until it finishes on its own.
+	 * @returns A promise that resolves once the server has handled the cancel request; at once if
+	 *   no request is needed, as for a query not sent yet; or, for a query sent behind another,
+	 *   when the connection closes before then, which fails the query anyway. It rejects if the
+	 *   cancel request cannot be sent (say, because the network is down). A cancel request is only
+	 *   a best effort, so leaving the rejection unhandled does not crash the process; the query
+	 *   then runs until it finishes on its own.
 	 */
 	cancel() {
 		const cancelled = this.handler.cancel ? this.handler.cancel(this) : Promise.resolve();
