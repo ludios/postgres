@@ -21,7 +21,9 @@ const base: Partial<Options> = {
 	connect_timeout: 3,
 	timers: { setTimeout, clearTimeout, setImmediate, clearImmediate, now: () => performance.now() },
 	shared: { once: new Set() },
+	// What parse_options() gives by default
 	onread: true,
+	channel_binding: "prefer",
 	...login,
 };
 

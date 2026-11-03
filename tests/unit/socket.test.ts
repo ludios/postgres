@@ -25,8 +25,11 @@ function fake() {
 	return x as RawSocket & Record<string, any>;
 }
 
-/** @returns `x` as a pool's options, for Socket() and secured(), which read only a few of them */
-const opts = (x: Partial<Options>) => x as Options;
+/**
+ * @returns `x` as a pool's options, for Socket() and secured(), which read only a few of them; with
+ *   `onread: true` unless `x` says otherwise, as parse_options() gives
+ */
+const opts = (x: Partial<Options>) => ({ onread: true, ...x }) as Options;
 
 test("Socket takes the user socket", async () => {
 	const raw = fake(),
@@ -96,7 +99,7 @@ test("Socket reads plain TCP through a shared buffer unless onread is false", as
 		server = net.createServer((x) => x.end());
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 	const port = port_of(server),
-		shared = await Socket(opts({ ssl: false, onread: true }), "127.0.0.1", port),
+		shared = await Socket(opts({ ssl: false }), "127.0.0.1", port),
 		stream = await Socket(opts({ ssl: false, onread: false }), "127.0.0.1", port);
 	shared.destroy();
 	stream.destroy();
