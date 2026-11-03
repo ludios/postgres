@@ -577,9 +577,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 		const refusal = SimpleExchange(x.query, x.lease, refused);
 		refusal.own = x.own;
-		refusal.trace = x.trace;
 		refusal.ends = x.ends;
 		refusal.cost = x.cost;
+		// Not a COPY that takes data, whatever the query was to be
+		refusal.open = false;
 		sync(refusal, true);
 		return refusal;
 	}
@@ -1798,7 +1799,6 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		retry.retried = true;
 		retry.original = original;
 		retry.previous = x.entry;
-		retry.trace = x.trace;
 		retry.cost = x.cost;
 
 		if (sent.length) {

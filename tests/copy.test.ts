@@ -472,3 +472,16 @@ test("Canceling a query after the end of its copy to stdout stops the statements
 	const [{ x }] = await sql`select 1 as x`;
 	expect(x).toBe(1);
 });
+
+test("A streaming query that cannot be built does not hold its connection as a COPY in progress", async () => {
+	await using sql = postgres({ ...options, max: 1 });
+	using reserved = await sql.reserve();
+	const [code, [{ x }]] = await Promise.all([
+		reserved`copy (select 1) to stdout where ${undefined as any}`.readable().then(
+			() => "readable",
+			(e) => e.code,
+		),
+		reserved`select 1 as x`,
+	]);
+	expect([code, x]).toEqual(["UNDEFINED_VALUE", 1]);
+});
