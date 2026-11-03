@@ -202,8 +202,11 @@ test("Holds the connection while retrying a prepared statement", async () => {
 		other!: Promise<Row[]>;
 	await using sql = postgres({
 		...options,
-		debug: (_, x) =>
-			x === "select * from test where id = $1" && ++builds === 3 && (other = get(2).execute()),
+		debug: (_, x) => {
+			if (x === "select * from test where id = $1" && ++builds === 3) {
+				other = get(2).execute();
+			}
+		},
 	});
 	const read = (id: number) => sql`select * from test where id = ${id}`;
 	const get = (id: number) => sql`select id, name, null::int as extra from test where id = ${id}`;

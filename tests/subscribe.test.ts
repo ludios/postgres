@@ -260,9 +260,8 @@ test("subscribe confirms the slot only as far as handlers have finished", async 
 	await using fixture = await replicating("postgresjs_confirm");
 	const { sql, replica } = fixture;
 	await using sub = replica();
-	let release!: (value?: unknown) => void,
-		calls = 0;
-	const blocked = new Promise((r) => (release = r));
+	let calls = 0;
+	const { promise: blocked, resolve: release } = Promise.withResolvers<void>();
 
 	await sub.subscribe("insert:test", () => {
 		calls++;

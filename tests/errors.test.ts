@@ -302,12 +302,11 @@ test("A transaction whose connection drops mid-query rejects with that query's e
 
 test("Cursors whose callbacks are running when the connection closes each get their own error", async () => {
 	await using sql = postgres({ ...options, max: 1 });
-	let resume: (value?: unknown) => void,
-		pid!: number,
+	let pid!: number,
 		cursors!: Promise<any>[],
 		started = 0,
 		settled = 0;
-	const paused = new Promise((r) => (resume = r));
+	const { promise: paused, resolve: resume } = Promise.withResolvers<void>();
 	const done = sql
 		.begin(async (tx) => {
 			pid = (await tx`select pg_backend_pid() as pid`)[0].pid;
@@ -369,8 +368,8 @@ test("Queries that a reserved connection gets just as it closes each get their o
 });
 
 test("A frame that no query asked for closes the connection with CONNECTION_CLOSED", async () => {
-	let raw!: net.Socket, onclose: (value?: unknown) => void;
-	const closed = new Promise((r) => (onclose = r));
+	let raw!: net.Socket;
+	const { promise: closed, resolve: onclose } = Promise.withResolvers<void>();
 	await using sql = postgres({
 		...options,
 		max: 1,

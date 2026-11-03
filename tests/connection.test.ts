@@ -336,14 +336,15 @@ test("connect_timeout", async () => {
 	await using _close = defer(() => server.close());
 	const sql = postgres({ port: port_of(server), host: "127.0.0.1", connect_timeout });
 	const start = Date.now();
-	let end!: number;
-	await sql`select 1`.catch((e) => {
-		if (e.code !== "CONNECT_TIMEOUT") {
-			throw e;
-		}
+	const error = await sql`select 1`.then(
+			() => null,
+			(e) => e,
+		),
 		end = Date.now();
-	});
-	expect(Math.round((end - start) / 100) / 10).toBe(connect_timeout);
+	expect([error && error.code, Math.round((end - start) / 100) / 10]).toEqual([
+		"CONNECT_TIMEOUT",
+		connect_timeout,
+	]);
 }, 20_000);
 
 test("connect_timeout throws proper error", async () => {
@@ -886,8 +887,7 @@ test("A transaction rejects with the FATAL error that answers a query of it that
 });
 
 test("A transaction whose COMMIT got a FATAL error, and whose connection end() then destroyed, rejects with CONNECTION_CLOSED with the FATAL as cause", async () => {
-	let answered: (value?: unknown) => void;
-	const fatal_sent = new Promise((r) => (answered = r)),
+	const { promise: fatal_sent, resolve: answered } = Promise.withResolvers<void>(),
 		server = await answering((socket, text) => {
 			if (text.includes("commit")) {
 				// Without closing the connection, so that end() destroys it
@@ -964,10 +964,9 @@ test("end() completes after the backend is terminated mid-query", async () => {
 
 test("Connection end cancels a pending socket factory", async () => {
 	let release!: (socket: net.Socket) => void,
-		started: (value?: unknown) => void,
 		closes = 0;
 
-	const connecting = new Promise((r) => (started = r)),
+	const { promise: connecting, resolve: started } = Promise.withResolvers<void>(),
 		socket = new net.Socket(),
 		application_name = "postgres.js end socket factory " + crypto.randomBytes(4).toString("hex"),
 		client = postgres({
@@ -978,7 +977,7 @@ test("Connection end cancels a pending socket factory", async () => {
 				new Promise((resolve, reject) => {
 					release = resolve;
 					socket.on("error", reject);
-					socket.connect(port[0], host[0], started);
+					socket.connect(port[0], host[0], () => started());
 				}),
 		}),
 		query = client`select 1`.catch((x) => x.code);
@@ -1040,8 +1039,7 @@ test("Connection end cancels the first listen attempt", async () => {
 });
 
 test("Cancel query while its connection is opening", async () => {
-	let open!: (value?: unknown) => void;
-	const opened = new Promise((r) => (open = r));
+	const { promise: opened, resolve: open } = Promise.withResolvers<void>();
 	await using sql = postgres({
 		...options,
 		socket: async ({ host: [host], port: [port] }) => {

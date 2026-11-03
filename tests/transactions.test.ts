@@ -1,5 +1,5 @@
 import type net from "net";
-import type { Sql, TransactionSql, Row } from "../types/index.js";
+import type { Sql, TransactionSql } from "../types/index.js";
 import { expect, onTestFinished, test } from "vitest";
 import {
 	postgres,
@@ -92,11 +92,7 @@ test("Transaction succeeds on caught savepoint", async () => {
 });
 
 test("Savepoint returns Result", async () => {
-	let result!: Row[];
-	await sql.begin(async (tx) => {
-		result = await tx.savepoint((sp) => sp`select 1 as x`);
-	});
-
+	const result = await sql.begin((tx) => tx.savepoint((sp) => sp`select 1 as x`));
 	expect(result[0].x).toBe(1);
 });
 
@@ -611,29 +607,24 @@ async function with_disconnected_transaction<T>(
 	fn: (x: Disconnected) => T | Promise<T>,
 ): Promise<T> {
 	await using pool = postgres({ ...options, fetch_types: false });
-	let finish!: (error?: Error) => void,
-		ready: (x: { disconnected: TransactionSql; pid: number }) => void;
-	const gate = new Promise<void>(
-		(resolve, reject) => (finish = (error) => (error ? reject(error) : resolve())),
-	);
+	const gate = Promise.withResolvers<void>(),
+		finish = (error?: Error) => (error ? gate.reject(error) : gate.resolve()),
+		connected = Promise.withResolvers<{ disconnected: TransactionSql; pid: number }>();
 	// Lets the transaction's callback return (if `fn` did not let it) before the pool ends
 	await using _finish = defer(async () => {
 		finish();
 		await new Promise((resolve) => setImmediate(resolve));
 	});
-	const connected = new Promise<{ disconnected: TransactionSql; pid: number }>(
-		(resolve) => (ready = resolve),
-	);
 	const failed = pool
 		.begin(async (tx) => {
 			const [{ pid }] = await tx`select pg_backend_pid() as pid`;
-			ready({ disconnected: tx, pid });
-			await gate;
+			connected.resolve({ disconnected: tx, pid });
+			await gate.promise;
 		})
 		.catch((x) => x);
 
 	const { disconnected, pid } = await Promise.race([
-		connected,
+		connected.promise,
 		failed.then((error) => {
 			throw error;
 		}),
@@ -1009,8 +1000,7 @@ test("A transaction whose backend is terminated mid-query rejects with the FATAL
 
 test("A transaction terminated between statements rejects with the FATAL error, and its next query has it as cause (#1283)", async () => {
 	await using sql = postgres({ ...options, max: 1 });
-	let settled: (value: unknown) => void;
-	const next = new Promise<any>((r) => (settled = r));
+	const { promise: next, resolve: settled } = Promise.withResolvers<any>();
 	const error = await sql
 		.begin(async (tx) => {
 			const [{ pid }] = await tx`select pg_backend_pid() as pid`;
@@ -1050,12 +1040,9 @@ test("A savepoint or nested begin rejects when the connection is lost while its 
 	const outcomes = [];
 	for (const method of ["savepoint", "begin"] as const) {
 		await using sql = postgres({ ...options, max: 1 });
-		let started: (pid: number) => void,
-			release!: (value?: unknown) => void,
-			settled: (value: unknown) => void;
-		const pid = new Promise<number>((r) => (started = r)),
-			gate = new Promise((r) => (release = r)),
-			child = new Promise((r) => (settled = r));
+		const { promise: pid, resolve: started } = Promise.withResolvers<number>(),
+			{ promise: gate, resolve: release } = Promise.withResolvers<void>(),
+			{ promise: child, resolve: settled } = Promise.withResolvers<unknown>();
 		const root = sql
 			.begin((tx) =>
 				tx[method](async (sp) => {

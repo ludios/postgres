@@ -286,10 +286,8 @@ test("Original listen handles unsubscribe after a reconnect", async () => {
 		a = new Promise((r) => (arrivals.a = r)),
 		b = new Promise((r) => (arrivals.b = r)),
 		c = new Promise((r) => (arrivals.c = r));
-	let registrations = 0,
-		reconnect: (value?: unknown) => void;
-
-	const reconnected = new Promise((r) => (reconnect = r));
+	let registrations = 0;
+	const { promise: reconnected, resolve: reconnect } = Promise.withResolvers<void>();
 
 	const s1 = await sql.listen(
 		"test",
@@ -321,13 +319,11 @@ test("Original listen handles unsubscribe after a reconnect", async () => {
 test("Unlisten while reconnecting keeps only the other listener", async () => {
 	await using sql = postgres(options);
 	const callbacks: string[] = [];
-	let released: (value?: unknown) => void,
-		received: (value?: unknown) => void,
-		first = 0,
+	let first = 0,
 		second = 0;
 
-	const unlistened = new Promise((r) => (released = r)),
-		arrived = new Promise((r) => (received = r));
+	const { promise: unlistened, resolve: released } = Promise.withResolvers<void>(),
+		{ promise: arrived, resolve: received } = Promise.withResolvers<void>();
 
 	await sql.listen(
 		"test",
@@ -444,8 +440,8 @@ test("A close while a LISTEN is in flight starts no second retry chain", async (
 
 test("A listener that joins while a reconnect's LISTEN is in flight gets onlisten once", async () => {
 	// The proxy holds back the LISTEN on its second connection until the test releases it
-	let on_hold: () => void, release!: () => void;
-	const held = new Promise<void>((r) => (on_hold = r));
+	let release!: () => void;
+	const { promise: held, resolve: on_hold } = Promise.withResolvers<void>();
 	await using proxy = await proxy_to_server({
 		from_client: (x, c) => {
 			if (c.number === 2 && sends_listen(x)) {
