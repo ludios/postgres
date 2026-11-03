@@ -18,7 +18,6 @@
 
 	"categories": {
 		"correctness": "error",
-		// No code breaks a rule of these categories any more; what does from now on is an error.
 		"suspicious": "error",
 		"perf": "error"
 	},
