@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import * as fc from "fast-check";
 import postgres from "../../src/index.ts";
 import { thrown, with_env } from "../helpers.ts";
 
@@ -522,4 +523,76 @@ test("The default setTimeout waits at most 2^31 - 1 ms, passes on its arguments,
 	timers.clearTimeout(timer);
 	const passed = await new Promise((resolve) => timers.setTimeout(resolve, 1, "x"));
 	expect([faked, fired, passed]).toEqual([0, false, "x"]);
+});
+
+/** Text that encodeURIComponent() can encode: no lone surrogates */
+const text = fc.string({ unit: "binary" }).filter((x) => x.isWellFormed());
+
+/** A host of a url: a name, or an IPv6 address, which the url holds in brackets */
+const host = fc.oneof(
+	fc.stringMatching(/^[a-z0-9][a-z0-9.-]{0,15}$/),
+	fc
+		.array(fc.stringMatching(/^[0-9a-f]{1,4}$/), { minLength: 2, maxLength: 8 })
+		.map((xs) => xs.join(":")),
+);
+
+/** A host of a url and its port, if the url gives one */
+const target = fc.tuple(host, fc.option(fc.integer({ min: 1, max: 65535 })));
+
+test("A url with any percent-encoded user, password and database, and any hosts and ports, parses back to them", async () => {
+	// A database of "" falls back to the user's name, and "." and ".." are the url's dot segments
+	const database = text.filter((x) => x !== "" && x !== "." && x !== "..");
+	fc.assert(
+		fc.property(
+			text.filter((x) => x !== ""),
+			text,
+			database,
+			fc.array(target, { minLength: 1, maxLength: 4 }),
+			(user, pass, db, targets) => {
+				const authority = targets
+					.map(
+						([h, port]) =>
+							(h.includes(":") ? "[" + h + "]" : h) + (port === null ? "" : ":" + port),
+					)
+					.join(",");
+				const url =
+					"postgres://" +
+					encodeURIComponent(user) +
+					":" +
+					encodeURIComponent(pass) +
+					"@" +
+					authority +
+					"/" +
+					encodeURIComponent(db);
+				expect(parsed(url)).toEqual([
+					targets.map(([h]) => h),
+					targets.map(([, port]) => port ?? 5432),
+					user,
+					pass,
+					db,
+					null,
+				]);
+			},
+		),
+		{ numRuns: 500 },
+	);
+});
+
+test("A password that is not percent-encoded is used as written, whatever it holds but /, ? and %", async () => {
+	fc.assert(
+		fc.property(
+			fc.string({ unit: "binary" }).filter((x) => !/[/?%]/.test(x)),
+			(pass) => {
+				expect(parsed("postgres://u:" + pass + "@h/db")).toEqual([
+					["h"],
+					[5432],
+					"u",
+					pass,
+					"db",
+					null,
+				]);
+			},
+		),
+		{ numRuns: 500 },
+	);
 });
