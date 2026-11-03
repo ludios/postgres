@@ -1,26 +1,24 @@
 import { expect, test } from "vitest";
 import * as fc from "fast-check";
-import { compile } from "../../src/connection.ts";
+import { compile, own } from "../../src/connection.ts";
 import * as p from "../../src/protocol.ts";
 import type { Column } from "../../src/protocol.ts";
 
-/** A column name that a reader can be compiled for: anything but __proto__, which Rows() leaves out */
-const name = fc
-	.oneof(
-		fc.string({ unit: "binary" }),
-		fc.constantFrom(
-			"constructor",
-			"toString",
-			"hasOwnProperty",
-			"",
-			"0",
-			"length",
-			'a"b',
-			"a\\b",
-			" ",
-		),
-	)
-	.filter((x) => x !== "__proto__");
+/** A column name: any text, with the names that Object.prototype has and that the row's source must quote */
+const name = fc.oneof(
+	fc.string({ unit: "binary" }),
+	fc.constantFrom(
+		"constructor",
+		"toString",
+		"hasOwnProperty",
+		"",
+		"0",
+		"length",
+		'a"b',
+		"a\\b",
+		" ",
+	),
+);
 
 /** A column: read as text, through a parser, or through a binary decoder */
 const column: fc.Arbitrary<Column> = fc
@@ -40,6 +38,12 @@ const column: fc.Arbitrary<Column> = fc
 /** A column's value in a DataRow: its bytes, or null */
 const value = fc.option(fc.uint8Array({ maxLength: 30 }));
 
+/**
+ * A transform of each value, as `transform.value.from` is
+ * @param x - the value as read
+ * @param c - its column
+ * @returns what the compiled and the plain reader must both give for the value
+ */
 const from = (x: unknown, c?: { name: string }) => ["from", x, c?.name];
 
 /**
@@ -72,6 +76,7 @@ function data_row(columns: Column[], values: (Uint8Array | null)[]) {
  * @param columns - its columns
  * @param array - whether to give the row as an array of its values, else as an object
  * @param transform - the transform of each value, if any
+ * @returns the row
  */
 function plain_read(x: Buffer, columns: Column[], array: boolean, transform: typeof from | null) {
 	const row: any = array ? new Array(columns.length) : {};
@@ -93,6 +98,8 @@ function plain_read(x: Buffer, columns: Column[], array: boolean, transform: typ
 		}
 		if (array) {
 			row[j] = v;
+		} else if (c.name === "__proto__") {
+			own(row, c.name, v);
 		} else {
 			row[c.name] = v;
 		}

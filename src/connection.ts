@@ -266,7 +266,7 @@ type Shape = {
 	object: RowReader | null;
 	/** The reader of a row as an array, once compiled */
 	array: RowReader | null;
-	/** Whether a reader can be compiled: not too many columns, none named __proto__, and compiling works */
+	/** Whether a reader can be compiled: not too many columns, and compiling works */
 	compilable: boolean;
 };
 
@@ -2446,7 +2446,7 @@ function Rows(columns: Column[]): Shape {
 			seen: 0,
 			object: null,
 			array: null,
-			compilable: compiles && columns.length <= 512 && !columns.some((x) => x.name === "__proto__"),
+			compilable: compiles && columns.length <= 512,
 		};
 		states.set(columns, state);
 	}
@@ -2473,11 +2473,13 @@ function read(state: Shape, array: boolean, from: From) {
 }
 
 /**
- * @param columns - the columns of a row
+ * @param columns - the columns of a row; Rows() compiles at most 512
  * @param array - whether the reader gives the row as an array of its values, else as an object
  * @param from - the transform of each value, if any
- * @returns a reader of a row of `columns`, from the first column's length in a DataRow; it reads
- *   each value as DataRow() does without it
+ * @returns a reader of a row of `columns`, which starts at the first column's length in a DataRow
+ *   and reads each value as DataRow() reads it when no reader is compiled; a column named
+ *   `__proto__` becomes an own property of the row, as in DataRow(). Throws where code may not be
+ *   made from text (a Content Security Policy), after which read() compiles nothing more.
  */
 export function compile(columns: Column[], array: boolean, from: From) {
 	const locals: string[] = [],
