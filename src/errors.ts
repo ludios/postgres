@@ -164,6 +164,17 @@ export function copy_error<T>(error: T): T {
 }
 
 /**
+ * @param thrown - what a callback or a promise threw: an error, or anything else
+ * @returns `thrown` if it is an object, else an Error whose message is `thrown` (a string) or its
+ *   util.inspect()
+ */
+export function as_error(thrown: unknown): Failure {
+	return thrown !== null && typeof thrown === "object"
+		? (thrown as Failure)
+		: new Error(typeof thrown === "string" ? thrown : util.inspect(thrown));
+}
+
+/**
  * @param thrown - what failed the query: an error, or whatever a callback threw
  * @param q - the query, or null for no query
  * @param debug - the `debug` option: whether the query's text and values are enumerable on the error
@@ -171,11 +182,7 @@ export function copy_error<T>(error: T): T {
  *   values, args and types as (non-enumerable, unless `debug`) properties, and its origin in the stack
  */
 export function queryError(thrown: unknown, q: Query | null, debug: unknown) {
-	const error =
-		thrown && typeof thrown === "object"
-			? (thrown as Error)
-			: new Error(typeof thrown === "string" ? thrown : util.inspect(thrown));
-
+	const error = as_error(thrown);
 	if (!q || "query" in error) {
 		return error;
 	}

@@ -1,6 +1,6 @@
 import Stream from "stream";
 import * as p from "./protocol.ts";
-import { Errors, copy_error, queryError } from "./errors.ts";
+import { Errors, as_error, copy_error, queryError } from "./errors.ts";
 import Result from "./result.ts";
 import { CLOSE } from "./query.ts";
 import type { Query } from "./query.ts";
@@ -394,7 +394,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		try {
 			result = x.write(x);
 		} catch (error) {
-			x.own = error as Failure;
+			x.own = as_error(error);
 			result = skip;
 		}
 		if (result === skip) {
@@ -732,7 +732,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			x.values = serialize(params, built, entry || {});
 			run(x, name);
 		} catch (error) {
-			x.own = error as Failure;
+			x.own = as_error(error);
 			sync(x, !!connection.lease);
 		}
 	}
@@ -1146,9 +1146,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		} catch (error) {
 			const item = sent[0];
 			if (item) {
-				fail(item, error as Failure);
+				fail(item, as_error(error));
 			} else {
-				abandon(error as Failure);
+				abandon(as_error(error));
 			}
 		}
 		if (blocker && !holds(blocker)) {
@@ -1400,7 +1400,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			if (closed || item.synced || sent[0] !== item) {
 				return;
 			}
-			fail(item, error as Failure);
+			fail(item, as_error(error));
 		}
 
 		refresh();
