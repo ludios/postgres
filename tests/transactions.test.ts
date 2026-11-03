@@ -92,7 +92,7 @@ test("Transaction succeeds on caught savepoint", async () => {
 });
 
 test("Savepoint returns Result", async () => {
-	let result: Row[];
+	let result!: Row[];
 	await sql.begin(async (tx) => {
 		result = await tx.savepoint((sp) => sp`select 1 as x`);
 	});
@@ -323,7 +323,7 @@ test("Does not try rollback when commit errors", async () => {
 
 test("Transaction rejects when the server rolls back the commit", async () => {
 	await using sql = postgres({ ...options, max: 1 });
-	let xid;
+	let xid!: string;
 	const result = await sql
 		.begin(async (tx) => {
 			[{ xid }] = await tx`select pg_current_xact_id()::text as xid`;
@@ -535,7 +535,7 @@ test("Transaction queries fail after its connection is gone even if the callback
 
 test("Disconnect rejects queued transaction queries and allows reconnect", async () => {
 	await using sql = postgres({ ...options, max_pipeline: 1, fetch_types: false });
-	let queries: Promise<unknown>[];
+	let queries!: Promise<unknown>[];
 
 	const error = await sql
 		.begin((tx) => {
@@ -611,7 +611,7 @@ async function with_disconnected_transaction<T>(
 	fn: (x: Disconnected) => T | Promise<T>,
 ): Promise<T> {
 	await using pool = postgres({ ...options, fetch_types: false });
-	let finish: (error?: Error) => void,
+	let finish!: (error?: Error) => void,
 		ready: (x: { disconnected: TransactionSql; pid: number }) => void;
 	const gate = new Promise<void>(
 		(resolve, reject) => (finish = (error) => (error ? reject(error) : resolve())),
@@ -1051,7 +1051,7 @@ test("A savepoint or nested begin rejects when the connection is lost while its 
 	for (const method of ["savepoint", "begin"] as const) {
 		await using sql = postgres({ ...options, max: 1 });
 		let started: (pid: number) => void,
-			release: (value?: unknown) => void,
+			release!: (value?: unknown) => void,
 			settled: (value: unknown) => void;
 		const pid = new Promise<number>((r) => (started = r)),
 			gate = new Promise((r) => (release = r)),

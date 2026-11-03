@@ -211,7 +211,7 @@ test("A cursor in a transaction that resumes while another query waits on its de
 	await using sql = postgres(options);
 	const out: unknown[] = [];
 	await sql.begin(async (tx) => {
-		let release: (value?: unknown) => void;
+		let release!: (value?: unknown) => void;
 		const batches: number[][] = [];
 		const cursor = tx`select generate_series(1, 6) as x`.cursor(2, (rows) => {
 			batches.push(rows.map((r) => r.x));
@@ -276,7 +276,7 @@ test("A cursor on a reserved connection keeps its rows from a query made while i
 test("A cursor that outlives its transaction is rejected instead of running in the next one", async () => {
 	await using sql = postgres({ ...options, max: 1 });
 	await sql`create table test (a int)`;
-	let cursor: Promise<unknown>;
+	let cursor!: Promise<unknown>;
 	const first = await sql
 		.begin((tx) => {
 			cursor = tx`select generate_series(1, 6) as x`.cursor(2, () => delay(100));
@@ -318,7 +318,7 @@ test("A pool cursor whose parameter serializer returns a number rejects and free
 
 test("A transaction waits for a cursor it did not await before it commits", async () => {
 	const batches: number[] = [];
-	let cursor: Promise<unknown>;
+	let cursor!: Promise<unknown>;
 	await sql.begin(async (tx) => {
 		cursor = tx`select generate_series(1, 4) as x`.cursor(1, async ([row]) => {
 			batches.push(row.x);
@@ -338,7 +338,7 @@ test("A transaction waits for a cursor it did not await before it commits", asyn
 
 test("A transaction that returns right after starting a cursor still lets the cursor finish", async () => {
 	const batches: number[] = [];
-	let cursor: Promise<unknown>;
+	let cursor!: Promise<unknown>;
 	await sql.begin((tx) => {
 		cursor = tx`select generate_series(1, 3) as x`.cursor(1, ([row]) => {
 			batches.push(row.x);
@@ -423,7 +423,7 @@ test("A reserved cursor whose callback throws on the last batch rejects and leav
  */
 async function outlives(fn: (tx: TransactionSql) => unknown) {
 	await using sql = postgres({ ...options, max: 1 });
-	let cursor: Promise<Row[]>;
+	let cursor!: Promise<Row[]>;
 	await sql
 		.begin((tx) => {
 			cursor = tx`select generate_series(1, 6) as x`.cursor(2, () => delay(100).then(() => fn(tx)));

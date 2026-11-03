@@ -84,7 +84,7 @@ test("Copy from abort", async () => {
 
 	const writable = await sql`COPY test FROM STDIN`.writable();
 
-	let aborted: Error;
+	let aborted!: Error;
 
 	readable.pipe(writable).on("error", (err) => (aborted = err));
 
@@ -277,7 +277,7 @@ test("Canceling a copy to stdout that is being read fails its readable with 5701
 	await using sql = postgres({ ...options, max: 1, idle_timeout: null });
 	const query = sql.unsafe(SLOW_COPY),
 		readable = await query.readable();
-	let cancelled: Promise<void>;
+	let cancelled!: Promise<void>;
 	const error = await new Promise<{ code: string }>((resolve) => {
 		readable.on("error", resolve);
 		readable.once("data", () => {

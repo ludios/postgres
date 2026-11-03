@@ -444,7 +444,7 @@ test("A close while a LISTEN is in flight starts no second retry chain", async (
 
 test("A listener that joins while a reconnect's LISTEN is in flight gets onlisten once", async () => {
 	// The proxy holds back the LISTEN on its second connection until the test releases it
-	let on_hold: () => void, release: () => void;
+	let on_hold: () => void, release!: () => void;
 	const held = new Promise<void>((r) => (on_hold = r));
 	await using proxy = await proxy_to_server({
 		from_client: (x, c) => {

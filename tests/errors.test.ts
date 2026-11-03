@@ -106,7 +106,7 @@ test("throws correct error when authentication fails", async () => {
 });
 
 test("notice", async () => {
-	let notice: Notice;
+	let notice!: Notice;
 	const log = console.log;
 	console.log = function (x) {
 		notice = x;
@@ -124,7 +124,7 @@ test("notice", async () => {
 });
 
 test("notice hook", async () => {
-	let notice: Notice;
+	let notice!: Notice;
 	const sql = postgres({
 		...options,
 		onnotice: (x) => (notice = x),
@@ -303,8 +303,8 @@ test("A transaction whose connection drops mid-query rejects with that query's e
 test("Cursors whose callbacks are running when the connection closes each get their own error", async () => {
 	await using sql = postgres({ ...options, max: 1 });
 	let resume: (value?: unknown) => void,
-		pid: number,
-		cursors: Promise<any>[],
+		pid!: number,
+		cursors!: Promise<any>[],
 		started = 0,
 		settled = 0;
 	const paused = new Promise((r) => (resume = r));
@@ -369,7 +369,7 @@ test("Queries that a reserved connection gets just as it closes each get their o
 });
 
 test("A frame that no query asked for closes the connection with CONNECTION_CLOSED", async () => {
-	let raw: net.Socket, onclose: (value?: unknown) => void;
+	let raw!: net.Socket, onclose: (value?: unknown) => void;
 	const closed = new Promise((r) => (onclose = r));
 	await using sql = postgres({
 		...options,

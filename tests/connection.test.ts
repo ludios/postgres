@@ -262,7 +262,7 @@ test("Connection destroyed with query before", async () => {
 });
 
 test("A query that sql.close() waits for gets CONNECTION_CLOSED, not CONNECTION_DESTROYED, if the connection's socket is lost", async () => {
-	let raw: net.Socket;
+	let raw!: net.Socket;
 	await using sql = postgres({
 		...options,
 		max: 1,
@@ -336,7 +336,7 @@ test("connect_timeout", async () => {
 	await using _close = defer(() => server.close());
 	const sql = postgres({ port: port_of(server), host: "127.0.0.1", connect_timeout });
 	const start = Date.now();
-	let end: number;
+	let end!: number;
 	await sql`select 1`.catch((e) => {
 		if (e.code !== "CONNECT_TIMEOUT") {
 			throw e;
@@ -960,7 +960,7 @@ test("end() completes after the backend is terminated mid-query", async () => {
 });
 
 test("Connection end cancels a pending socket factory", async () => {
-	let release: (socket: net.Socket) => void,
+	let release!: (socket: net.Socket) => void,
 		started: (value?: unknown) => void,
 		closes = 0;
 
@@ -1037,7 +1037,7 @@ test("Connection end cancels the first listen attempt", async () => {
 });
 
 test("Cancel query while its connection is opening", async () => {
-	let open: (value?: unknown) => void;
+	let open!: (value?: unknown) => void;
 	const opened = new Promise((r) => (open = r));
 	await using sql = postgres({
 		...options,
@@ -1180,7 +1180,7 @@ test("sql.stats is current, not a snapshot from creation", async () => {
 });
 
 test("A socket error without a close rejects the query in flight instead of hanging (#1246, #1089)", async () => {
-	let raw: net.Socket;
+	let raw!: net.Socket;
 	await using sql = postgres({
 		...options,
 		max: 1,

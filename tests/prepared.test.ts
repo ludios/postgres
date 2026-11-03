@@ -199,7 +199,7 @@ test("Fails a stale prepared statement once when a query is piped behind it", as
 
 test("Holds the connection while retrying a prepared statement", async () => {
 	let builds = 0,
-		other: Promise<Row[]>;
+		other!: Promise<Row[]>;
 	await using sql = postgres({
 		...options,
 		debug: (_, x) =>
@@ -497,7 +497,7 @@ test("A late 26000 does not make the connection forget a statement prepared agai
 		);
 	await query();
 	const deallocated = sql.unsafe("deallocate all").execute();
-	let third: Promise<string>;
+	let third!: Promise<string>;
 	const first = query().catch((e) => {
 		third = code(query());
 		return e.code;

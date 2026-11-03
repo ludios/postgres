@@ -260,7 +260,7 @@ test("subscribe confirms the slot only as far as handlers have finished", async 
 	await using fixture = await replicating("postgresjs_confirm");
 	const { sql, replica } = fixture;
 	await using sub = replica();
-	let release: (value?: unknown) => void,
+	let release!: (value?: unknown) => void,
 		calls = 0;
 	const blocked = new Promise((r) => (release = r));
 
@@ -511,7 +511,7 @@ test("subscribe confirms its position to the server on an interval", async () =>
 	} as any);
 	const seen: string[] = [];
 	// The start of the commit record of the inserted row's transaction
-	let commit_lsn;
+	let commit_lsn!: string;
 
 	const { state } = await sub.subscribe("insert:test", (row, info) => {
 		seen.push(row.name);

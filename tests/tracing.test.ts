@@ -282,7 +282,7 @@ test("Tracing: the pool publishes idle for a cancelled query's connection once i
 test("Tracing: the pool's close event has an error only if the connection did not close in an orderly way", async () => {
 	const { messages, stop } = listen("postgres:pool");
 	const closed_ids: number[] = [];
-	let raw: net.Socket;
+	let raw!: net.Socket;
 	await using sql = postgres({
 		...options,
 		max: 1,
