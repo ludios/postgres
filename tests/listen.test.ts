@@ -70,16 +70,19 @@ function tracked_timers() {
 	return { pending, timers };
 }
 
-test("listen and notify", async () => {
-	await using sql = postgres(options);
-	const channel = "hello";
-	const { promise, resolve } = Promise.withResolvers();
-	await sql.listen(channel, resolve);
-	await sql.notify(channel, "works");
-	const result = await promise;
+test.each(["hello", "wat-;.ø.§", "withUpperChar"])(
+	"listen and notify on the channel %s",
+	async (channel) => {
+		await using sql = postgres(options);
+		const { promise, resolve } = Promise.withResolvers();
+		const { unlisten } = await sql.listen(channel, resolve);
+		await sql.notify(channel, "works");
+		const result = await promise;
+		await unlisten();
 
-	expect(result).toBe("works");
-});
+		expect(result).toBe("works");
+	},
+);
 
 test("double listen", async () => {
 	const sql = postgres(options),
@@ -124,29 +127,6 @@ test("multiple listeners work after a reconnect", async () => {
 	await sql.notify("test", "b");
 	await until(() => xs.length === 4);
 	expect(xs).toEqual(["1a", "2a", "1b", "2b"]);
-});
-
-test("listen and notify with weird name", async () => {
-	await using sql = postgres(options);
-	const channel = "wat-;.ø.§";
-	const { promise, resolve } = Promise.withResolvers();
-	const { unlisten } = await sql.listen(channel, resolve);
-	await sql.notify(channel, "works");
-	const result = await promise;
-	await unlisten();
-
-	expect(result).toBe("works");
-});
-
-test("listen and notify with upper case", async () => {
-	await using sql = postgres(options);
-	const channel = "withUpperChar";
-	const { promise, resolve } = Promise.withResolvers();
-	await sql.listen(channel, resolve);
-	await sql.notify(channel, "works");
-	const result = await promise;
-
-	expect(result).toBe("works");
 });
 
 test("listen reconnects", async () => {
