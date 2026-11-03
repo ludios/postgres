@@ -154,7 +154,8 @@ declare namespace postgres {
 	/** A socket of your own: anything with the events and methods of a net.Socket that are used */
 	interface SocketLike {
 		write(data: Uint8Array): boolean;
-		end(data?: Uint8Array): unknown;
+		end(): unknown;
+		end(data: Uint8Array): unknown;
 		destroy(error?: Error): unknown;
 		pause(): unknown;
 		resume(): unknown;
