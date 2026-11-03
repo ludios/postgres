@@ -1539,7 +1539,7 @@ await configure({
 | `postgres.listen` | LISTEN sent, and sent again after the connection closed |
 | `postgres.subscribe` | Replication slots, the stream starting and restarting, subscribers that failed |
 
-At `info`, a line marks the pool's first connection (and the first after failed attempts), the end of a congestion, every channel listening again, and the start of replication. At `warning`, what an operator should know about and the application still handles. At `error`, what nothing else reports: a handler that threw, a server error about the server's own trouble (a full disk, say), and replication errors when no subscriber has an `onerror`.
+At `info`, a line marks the pool's first connection (and the first after failed attempts, or after its last connection was lost), the end of a congestion, every channel listening again, and the start of replication. At `warning`, what an operator should know about and the application still handles. At `error`, what nothing else reports: a handler that threw, a server error about the server's own trouble (a full disk, say), and replication errors when no subscriber has an `onerror`.
 
 Every line names its pool as `user@host:port/database` (the pool of `sql.listen` adds ` (LISTEN)`, that of `sql.subscribe` ` (replication)`), and a connection by its number, which is unique in the process. The text of a query appears at `debug`, in the lines about slow and long-running queries, and in the line about a transaction left open, cut to 200 characters. Parameter values are not logged; the server's error messages, which the lines quote, may contain them.
 

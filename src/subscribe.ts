@@ -72,7 +72,10 @@ export default function Subscribe(
 		// How many times in a row the stream restarted to deliver again a transaction that a subscriber
 		// failed (see fail()); the backoff of the restarts counts these too, so that a subscriber that
 		// fails the same transaction every time does not restart the stream at once, forever
-		replays = 0;
+		replays = 0,
+		// The LSN of the transaction that a subscriber failed last, until it is handled; the replays
+		// end then, not when an earlier transaction, delivered again before it, is handled
+		poison: bigint | null = null;
 
 	const sql = (subscribe.sql = postgres({
 		...options,
@@ -156,7 +159,8 @@ export default function Subscribe(
 	}
 
 	function restart() {
-		// At once the first time, then with an exponential backoff of at most 10 s
+		// At once the first time; then, after a failed restart or for a replay, with an exponential
+		// backoff of at most 10 s
 		const delay =
 			retries === 0 && replays === 0 ? 0 : Math.min(100 * 2 ** (retries + replays), 10000);
 		retries++;
@@ -297,7 +301,10 @@ export default function Subscribe(
 			if (began("a Commit")) {
 				transaction = null;
 				run(() => {
-					replays = 0;
+					if (poison !== null && x.lsn >= poison) {
+						replays = 0;
+						poison = null;
+					}
 					confirm(x.end);
 				});
 			}
@@ -437,6 +444,9 @@ export default function Subscribe(
 
 			failed = true;
 			replays++;
+			if (transaction !== null) {
+				poison = transaction.lsn;
+			}
 			queue = null;
 			stop();
 			stream.destroy(new Error("A subscriber failed, so the transaction is delivered again"));

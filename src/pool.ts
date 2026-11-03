@@ -339,8 +339,9 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	function describe_only(q: Query, built: Built, lease?: Lease) {
 		const start = (c: Pooled) => {
 			q.connection = c;
-			q.written = now();
-			c.describe(built.text, built.oids).then(
+			c.describe(built.text, built.oids, () => {
+				q.written = now();
+			}).then(
 				({ params, columns }) =>
 					q.resolve({ string: built.text, types: params, name: "", columns }),
 				(error: Error) => q.reject(query_error(error, q, options.debug)),
@@ -418,6 +419,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 
 	function wait(job: Job) {
 		job.since = now();
+		watch();
 		if (!options.queue_timeout) {
 			return job;
 		}
@@ -684,6 +686,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 
 	function connect() {
 		opening++;
+		watch();
 		if (retry_timer) {
 			clearTimeout(retry_timer);
 			retry_timer = null;
@@ -1031,9 +1034,14 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		);
 	}
 
-	/** Ends the congestion, if any, as the queue has emptied (the queue calls this): logs it if it was logged */
-	function queue_emptied() {
-		if (congestion !== null && congestion.logged !== null) {
+	/**
+	 * Ends the congestion, if any, as the queue has emptied (the queue calls this): logs it if it
+	 * was logged, and the requests were served; if they were rejected or timed out, the lines
+	 * about that say so.
+	 * @param how - how the queue emptied
+	 */
+	function queue_emptied(how: Emptied) {
+		if (how === "served" && congestion !== null && congestion.logged !== null) {
 			log.pool.info("queue for a connection to {target} empty again after {secs} s", {
 				target: where,
 				secs: tenths(now() - congestion.since),
@@ -1052,35 +1060,34 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		if (x === null) {
 			return;
 		}
+		log_timeouts(x, job.kind === "lease" ? lease_name(job.lease) : "a query");
+	}
+
+	/**
+	 * Logs waits for a connection that timed out.
+	 * @param x - what the throttle reports: how many, in the last how many seconds
+	 * @param kind - what the one request was, if `x.count` is 1 and that is known: `a query`,
+	 *   `sql.begin()` or `sql.reserve()`; else `a request`
+	 */
+	function log_timeouts(x: { count: number; since: number }, kind = "a request") {
 		if (x.count === 1) {
 			log.pool.warn(
 				"{kind} waited {queue_timeout} s for a connection to {target} and was rejected with QUEUE_TIMEOUT",
-				{
-					kind: job.kind === "lease" ? lease_name(job.lease) : "a query",
-					queue_timeout: options.queue_timeout,
-					target: where,
-				},
+				{ kind, queue_timeout: options.queue_timeout, target: where },
 			);
 		} else {
-			timed_out_many(x);
+			log.pool.warn(
+				"{count} requests for a connection to {target} timed out in the last {since} s (queue_timeout {queue_timeout} s) and were rejected with QUEUE_TIMEOUT",
+				{ count: x.count, since: x.since, queue_timeout: options.queue_timeout, target: where },
+			);
 		}
 	}
 
 	/**
-	 * Logs waits for a connection that timed out, of which `x.count` came in the last `x.since` s
-	 * @param x - what the throttle reports
-	 */
-	function timed_out_many(x: { count: number; since: number }) {
-		log.pool.warn(
-			"{count} requests for a connection to {target} timed out in the last {since} s (queue_timeout {queue_timeout} s) and were rejected with QUEUE_TIMEOUT",
-			{ count: x.count, since: x.since, queue_timeout: options.queue_timeout, target: where },
-		);
-	}
-
-	/**
 	 * Starts the watchdog, unless it runs: every `watch_every`, while connections are open or
-	 * opening, it checks for congestion (congested()), for unfinished queries (each connection's
-	 * unanswered()) and for an end() that does not finish. The timer keeps no process alive.
+	 * opening, requests wait, or throttled counts wait to be reported, it checks for congestion
+	 * (congested()), for unfinished queries (each connection's unanswered()), for an end() that
+	 * does not finish, and reports the counts. The timer keeps no process alive.
 	 */
 	function watch() {
 		if (watchdog !== null) {
@@ -1099,12 +1106,14 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		connections.forEach((c) => c.unanswered(t));
 		const timeouts = queue_timeouts.flush(t);
 		if (timeouts !== null) {
-			timed_out_many(timeouts);
+			log_timeouts(timeouts);
 		}
 		const trouble = events.trouble.flush(t);
 		if (trouble !== null) {
 			log.connection.error(
-				"{count} more server errors about the server's own trouble (SQLSTATE classes 53, 58 and XX) came from {target} in the last {since} s",
+				trouble.count === 1
+					? "one more server error about the server's own trouble (SQLSTATE class 53, 58 or XX) came from {target} in the last {since} s"
+					: "{count} more server errors about the server's own trouble (SQLSTATE classes 53, 58 and XX) came from {target} in the last {since} s",
 				{ count: trouble.count, target: where, since: trouble.since },
 			);
 		}
@@ -1122,7 +1131,13 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 				},
 			);
 		}
-		if (connections.size || opening) {
+		if (
+			connections.size ||
+			opening ||
+			waiting.length ||
+			queue_timeouts.pending ||
+			events.trouble.pending
+		) {
 			watch();
 		}
 	}
@@ -1330,7 +1345,6 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		event("close", c, orderly ? {} : { error });
 		if (connections.size === 0 && opening === 0) {
 			statements.clear();
-			unwatch();
 		}
 		drain();
 		if (ending) {
@@ -1652,11 +1666,14 @@ function ended(lease: Lease) {
 	return Errors.generic("UNSAFE_TRANSACTION", "The " + lease.kind + " has ended");
 }
 
+/** How a Queue emptied: an element was shifted, every element was taken, or one was removed */
+export type Emptied = "served" | "taken" | "removed";
+
 /**
  * A FIFO queue of T, whose shift() is O(1)
- * @param onempty - called whenever shift(), take() or remove() empties the queue
+ * @param onempty - called whenever shift(), take() or remove() empties the queue, with which did
  */
-export function Queue<T>(onempty: () => void = () => {}) {
+export function Queue<T>(onempty: (how: Emptied) => void = () => {}) {
 	// Shifted slots are cleared, so that the queue does not keep what it gave out
 	let xs: (T | undefined)[] = [],
 		head = 0;
@@ -1680,7 +1697,7 @@ export function Queue<T>(onempty: () => void = () => {}) {
 			if (head === xs.length) {
 				xs = [];
 				head = 0;
-				onempty();
+				onempty("served");
 			} else if (head > 1024 && head * 2 > xs.length) {
 				xs = xs.slice(head);
 				head = 0;
@@ -1692,7 +1709,7 @@ export function Queue<T>(onempty: () => void = () => {}) {
 			xs = [];
 			head = 0;
 			if (all.length) {
-				onempty();
+				onempty("taken");
 			}
 			return all;
 		},
@@ -1704,7 +1721,7 @@ export function Queue<T>(onempty: () => void = () => {}) {
 					if (head === xs.length) {
 						xs = [];
 						head = 0;
-						onempty();
+						onempty("removed");
 					}
 					return true;
 				}

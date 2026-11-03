@@ -106,7 +106,7 @@ let capturing: Promise<void> | null = null;
 /**
  * Configures LogTape (once per test file) to keep every record that the library logs, at every
  * level, and forgets the records kept so far.
- * @returns the array that gets each record from now on
+ * @returns the array that gets each record from now on, and drops its oldest one beyond 10,000
  */
 export async function log_records() {
 	capturing ??= configure({

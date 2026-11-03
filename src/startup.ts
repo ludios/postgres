@@ -386,11 +386,11 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 						cancel: () => (backend ? cancel(options, host, port, backend) : Promise.resolve()),
 						elapsed: now() - since,
 						auth: auth.method,
-						// A socket of the application's (Cloudflare Workers give one) checks the
-						// certificate as it likes: "on" says no more than that TLS is on
+						// TLS that the library put on the socket, it checked as the TLS options say; TLS that a
+						// socket of the application's brought (Cloudflare Workers give one), it knows nothing of
 						tls: !socket.encrypted
 							? "off"
-							: options.socket
+							: !socket.upgraded && options.socket
 								? "on"
 								: (secure_options(options.ssl) as { rejectUnauthorized?: boolean })
 											.rejectUnauthorized === false

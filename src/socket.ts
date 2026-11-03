@@ -20,9 +20,15 @@ const noop = (..._: any[]) => {},
 export type RawSocket = net.Socket & {
 	/** Whether `onread` reads into one buffer that is reused, so that a chunk kept must be copied */
 	shared?: boolean;
-	/** Whether the socket was TLS from the start */
+	/**
+	 * Whether the socket carries TLS: the sockets of socket.ts and cf.ts say; a socket of the
+	 * application's that negotiated TLS itself may say so with `negotiated` only
+	 */
 	secure?: boolean;
-	/** Whether TLS was negotiated after connecting (Cloudflare's startTls) */
+	/**
+	 * Whether the socket negotiated TLS itself, or is not to negotiate it at all (cf.ts sets it
+	 * either way), so that startup sends no SSLRequest
+	 */
 	negotiated?: boolean;
 	/** Called with each chunk that `onread` reads */
 	ondata?: (x: Buffer) => void;
@@ -153,9 +159,21 @@ function wrap(socket: RawSocket, host: string | null) {
 		get negotiated() {
 			return socket.secure === true || socket.negotiated === true;
 		},
-		/** Whether the socket carries TLS: from the start, or since upgrade() */
+		/**
+		 * Whether the socket carries TLS: since upgrade(), as `secure` says, or (a socket of the
+		 * application's, which says nothing in `secure`) as `negotiated` says, or as a TLSSocket
+		 */
 		get encrypted() {
-			return upgraded || socket.secure === true;
+			return (
+				upgraded ||
+				(socket.secure !== undefined
+					? socket.secure
+					: socket.negotiated === true || (socket as { encrypted?: boolean }).encrypted === true)
+			);
+		},
+		/** Whether upgrade() put the TLS on the socket, so the TLS options say how the certificate was checked */
+		get upgraded() {
+			return upgraded;
 		},
 		certificate() {
 			const cert = typeof socket.getPeerCertificate === "function" && socket.getPeerCertificate();

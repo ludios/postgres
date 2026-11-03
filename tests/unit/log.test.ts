@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { Errors, PostgresError } from "../../src/errors.ts";
-import { excerpt, reason, target, tenths } from "../../src/log.ts";
+import { Throttle, excerpt, guarded, reason, target, tenths } from "../../src/log.ts";
+import type { Log } from "../../src/log.ts";
 import type { Options } from "../../src/index.ts";
 
 /** @returns the options that target() reads, for a pool to db1:5432/shop as app, with `extra` */
@@ -87,4 +88,51 @@ test("tenths rounds milliseconds to a tenth of a second", () => {
 	expect(tenths(1234)).toBe(1.2);
 	expect(tenths(50)).toBe(0.1);
 	expect(tenths(0)).toBe(0);
+});
+
+test("reason survives an error whose code or message getter throws", () => {
+	const error = new Error("boom");
+	Object.defineProperty(error, "code", {
+		get() {
+			throw new Error("no code for you");
+		},
+	});
+	expect(reason(error)).toBe("(an error that cannot be shown)");
+});
+
+test("Throttle reports the first event at once, counts the ones within a window, and flushes a burst", () => {
+	const t = new Throttle();
+	expect(t.hit(1000)).toEqual({ count: 1, since: 0 });
+	expect([t.hit(3000), t.hit(5000), t.pending]).toEqual([null, null, true]);
+	expect(t.flush(9000)).toBeNull();
+	expect([t.flush(11_000), t.pending]).toEqual([{ count: 2, since: 10 }, false]);
+	// A flush is not an event's own line: the next event goes out at once
+	expect(t.hit(11_500)).toEqual({ count: 1, since: 10.5 });
+	expect(t.hit(30_000)).toEqual({ count: 1, since: 18.5 });
+});
+
+test("guarded calls the handler, and logs what it throws at error without throwing itself", () => {
+	const lines: [string, Record<string, unknown>][] = [],
+		seen: number[] = [],
+		logger: Log = {
+			trace() {},
+			debug() {},
+			info() {},
+			warn() {},
+			error(template, properties) {
+				lines.push([template, properties as Record<string, unknown>]);
+			},
+			isEnabledFor: () => true,
+		};
+	guarded(logger, "{handler} threw", { handler: "onnotify" }, (x: number) => seen.push(x), 1);
+	guarded(logger, "{handler} threw", { handler: "onnotify" }, () => {
+		throw new Error("boom");
+	});
+	expect([seen, lines.length, lines[0][0], lines[0][1].handler, lines[0][1].reason]).toEqual([
+		[1],
+		1,
+		"{handler} threw; ignored: {reason}",
+		"onnotify",
+		"boom",
+	]);
 });

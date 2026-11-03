@@ -185,3 +185,21 @@ test("Queue gives what a plain array gives, for any pushes, shifts, peeks, remov
 		{ numRuns: 1000 },
 	);
 });
+
+test("Queue says how it emptied (served, taken or removed), and not when take() finds nothing", async () => {
+	const how: string[] = [],
+		q = Queue<number>((x) => how.push(x));
+	q.push(1);
+	q.shift();
+	q.push(2);
+	q.push(3);
+	q.take();
+	q.take();
+	q.push(4);
+	q.remove((x) => x === 4);
+	q.push(5);
+	q.push(6);
+	q.remove((x) => x === 5);
+	q.shift();
+	expect(how).toEqual(["served", "taken", "removed", "served"]);
+});

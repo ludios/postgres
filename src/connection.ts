@@ -227,6 +227,8 @@ export type DescribeExchange = Base & {
 	params: number[] | null;
 	columns: Column[] | null;
 	resolve: (description: Description) => void;
+	/** Called once the Describe has been written; null if nobody asked */
+	onwrite: (() => void) | null;
 	reject: (error: unknown) => void;
 };
 
@@ -563,8 +565,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		if (sent.length === 0) {
 			headed(x, timers.now());
 		}
-		if (x.query && x.query.written === 0) {
+		if (x.query && x.query.written === null) {
 			x.query.written = x.headed || timers.now();
+		} else if (x.kind === "describe" && x.onwrite !== null) {
+			x.onwrite();
 		}
 		sent.push(x);
 		if (holds(x)) {
@@ -965,9 +969,13 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 	}
 
-	function describe(statement_text: string, oids: number[]) {
+	/**
+	 * Describes a statement: resolves with its parameter types and columns.
+	 * @param onwrite - called once the Describe has been written, for the pool's log line
+	 */
+	function describe(statement_text: string, oids: number[], onwrite: (() => void) | null = null) {
 		return new Promise<Description>((resolve, reject) => {
-			queue(DescribeExchange(connection.lease, statement_text, oids, resolve, reject));
+			queue(DescribeExchange(connection.lease, statement_text, oids, resolve, reject, onwrite));
 		});
 	}
 
@@ -1210,11 +1218,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		);
 		closed = ended;
 		ended.cause = fatal || error || undefined;
-		try {
-			log_close(error, fatal, orderly);
-		} catch {
-			// A filter of the application's LogTape configuration may throw; the close goes on
-		}
+		log_close(error, fatal, orderly);
 		// A FATAL error that came with no query to give it to, such as from
 		// idle_in_transaction_session_timeout, is what ended the lease (if any)
 		let lease_error =
@@ -1768,7 +1772,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			if (hit !== null) {
 				log.connection.error(
 					"server reports {what} on connection {id} to {target}" +
-						(hit.count > 1 ? " ({suppressed} more such errors in the last {since} s)" : "") +
+						(hit.count > 1
+							? " ({suppressed} more such errors on this pool's connections in the last {since} s)"
+							: "") +
 						": {reason}",
 					{
 						what:
@@ -2657,6 +2663,7 @@ function DescribeExchange(
 	oids: number[],
 	resolve: (description: Description) => void,
 	reject: (error: unknown) => void,
+	onwrite: (() => void) | null,
 ): DescribeExchange {
 	return {
 		...base(lease, null),
@@ -2668,6 +2675,7 @@ function DescribeExchange(
 		columns: null,
 		resolve,
 		reject,
+		onwrite,
 	};
 }
 

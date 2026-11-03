@@ -5,25 +5,6 @@ import { PostgresError, as_error } from "./errors.ts";
 import { user_name } from "./diagnostics.ts";
 import type { Options } from "./index.ts";
 
-/**
- * The loggers, one per category under `postgres`. The application configures LogTape; without a
- * configuration, nothing is printed, and a log call costs about 100 ns.
- */
-export const log = {
-	/** Opening connections, retrying, the queue of queries that wait for a connection, ending */
-	pool: getLogger(["postgres", "pool"]),
-	/** One connection: its close, protocol errors, handlers that throw, prepared statements */
-	connection: getLogger(["postgres", "connection"]),
-	/** Queries: every completion at debug, the slow and the unanswered ones at warning */
-	query: getLogger(["postgres", "query"]),
-	/** The server's NoticeResponse messages, at the level of their severity */
-	notice: getLogger(["postgres", "notice"]),
-	/** sql.listen(): LISTEN sent, and sent again after the connection closed */
-	listen: getLogger(["postgres", "listen"]),
-	/** sql.subscribe(): logical replication */
-	subscribe: getLogger(["postgres", "subscribe"]),
-};
-
 /** Milliseconds that a query runs (from its turn on the connection to its answer) from which it is logged as slow */
 export const slow_query_ms = 1000;
 
@@ -36,40 +17,24 @@ export const unanswered_ms = 10_000;
 /** Milliseconds between the watchdog's lines about the same unanswered query */
 export const unanswered_again_ms = 60_000;
 
+/** The properties of a record, or a function that makes them only if the record is logged */
+type Properties = Record<string, unknown> | (() => Record<string, unknown>);
+
+/** Logs `template` (with `{name}` for each property) at one level */
+type Line = (template: string, properties?: Properties) => void;
+
 /**
- * Logs at a level that is known only at run time, such as the level of a notice's severity.
- * @param logger - the logger
- * @param level - the level
- * @param template - the message, with `{name}` for each property that it shows
- * @param properties - the record's properties
+ * A logger of the library: LogTape's, except that a call never throws, so that the library's
+ * state does not depend on the application's LogTape configuration (a filter of it may throw).
  */
-export function log_at(
-	logger: Logger,
-	level: LogLevel,
-	template: string,
-	properties: Record<string, unknown>,
-) {
-	switch (level) {
-		case "trace":
-			logger.trace(template, properties);
-			break;
-		case "debug":
-			logger.debug(template, properties);
-			break;
-		case "info":
-			logger.info(template, properties);
-			break;
-		case "warning":
-			logger.warn(template, properties);
-			break;
-		case "error":
-			logger.error(template, properties);
-			break;
-		case "fatal":
-			logger.fatal(template, properties);
-			break;
-	}
-}
+export type Log = {
+	trace: Line;
+	debug: Line;
+	info: Line;
+	warn: Line;
+	error: Line;
+	isEnabledFor(level: LogLevel): boolean;
+};
 
 /**
  * @param host - a host name or address
@@ -143,91 +108,6 @@ export function reason(thrown: unknown) {
 }
 
 /**
- * Calls `fn`, a handler of the application's, and logs what it throws, at error, so that a
- * handler that throws neither breaks the caller nor goes unnoticed.
- * @param logger - the logger of the caller's category
- * @param template - what threw, such as `{handler} handler threw on connection {id} to {target}`
- * @param properties - the properties of `template`
- */
-export function guarded<A extends unknown[]>(
-	logger: Logger,
-	template: string,
-	properties: Record<string, unknown>,
-	fn: (...xs: A) => void,
-	...xs: A
-) {
-	try {
-		fn(...xs);
-	} catch (error) {
-		logger.error(template + "; ignored: {reason}", { ...properties, reason: reason(error), error });
-	}
-}
-
-/**
- * @param kind - the kind of a lease: "transaction" or "reserve"
- * @returns the call that made it, as log lines name it: `sql.begin()` or `sql.reserve()`
- */
-export function lease_name(kind: string) {
-	return kind === "transaction" ? "sql.begin()" : "sql.reserve()";
-}
-
-/**
- * Logs that the server refused TLS and the connection goes on unencrypted, as `ssl` prefer or
- * allow lets it; once per host of the pool.
- * @param options - the options of the pool
- * @param host - the host that refused
- * @param port - its port
- */
-export function tls_refused(options: Options, host: string | null, port: number) {
-	const where = target(options, host, port);
-	if (once(options, "tls " + where)) {
-		log.pool.warn('{target} refused TLS; continuing unencrypted, since ssl is "{mode}"', {
-			target: where,
-			mode: options.ssl,
-		});
-	}
-}
-
-/**
- * Counts events of one kind, so that a line about them goes out at most once per
- * `logged_every_ms`, and the events between two lines are counted in the second.
- */
-export class Throttle {
-	/** When the last line went out, by the caller's clock; 0 before the first */
-	private at = 0;
-	/** The events since the last line */
-	private count = 0;
-
-	/**
-	 * Counts an event.
-	 * @param t - now
-	 * @returns what a line reports now: the events since the last line (this one included), and
-	 *   the seconds since that line (0 for the first); null if no line goes out yet
-	 */
-	hit(t: number) {
-		this.count++;
-		return this.at === 0 || t - this.at >= logged_every_ms ? this.take(t) : null;
-	}
-
-	/**
-	 * Reports the events counted since the last line, once `logged_every_ms` has passed since it,
-	 * so that a burst is reported even if no event follows it; a watchdog calls this.
-	 * @param t - now
-	 * @returns as hit() does; null if no line goes out yet
-	 */
-	flush(t: number) {
-		return this.count !== 0 && t - this.at >= logged_every_ms ? this.take(t) : null;
-	}
-
-	private take(t: number) {
-		const x = { count: this.count, since: this.at === 0 ? 0 : tenths(t - this.at) };
-		this.count = 0;
-		this.at = t;
-		return x;
-	}
-}
-
-/**
  * @param text - the text of a query
  * @param limit - the most characters to keep
  * @returns `text` with its whitespace collapsed to single spaces, and cut to `limit` characters
@@ -261,6 +141,14 @@ export function once(options: Options, key: string) {
 }
 
 /**
+ * @param kind - the kind of a lease: "transaction" or "reserve"
+ * @returns the call that made it, as log lines name it: `sql.begin()` or `sql.reserve()`
+ */
+export function lease_name(kind: string) {
+	return kind === "transaction" ? "sql.begin()" : "sql.reserve()";
+}
+
+/**
  * @param severity - the severity of a NoticeResponse: PostgreSQL's non-localized one, if sent
  * @returns the level that the notice is logged at
  */
@@ -275,6 +163,169 @@ function level_of(severity: string | undefined): LogLevel {
 		return "debug";
 	}
 	return "info";
+}
+
+/** @returns `fn` as a Line that swallows what it throws */
+function swallowing(fn: Line): Line {
+	return (template, properties) => {
+		try {
+			fn(template, properties);
+		} catch {
+			// A filter of the application's LogTape configuration threw: the line is lost, nothing else
+		}
+	};
+}
+
+/** @returns `logger` as a Log: each level's method, with what it throws swallowed */
+function safe(logger: Logger): Log {
+	return {
+		trace: swallowing((t, p) => logger.trace(t, p)),
+		debug: swallowing((t, p) => logger.debug(t, p)),
+		info: swallowing((t, p) => logger.info(t, p)),
+		warn: swallowing((t, p) => logger.warn(t, p)),
+		error: swallowing((t, p) => logger.error(t, p)),
+		isEnabledFor: (level) => logger.isEnabledFor(level),
+	};
+}
+
+/**
+ * Counts events of one kind, so that a line about them goes out at most once per
+ * `logged_every_ms`, and the events between two lines are counted in the second.
+ */
+export class Throttle {
+	/** When the last line of an event's own went out, by the caller's clock; null before the first */
+	private at: number | null = null;
+	/** The events since the last line */
+	private count = 0;
+
+	/** Whether events are counted that no line has reported yet */
+	get pending() {
+		return this.count !== 0;
+	}
+
+	/**
+	 * Counts an event.
+	 * @param t - now
+	 * @returns what a line reports now: the events since the last line (this one included), and
+	 *   the seconds since that line (0 for the first); null if no line goes out yet
+	 */
+	hit(t: number) {
+		this.count++;
+		if (this.at !== null && t - this.at < logged_every_ms) {
+			return null;
+		}
+		const x = this.take(t);
+		this.at = t;
+		return x;
+	}
+
+	/**
+	 * Reports the events counted since the last line, once `logged_every_ms` has passed since it,
+	 * so that a burst is reported even if no event follows it; a watchdog calls this. The line
+	 * does not count as an event's own: the next event goes out at once.
+	 * @param t - now
+	 * @returns as hit() does; null if no line goes out yet
+	 */
+	flush(t: number) {
+		return this.count !== 0 && this.at !== null && t - this.at >= logged_every_ms
+			? this.take(t)
+			: null;
+	}
+
+	private take(t: number) {
+		const x = { count: this.count, since: this.at === null ? 0 : tenths(t - this.at) };
+		this.count = 0;
+		return x;
+	}
+}
+
+/**
+ * The loggers, one per category under `postgres`. The application configures LogTape; without a
+ * configuration, nothing is printed, and a log call costs about 100 ns.
+ */
+export const log = {
+	/** Opening connections, retrying, the queue of requests that wait for a connection, ending */
+	pool: safe(getLogger(["postgres", "pool"])),
+	/** One connection: its close, protocol errors, handlers that throw, prepared statements */
+	connection: safe(getLogger(["postgres", "connection"])),
+	/** Queries: every completion at debug, the slow and the unanswered ones at warning */
+	query: safe(getLogger(["postgres", "query"])),
+	/** The server's NoticeResponse messages, at the level of their severity */
+	notice: safe(getLogger(["postgres", "notice"])),
+	/** sql.listen(): LISTEN sent, and sent again after the connection closed */
+	listen: safe(getLogger(["postgres", "listen"])),
+	/** sql.subscribe(): logical replication */
+	subscribe: safe(getLogger(["postgres", "subscribe"])),
+};
+
+/**
+ * Logs at a level that is known only at run time, such as the level of a notice's severity.
+ * @param logger - the logger
+ * @param level - the level
+ * @param template - the message, with `{name}` for each property that it shows
+ * @param properties - the record's properties
+ */
+export function log_at(
+	logger: Log,
+	level: LogLevel,
+	template: string,
+	properties: Record<string, unknown>,
+) {
+	switch (level) {
+		case "trace":
+			logger.trace(template, properties);
+			break;
+		case "debug":
+			logger.debug(template, properties);
+			break;
+		case "info":
+			logger.info(template, properties);
+			break;
+		case "warning":
+			logger.warn(template, properties);
+			break;
+		default:
+			logger.error(template, properties);
+			break;
+	}
+}
+
+/**
+ * Calls `fn`, a handler of the application's, and logs what it throws, at error, so that a
+ * handler that throws neither breaks the caller nor goes unnoticed.
+ * @param logger - the logger of the caller's category
+ * @param template - what threw, such as `{handler} handler threw on connection {id} to {target}`
+ * @param properties - the properties of `template`
+ */
+export function guarded<A extends unknown[]>(
+	logger: Log,
+	template: string,
+	properties: Record<string, unknown>,
+	fn: (...xs: A) => void,
+	...xs: A
+) {
+	try {
+		fn(...xs);
+	} catch (error) {
+		logger.error(template + "; ignored: {reason}", { ...properties, reason: reason(error), error });
+	}
+}
+
+/**
+ * Logs that the server refused TLS and the connection goes on unencrypted, as `ssl` prefer or
+ * allow lets it; once per host of the pool.
+ * @param options - the options of the pool
+ * @param host - the host that refused
+ * @param port - its port
+ */
+export function tls_refused(options: Options, host: string | null, port: number) {
+	const where = target(options, host, port);
+	if (once(options, "tls " + where)) {
+		log.pool.warn('{target} refused TLS; continuing unencrypted, since ssl is "{mode}"', {
+			target: where,
+			mode: options.ssl,
+		});
+	}
 }
 
 /**
