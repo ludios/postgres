@@ -14,6 +14,7 @@ import {
 	until_sleeping,
 	pg_port,
 } from "./setup.ts";
+import { log_lines, log_records } from "./helpers.ts";
 
 test("Result is array", async () => {
 	expect(Array.isArray(await sql`select 1`)).toBe(true);
@@ -358,6 +359,27 @@ test("A cancel request whose connection fails rejects with the connection's erro
 	await until_sleeping(pid);
 	expect(await sleeping.cancel().catch((e) => e.code)).toBe("ECONNREFUSED");
 	await sleeping;
+});
+
+test("A failed cancel request for a query queued behind another is reported once", async () => {
+	const records = await log_records();
+	let sockets = 0;
+	await using sql = postgres({
+		...options,
+		max: 1,
+		// The second socket, the cancel request's, goes to a port where nothing listens
+		socket: () => net.connect(++sockets === 2 ? 33333 : pg_port, "localhost"),
+	});
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+		first = sql`select pg_sleep(0.2)`.execute(),
+		second = sql`select 1`.execute();
+	await until_sleeping(pid);
+	const cancelled = second.cancel().catch((e) => e.code);
+	await first;
+	expect(await cancelled).toBe("ECONNREFUSED");
+	expect(log_lines(records, "connection").filter((x) => x.includes("cancel request"))).toEqual([
+		expect.stringMatching(/^warning cancel request for connection \d+ to \S+ failed;/),
+	]);
 });
 
 test("A cancel of a pipelined query holds its connection for as long as the query ahead of it runs", async () => {

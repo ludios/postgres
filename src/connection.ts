@@ -1119,7 +1119,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			// hit it.
 			if (!x.cancel) {
 				x.cancel = Promise.withResolvers<void>();
-				hold(x.cancel.promise);
+				// Once `x` is the head, stop() holds the connection too, and its hold reports a failed
+				// cancel request, so this one only waits
+				hold(x.cancel.promise.catch(() => {}));
 			}
 			return x.cancel.promise;
 		}
