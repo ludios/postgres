@@ -440,6 +440,8 @@ function chunked(x: Buffer, lengths: number[]) {
  * @param ms - the messages
  * @param lengths - how to cut the bytes of `ms` into pushes, as chunked() takes them
  * @param pauses - the indexes of the messages whose handler pauses the Frames
+ * @param resumes - the indexes of the pushes after which the Frames is resumed, if it is paused;
+ *   after the last push, it is resumed until it stays running
  * @param shared - whether every push comes from one read buffer that the next read overwrites
  * @param own_at - the index of the message whose handler asks the Frames to own its buffers from
  *   then on, if any
@@ -451,6 +453,7 @@ function handed_over(
 	ms: [number, Uint8Array][],
 	lengths: number[],
 	pauses: number[],
+	resumes: number[],
 	shared: boolean,
 	own_at: number | null,
 ) {
@@ -470,7 +473,7 @@ function handed_over(
 			}
 		}, shared);
 
-	for (const chunk of chunked(all, lengths)) {
+	chunked(all, lengths).forEach((chunk, i) => {
 		if (shared) {
 			chunk.copy(buffer);
 			frames.push(buffer.subarray(0, chunk.length));
@@ -478,23 +481,27 @@ function handed_over(
 		} else {
 			frames.push(chunk);
 		}
-	}
+		if (resumes.includes(i)) {
+			frames.resume();
+		}
+	});
 	while (frames.paused) {
 		frames.resume();
 	}
 	return out.map(([type, x]) => [type, hex(x)]);
 }
 
-test("Frames hands over every message whole, however the bytes are chunked, paused and copied", async () => {
+test("Frames hands over every message whole, however the bytes are chunked, paused, resumed and copied", async () => {
 	fc.assert(
 		fc.property(
 			fc.array(server_message, { maxLength: 12 }),
 			fc.array(fc.nat({ max: 50 })),
 			fc.uniqueArray(fc.nat({ max: 12 })),
+			fc.uniqueArray(fc.nat({ max: 60 })),
 			fc.boolean(),
 			fc.option(fc.nat({ max: 12 })),
-			(ms, lengths, pauses, shared, own_at) => {
-				expect(handed_over(ms, lengths, pauses, shared, own_at)).toEqual(
+			(ms, lengths, pauses, resumes, shared, own_at) => {
+				expect(handed_over(ms, lengths, pauses, resumes, shared, own_at)).toEqual(
 					ms.map(([type, body]) => [type, hex(framed(type, body))]),
 				);
 			},
@@ -503,38 +510,68 @@ test("Frames hands over every message whole, however the bytes are chunked, paus
 	);
 });
 
-/** A string that survives a round trip through utf8: no lone surrogates */
-const well_formed = fc.string({ unit: "binary" }).filter((x) => x.isWellFormed());
+/** Any text; fast-check's binary unit makes any code point but a lone surrogate */
+const any_text = fc.string({ unit: "binary" });
 
 /** A write to a Writer, and the bytes that the write adds */
 type Write = { apply: (w: p.Writer) => void; bytes: Buffer };
 
 const writes: fc.Arbitrary<Write> = fc.oneof(
-	well_formed.map((x) => ({ apply: (w: p.Writer) => w.str(x), bytes: Buffer.from(x + "\0") })),
-	well_formed.map((x) => ({ apply: (w: p.Writer) => w.bytes(x), bytes: Buffer.from(x) })),
-	fc
-		.uint8Array({ maxLength: 100 })
-		.map((x) => ({ apply: (w: p.Writer) => w.bytes(x), bytes: Buffer.from(x) })),
-	fc.option(well_formed).map((x) => ({
-		apply: (w: p.Writer) => w.value(x),
-		bytes: x === null ? i32(-1) : Buffer.concat([i32(Buffer.byteLength(x)), Buffer.from(x)]),
-	})),
-	fc
-		.integer({ min: 0, max: 255 })
-		.map((x) => ({ apply: (w: p.Writer) => w.u8(x), bytes: Buffer.from([x]) })),
-	fc
-		.integer({ min: -32768, max: 32767 })
-		.map((x) => ({ apply: (w: p.Writer) => w.i16(x), bytes: i16(x) })),
-	fc.integer({ min: 0, max: 65535 }).map((x) => ({
-		apply: (w: p.Writer) => w.u16(x),
-		bytes: Buffer.from([x >> 8, x & 255]),
-	})),
-	fc.integer().map((x) => ({ apply: (w: p.Writer) => w.i32(x), bytes: i32(x) })),
-	// Rarely, more than the 4096 bytes past which take() hands over the buffer itself
-	fc.uint8Array({ minLength: 4096, maxLength: 5000 }).map((x) => ({
-		apply: (w: p.Writer) => w.bytes(x),
-		bytes: Buffer.from(x),
-	})),
+	{
+		arbitrary: any_text.map((x) => ({
+			apply: (w: p.Writer) => w.str(x),
+			bytes: Buffer.from(x + "\0"),
+		})),
+		weight: 10,
+	},
+	{
+		arbitrary: any_text.map((x) => ({ apply: (w: p.Writer) => w.bytes(x), bytes: Buffer.from(x) })),
+		weight: 10,
+	},
+	{
+		arbitrary: fc
+			.uint8Array({ maxLength: 100 })
+			.map((x) => ({ apply: (w: p.Writer) => w.bytes(x), bytes: Buffer.from(x) })),
+		weight: 10,
+	},
+	{
+		arbitrary: fc.option(any_text).map((x) => ({
+			apply: (w: p.Writer) => w.value(x),
+			bytes: x === null ? i32(-1) : Buffer.concat([i32(Buffer.byteLength(x)), Buffer.from(x)]),
+		})),
+		weight: 10,
+	},
+	{
+		arbitrary: fc
+			.integer({ min: 0, max: 255 })
+			.map((x) => ({ apply: (w: p.Writer) => w.u8(x), bytes: Buffer.from([x]) })),
+		weight: 10,
+	},
+	{
+		arbitrary: fc
+			.integer({ min: -32768, max: 32767 })
+			.map((x) => ({ apply: (w: p.Writer) => w.i16(x), bytes: i16(x) })),
+		weight: 10,
+	},
+	{
+		arbitrary: fc.integer({ min: 0, max: 65535 }).map((x) => ({
+			apply: (w: p.Writer) => w.u16(x),
+			bytes: Buffer.from([x >> 8, x & 255]),
+		})),
+		weight: 10,
+	},
+	{
+		arbitrary: fc.integer().map((x) => ({ apply: (w: p.Writer) => w.i32(x), bytes: i32(x) })),
+		weight: 10,
+	},
+	// Once in about 80 writes, more than the 4096 bytes past which take() hands over the buffer itself
+	{
+		arbitrary: fc.uint8Array({ minLength: 4096, maxLength: 5000 }).map((x) => ({
+			apply: (w: p.Writer) => w.bytes(x),
+			bytes: Buffer.from(x),
+		})),
+		weight: 1,
+	},
 );
 
 /** The type byte and the writes of a message to the server */
@@ -555,6 +592,11 @@ function written(w: p.Writer, type: number, xs: Write[]) {
 	return w.end().take();
 }
 
+/**
+ * @param type - the type byte of a message
+ * @param xs - the writes of its body
+ * @returns the hex of the message as the server expects it
+ */
 const expected_message = (type: number, xs: Write[]) =>
 	hex(msg(String.fromCharCode(type), ...xs.map((x) => x.bytes)));
 
@@ -579,13 +621,11 @@ test("Writer encodes any writes from any starting size, and a message taken stay
 });
 
 test("Bind encodes any values, as text or bytes, with their lengths in bytes", async () => {
-	const values = fc.array(
-		fc.oneof(well_formed, fc.uint8Array({ maxLength: 50 }), fc.constant(null)),
-	);
+	const values = fc.array(fc.oneof(any_text, fc.uint8Array({ maxLength: 50 }), fc.constant(null)));
 	fc.assert(
 		fc.property(
-			well_formed,
-			well_formed,
+			any_text,
+			any_text,
 			values,
 			fc.array(fc.integer({ min: 0, max: 1 })),
 			fc.array(fc.integer({ min: 0, max: 1 })),
@@ -611,7 +651,7 @@ test("Bind encodes any values, as text or bytes, with their lengths in bytes", a
 });
 
 /** A string that a message of the server can hold as a field: well-formed, with no NUL */
-const field_text = well_formed.filter((x) => !x.includes("\0"));
+const field_text = any_text.filter((x) => !x.includes("\0"));
 
 test("Decode RowDescription with any names and unsigned oids and numbers", async () => {
 	const column = fc.record({
@@ -650,6 +690,7 @@ test("Decode RowDescription with any names and unsigned oids and numbers", async
 
 test("Decode ErrorResponse with any texts in its fields", async () => {
 	const fields = fc.record({
+		severity_local: field_text,
 		severity: field_text,
 		code: field_text,
 		message: field_text,
@@ -661,7 +702,7 @@ test("Decode ErrorResponse with any texts in its fields", async () => {
 		fc.property(fields, (f) => {
 			const x = msg(
 				"E",
-				str("S" + f.severity),
+				str("S" + f.severity_local),
 				str("V" + f.severity),
 				str("C" + f.code),
 				str("M" + f.message),
@@ -671,14 +712,15 @@ test("Decode ErrorResponse with any texts in its fields", async () => {
 				Buffer.from([0]),
 			);
 			const e = decode(p.error, x);
-			expect([e.severity, e.code, e.message, e.detail, e.hint, e.position]).toEqual([
-				f.severity,
-				f.code,
-				f.message,
-				f.detail,
-				f.hint,
-				f.position,
-			]);
+			expect([
+				e.severity_local,
+				e.severity,
+				e.code,
+				e.message,
+				e.detail,
+				e.hint,
+				e.position,
+			]).toEqual([f.severity_local, f.severity, f.code, f.message, f.detail, f.hint, f.position]);
 		}),
 		{ numRuns: 500 },
 	);
