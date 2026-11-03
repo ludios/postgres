@@ -529,7 +529,7 @@ test("subscribe confirms its position to the server on an interval", async () =>
 	expect([seen, confirmed]).toEqual([["a"], true]);
 });
 
-test("subscribe gives unchanged TOAST values as undefined, transforms values and reports a throwing handler", async () => {
+test("subscribe gives unchanged TOAST values as undefined, transforms values and reports a throwing handler and a rejected thenable", async () => {
 	await using fixture = await replicating();
 	const { sql } = fixture,
 		seen: unknown[] = [],
@@ -554,10 +554,17 @@ test("subscribe gives unchanged TOAST values as undefined, transforms values and
 		() => {},
 		(e) => errors.push(e.message),
 	);
+	await sub.subscribe(
+		"update:test",
+		// oxlint-disable-next-line unicorn/no-thenable -- a thenable that is not a Promise, like one of another realm
+		() => ({ then: (_: unknown, reject: (e: Error) => void) => reject(new Error("thenable")) }),
+		() => {},
+		(e) => errors.push(e.message),
+	);
 	await sql`insert into test (name, big) values ('a', (select string_agg(md5(random()::text), '') from generate_series(1, 1000)))`;
 	await sql`update test set name = 'b'`;
-	await until(() => seen.length && errors.length);
-	expect([seen, errors]).toEqual([[["B", "undefined"]], ["sync"]]);
+	await until(() => seen.length && errors.length === 2);
+	expect([seen, errors]).toEqual([[["B", "undefined"]], ["sync", "thenable"]]);
 }, 30_000);
 
 test("subscribe gives a column named __proto__ as an own property of the row", async () => {

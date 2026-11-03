@@ -44,6 +44,11 @@ const noop = (..._: any[]) => {},
 const lsnToString = (x: bigint) =>
 	(x >> 32n).toString(16).toUpperCase() + "/" + (x & 0xffffffffn).toString(16).toUpperCase();
 
+/** @returns whether `x` is a thenable: a promise of any realm or implementation, as a handler may return */
+function thenable(x: unknown): x is PromiseLike<unknown> {
+	return x !== null && x !== undefined && typeof (x as { then?: unknown }).then === "function";
+}
+
 export default function Subscribe(
 	postgres: (options: Record<string, any>) => any,
 	options: Options,
@@ -327,8 +332,8 @@ export default function Subscribe(
 					} catch (error) {
 						return fail(error, subscriber);
 					}
-					if (result instanceof Promise) {
-						pending.push(result.catch((error) => fail(error, subscriber)));
+					if (thenable(result)) {
+						pending.push(Promise.resolve(result).catch((error) => fail(error, subscriber)));
 					}
 				});
 			}
