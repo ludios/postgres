@@ -152,7 +152,7 @@ By default, vitest fails an integration test that runs for more than 10 seconds.
 These need no PostgreSQL server:
 
 	pnpm typecheck
-	pnpm lint --quiet  # only the errors; the existing code has about 1000 warnings
+	pnpm lint  # must report no errors and no warnings
 	pnpm test:unit
 	node tests/simulate.ts
 

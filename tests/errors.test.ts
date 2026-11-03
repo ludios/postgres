@@ -1,5 +1,5 @@
 import net from "net";
-import { expect, onTestFinished, test, vi } from "vitest";
+import { expect, test, vi } from "vitest";
 import { log_lines, log_records } from "./helpers.ts";
 import type { ISql, Notice } from "../types/index.js";
 import {
