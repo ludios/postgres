@@ -111,7 +111,10 @@ type Base = {
 type UserBase = Base & {
 	query: Query;
 	trace: postgres.QueryTrace | null;
-	/** Settled once the exchange's cancel request has been handled: see cancel() */
+	/**
+	 * Settled once the exchange's cancel request has been handled, or resolved without one once the
+	 * connection has closed: see cancel()
+	 */
 	cancel: PromiseWithResolvers<void> | null;
 	/** Whether a cancel request has been sent for this exchange */
 	stopped: boolean;
@@ -1110,9 +1113,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 
 		if (x !== sent[0]) {
-			// Settled once `x` is the head and its cancel request has been handled, or once the
-			// connection closes; every call gets the same promise. Until then nothing more is
-			// written, since the cancel request could hit it.
+			// Once `x` is the head, this settles as stop() does; if the connection closes first, it
+			// resolves without a cancel request, since `x` then fails with the close. Every call gets
+			// the same promise. Until then nothing more is written, since the cancel request could
+			// hit it.
 			if (!x.cancel) {
 				x.cancel = Promise.withResolvers<void>();
 				hold(x.cancel.promise);

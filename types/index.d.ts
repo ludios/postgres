@@ -621,7 +621,7 @@ declare namespace postgres {
 
 		/** Sends it now instead of when awaited */
 		execute(): this;
-		/** Cancels it, sent or not. The promise rejects if the cancel request cannot be sent, but leaving that rejection unhandled does not crash the process. */
+		/** Cancels it, sent or not. The promise resolves once the server has handled the cancel request, or at once where no request is needed, as for a query not sent yet or one whose connection has closed; it rejects if the cancel request cannot be sent, but leaving that rejection unhandled does not crash the process. */
 		cancel(): Promise<void>;
 		/** Cancels it when the signal aborts, ignoring a cancel request that cannot be sent: `.signal(AbortSignal.timeout(5000))` */
 		signal(signal: AbortSignal | null | undefined): this;
