@@ -33,7 +33,16 @@ const scenarios: Record<string, { faults: string[]; kinds?: string[] }> = {
 	commit: { faults: ["commit_rollback"], kinds: ["begin", "query"] },
 	startup: { faults: ["outage"] },
 	mixed: {
-		faults: ["kill", "close", "reset", "stale", "deallocate", "retype", "commit_rollback", "outage"],
+		faults: [
+			"kill",
+			"close",
+			"reset",
+			"stale",
+			"deallocate",
+			"retype",
+			"commit_rollback",
+			"outage",
+		],
 	},
 };
 
