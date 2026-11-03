@@ -4,7 +4,18 @@ import { Connection } from "./connection.ts";
 import { Query } from "./query.ts";
 import { Errors, PostgresError, copy_error, query_error } from "./errors.ts";
 import { channels, listened } from "./diagnostics.ts";
-import { log_at, log, logged_every_ms, reason, slow_query_ms, target, tenths } from "./log.ts";
+import {
+	Throttle,
+	guarded,
+	lease_name,
+	log,
+	log_at,
+	logged_every_ms,
+	reason,
+	slow_query_ms,
+	target,
+	tenths,
+} from "./log.ts";
 import type { Options, Timer } from "./index.ts";
 import type { Ready } from "./startup.ts";
 import type { Built } from "./build.ts";
@@ -186,7 +197,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	const { setTimeout, clearTimeout, now } = options.timers,
 		statements = Statements(options.scheduler),
 		connections = new Set<Pooled>(),
-		waiting = Queue<Job>(),
+		waiting = Queue<Job>(queue_emptied),
 		events = {
 			parser: types.parser,
 			decoder: types.decoder,
@@ -197,6 +208,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			onnotify: options.onnotify,
 			onparameter,
 			ontimed,
+			trouble: new Throttle(),
 		},
 		work = { fast: 0, slow: 0, at: 0 },
 		// How many queries a connection may have in flight before the pool places no more queries on
@@ -207,8 +219,8 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		replacing: number[] = [],
 		// The pool's target, as its log lines name it
 		where = target(options),
-		// When queue timeouts were last logged (0 before the first line), and how many came since
-		queue_timeouts = { at: 0, count: 0 };
+		// Counts the waits for a connection that timed out, for the lines about them
+		queue_timeouts = new Throttle();
 
 	let opening = 0,
 		ending: Promise<void> | null = null,
@@ -228,6 +240,10 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		types_loading = false,
 		// How many requests the pool has rejected since its connection attempts began to fail
 		rejected = 0,
+		// Whether the pool has had a connection
+		ever = false,
+		// Whether the pool lost its last connection (not through an orderly close) since it last had one
+		reconnect = false,
 		// The congestion that the pool is in, if any: see congested()
 		congestion: Congestion | null = null,
 		// The timer of the watchdog, while it runs: see watch()
@@ -326,6 +342,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	function describe_only(q: Query, built: Built, lease?: Lease) {
 		const start = (c: Pooled) => {
 			q.connection = c;
+			q.written = now();
 			c.describe(built.text, built.oids).then(
 				({ params, columns }) =>
 					q.resolve({ string: built.text, types: params, name: "", columns }),
@@ -718,16 +735,11 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			retiring: null,
 			retired: [],
 		});
-		Object.entries(ready.parameters).forEach(([k, v]) => onparameter(k, v, c));
 		connections.add(c);
 		lifetime(c);
 		log_at(
 			log.pool,
-			ready.elapsed >= slow_query_ms
-				? "warning"
-				: connections.size === 1 || retries
-					? "info"
-					: "debug",
+			ready.elapsed >= slow_query_ms ? "warning" : !ever || retries || reconnect ? "info" : "debug",
 			retries
 				? "connected to {target} in {ms} ms, after {retries} failed attempts spanning {down} s" +
 						(rejected ? " ({rejected} requests rejected meanwhile)" : "") +
@@ -745,6 +757,8 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 				auth: ready.auth,
 			},
 		);
+		ever = true;
+		reconnect = false;
 		watch();
 		event("open", c);
 		if (types_loaded || types_loading) {
@@ -979,22 +993,16 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	}
 
 	/**
-	 * Logs that requests wait for a connection: once the queue has been non-empty for
-	 * `congested_after` without a break, again every `logged_every_ms` while it stays so, and once
-	 * more when it empties (if the congestion was logged at all). The line gives the counts that
+	 * Logs that requests wait for a connection, once the queue has been non-empty for
+	 * `congested_after` without a break, and again every `logged_every_ms` while it stays so; the
+	 * queue's emptying ends the congestion (see queue_emptied()). The line gives the counts that
 	 * tell a pool too small for its load, or a server too slow, from one that cannot connect.
-	 * drain() and tick() call this.
+	 * drain() and tick() call this, so the first line comes between `congested_after` and a
+	 * watchdog period after the first wait.
 	 */
 	function congested() {
 		const t = now();
 		if (waiting.length === 0) {
-			if (congestion !== null && congestion.logged !== null) {
-				log.pool.info("queue for a connection to {target} empty again after {secs} s", {
-					target: where,
-					secs: tenths(t - congestion.since),
-				});
-			}
-			congestion = null;
 			return;
 		}
 
@@ -1026,37 +1034,49 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		);
 	}
 
+	/** Ends the congestion, if any, as the queue has emptied (the queue calls this): logs it if it was logged */
+	function queue_emptied() {
+		if (congestion !== null && congestion.logged !== null) {
+			log.pool.info("queue for a connection to {target} empty again after {secs} s", {
+				target: where,
+				secs: tenths(now() - congestion.since),
+			});
+		}
+		congestion = null;
+	}
+
 	/**
-	 * Counts a wait for a connection that timed out, and logs the count, at most once per
-	 * `logged_every_ms`.
+	 * Counts a wait for a connection that timed out, and logs it: at once, or, within
+	 * `logged_every_ms` of the last such line, with the ones that came since (see Throttle).
 	 * @param job - the request that timed out
 	 */
 	function timed_out(job: Job) {
-		const t = now();
-		queue_timeouts.count++;
-		if (queue_timeouts.at !== 0 && t - queue_timeouts.at < logged_every_ms) {
+		const x = queue_timeouts.hit(now());
+		if (x === null) {
 			return;
 		}
+		if (x.count === 1) {
+			log.pool.warn(
+				"{kind} waited {queue_timeout} s for a connection to {target} and was rejected with QUEUE_TIMEOUT",
+				{
+					kind: job.kind === "lease" ? lease_name(job.lease) : "a query",
+					queue_timeout: options.queue_timeout,
+					target: where,
+				},
+			);
+		} else {
+			timed_out_many(x);
+		}
+	}
 
-		const { count, at: last } = queue_timeouts;
-		queue_timeouts.at = t;
-		queue_timeouts.count = 0;
+	/**
+	 * Logs waits for a connection that timed out, of which `x.count` came in the last `x.since` s
+	 * @param x - what the throttle reports
+	 */
+	function timed_out_many(x: { count: number; since: number }) {
 		log.pool.warn(
-			count === 1
-				? "{kind} waited {queue_timeout} s for a connection to {target} and was rejected with QUEUE_TIMEOUT"
-				: "{count} requests for a connection to {target} timed out in the last {since} s (queue_timeout {queue_timeout} s) and were rejected with QUEUE_TIMEOUT",
-			{
-				kind:
-					job.kind === "lease"
-						? job.lease === "transaction"
-							? "sql.begin()"
-							: "sql.reserve()"
-						: "a query",
-				count,
-				since: tenths(t - last),
-				queue_timeout: options.queue_timeout,
-				target: where,
-			},
+			"{count} requests for a connection to {target} timed out in the last {since} s (queue_timeout {queue_timeout} s) and were rejected with QUEUE_TIMEOUT",
+			{ count: x.count, since: x.since, queue_timeout: options.queue_timeout, target: where },
 		);
 	}
 
@@ -1080,6 +1100,17 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		congested();
 		const t = now();
 		connections.forEach((c) => c.unanswered(t));
+		const timeouts = queue_timeouts.flush(t);
+		if (timeouts !== null) {
+			timed_out_many(timeouts);
+		}
+		const trouble = events.trouble.flush(t);
+		if (trouble !== null) {
+			log.connection.error(
+				"{count} more server errors about the server's own trouble (SQLSTATE classes 53, 58 and XX) came from {target} in the last {since} s",
+				{ count: trouble.count, target: where, since: trouble.since },
+			);
+		}
 		if (ending && resolve_ending && t - ending_logged >= logged_every_ms) {
 			ending_logged = t;
 			log.pool.warn(
@@ -1129,7 +1160,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		log.pool.warn(
 			"{lease} released connection {id} to {target} inside {state}; closing it instead of reusing it",
 			{
-				lease: kind === "transaction" ? "sql.begin()" : "sql.reserve()",
+				lease: lease_name(kind),
 				id: c.id,
 				target: target(options, c.host, c.port),
 				state:
@@ -1257,6 +1288,9 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	 */
 	function onclose(c: Pooled, error: Failure, lease_error: Failure | null, orderly: boolean) {
 		connections.delete(c);
+		if (!orderly && connections.size === 0) {
+			reconnect = true;
+		}
 		// An orderly close is one that the pool asked for, not a failed attempt to open a connection
 		if (c.loading && !orderly && !signal.aborted) {
 			attempted(copy_error(error));
@@ -1288,19 +1322,13 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			c.lease.onclose(lost);
 		}
 		if (options.onclose) {
-			try {
-				options.onclose(c.id);
-			} catch (thrown) {
-				log.connection.error(
-					"onclose handler threw on connection {id} to {target}; ignored: {reason}",
-					{
-						id: c.id,
-						target: target(options, c.host, c.port),
-						reason: reason(thrown),
-						error: thrown,
-					},
-				);
-			}
+			guarded(
+				log.connection,
+				"onclose handler threw on connection {id} to {target}",
+				{ id: c.id, target: target(options, c.host, c.port) },
+				options.onclose,
+				c.id,
+			);
 		}
 		event("close", c, orderly ? {} : { error });
 		if (connections.size === 0 && opening === 0) {
@@ -1333,14 +1361,14 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			{ id: c.id, target: target(options, c.host, c.port), name: k, value: v },
 		);
 		if (options.onparameter) {
-			try {
-				options.onparameter(k, v);
-			} catch (error) {
-				log.connection.error(
-					"onparameter handler threw on connection {id} to {target}; ignored: {reason}",
-					{ id: c.id, target: target(options, c.host, c.port), reason: reason(error), error },
-				);
-			}
+			guarded(
+				log.connection,
+				"onparameter handler threw on connection {id} to {target}",
+				{ id: c.id, target: target(options, c.host, c.port) },
+				options.onparameter,
+				k,
+				v,
+			);
 		}
 	}
 
@@ -1524,7 +1552,11 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		}
 
 		if (waiting.length === 0) {
-			connections.forEach((c) => c.inflight === 0 && !c.lease && c.close("sql.end() called"));
+			for (const c of connections) {
+				if (c.inflight === 0 && !c.lease) {
+					void c.close("sql.end() called");
+				}
+			}
 		}
 
 		if (connections.size === 0 && opening === 0 && waiting.length) {
@@ -1623,8 +1655,11 @@ function ended(lease: Lease) {
 	return Errors.generic("UNSAFE_TRANSACTION", "The " + lease.kind + " has ended");
 }
 
-/** A FIFO queue of T, whose shift() is O(1) */
-export function Queue<T>() {
+/**
+ * A FIFO queue of T, whose shift() is O(1)
+ * @param onempty - called whenever shift(), take() or remove() empties the queue
+ */
+export function Queue<T>(onempty: () => void = () => {}) {
 	// Shifted slots are cleared, so that the queue does not keep what it gave out
 	let xs: (T | undefined)[] = [],
 		head = 0;
@@ -1648,6 +1683,7 @@ export function Queue<T>() {
 			if (head === xs.length) {
 				xs = [];
 				head = 0;
+				onempty();
 			} else if (head > 1024 && head * 2 > xs.length) {
 				xs = xs.slice(head);
 				head = 0;
@@ -1658,6 +1694,9 @@ export function Queue<T>() {
 			const all = xs.slice(head).filter((x): x is T => x !== undefined);
 			xs = [];
 			head = 0;
+			if (all.length) {
+				onempty();
+			}
 			return all;
 		},
 		remove(fn: (x: T) => boolean) {
@@ -1665,6 +1704,11 @@ export function Queue<T>() {
 				const x = xs[i];
 				if (x !== undefined && fn(x)) {
 					xs.splice(i, 1);
+					if (head === xs.length) {
+						xs = [];
+						head = 0;
+						onempty();
+					}
 					return true;
 				}
 			}

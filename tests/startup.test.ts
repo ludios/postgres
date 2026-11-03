@@ -58,11 +58,13 @@ test("Startup with a wrong SCRAM password", async () => {
 });
 
 test("Startup with ssl: require", async () => {
-	expect((await session({ ssl: "require" })).status).toBe("I");
+	const ready = await session({ ssl: "require" });
+	expect([ready.status, ready.tls, (await session()).tls]).toEqual(["I", "unverified", "off"]);
 });
 
 test("Startup with ssl: prefer", async () => {
-	expect((await session({ ssl: "prefer" })).status).toBe("I");
+	const ready = await session({ ssl: "prefer" });
+	expect([ready.status, ready.tls]).toEqual(["I", "unverified"]);
 });
 
 test("Startup rejects with the server error", async () => {

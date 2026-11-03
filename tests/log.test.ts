@@ -36,6 +36,18 @@ test("the pool's first connection is logged at info, with the backend's pid, TLS
 	]);
 });
 
+test("a TLS connection is logged as encrypted, with whether the certificate was checked", async () => {
+	const records = await log_records();
+	await using sql = postgres({ ...options, ssl: "require" });
+	await sql`select 1`;
+	expect(log_lines(records, "pool", "info")).toEqual([
+		expect.stringMatching(
+			/^info connected to \S+ in \d+ ms: connection \d+, backend pid \d+, tls unverified, auth not asked$/,
+		),
+	]);
+	expect(log_lines(records, "pool", "warning")).toEqual([]);
+});
+
 test("a connection that the server closes is logged with the server's error and the idle time", async () => {
 	const records = await log_records();
 	await using sql = postgres({ ...options, max: 1 });
@@ -126,7 +138,7 @@ test("the LISTEN connection's close, and the channels listening again, are logge
 		),
 		expect.stringMatching(/^debug listening on channel logged at \S+ again$/),
 		expect.stringMatching(
-			/^info listening again on all 1 channels at \S+, [\d.]+ s after their connection closed$/,
+			/^info listening again on all channels at \S+, [\d.]+ s after their connection closed$/,
 		),
 	]);
 	expect(log_lines(records, "connection", "warning")).toEqual([

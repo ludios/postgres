@@ -68,7 +68,11 @@ export default function Subscribe(
 	let connection: Promise<unknown> | null,
 		current: ReturnType<typeof Stream> | null = null,
 		ended = false,
-		retries = 0;
+		retries = 0,
+		// How many times in a row the stream restarted to deliver again a transaction that a subscriber
+		// failed (see fail()); the backoff of the restarts counts these too, so that a subscriber that
+		// fails the same transaction every time does not restart the stream at once, forever
+		replays = 0;
 
 	const sql = (subscribe.sql = postgres({
 		...options,
@@ -153,14 +157,16 @@ export default function Subscribe(
 
 	function restart() {
 		// At once the first time, then with an exponential backoff of at most 10 s
-		const delay = retries === 0 ? 0 : Math.min(100 * 2 ** retries, 10000);
+		const delay =
+			retries === 0 && replays === 0 ? 0 : Math.min(100 * 2 ** (retries + replays), 10000);
 		retries++;
 		log.subscribe.warn(
-			"restarting replication from slot {slot} on {target} in {delay} ms (attempt {retries})" +
+			"restarting replication from slot {slot} on {target} in {delay} ms (attempt {retries}" +
+				(replays ? ", replay {replays} of a transaction that a subscriber failed)" : ")") +
 				(persistent
 					? ""
 					: "; the temporary slot was dropped with its connection, so changes committed before the new one exists are not delivered"),
-			{ slot, target: where, delay, retries },
+			{ slot, target: where, delay, retries, replays },
 		);
 		connection = new Promise<void>((r) => timers.setTimeout(r, delay))
 			.then(() => (ended ? null : init()))
@@ -244,15 +250,14 @@ export default function Subscribe(
 			soon: ReturnType<Timers["setImmediate"]> | null = null;
 
 		stream.on("data", data);
-		stream.on(
-			"error",
-			(error: Error) =>
-				failed ||
+		stream.on("error", (error: Error) => {
+			if (!failed) {
 				report(error, "replication from slot {slot} on {target} failed", "", "warning", {
 					slot,
 					target: where,
-				}),
-		);
+				});
+			}
+		});
 		stream.on("close", () => {
 			const unexpected = !stopped;
 			stop();
@@ -291,7 +296,10 @@ export default function Subscribe(
 		function commit(x: Commit) {
 			if (began("a Commit")) {
 				transaction = null;
-				run(() => confirm(x.end));
+				run(() => {
+					replays = 0;
+					confirm(x.end);
+				});
 			}
 		}
 
@@ -428,6 +436,7 @@ export default function Subscribe(
 			}
 
 			failed = true;
+			replays++;
 			queue = null;
 			stop();
 			stream.destroy(new Error("A subscriber failed, so the transaction is delivered again"));

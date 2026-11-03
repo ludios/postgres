@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { Buffer } from "node:buffer";
 import postgres, { PostgresError } from "./index.ts";
 import { Errors, throw_on_casing_transforms } from "./errors.ts";
-import { log, once, target } from "./log.ts";
+import { tls_refused } from "./log.ts";
 import { secured, direct } from "./socket.ts";
 import type { RawSocket } from "./socket.ts";
 import type { Options } from "./index.ts";
@@ -56,11 +56,8 @@ export async function socket(options: Options, host: string, port: number): Prom
 		} else if (options.ssl !== "prefer" && options.ssl !== "allow") {
 			raw.close().catch(() => {});
 			throw Errors.generic("SSL_NOT_SUPPORTED", "The server does not support SSL connections");
-		} else if (once(options, "tls " + target(options, host, port))) {
-			log.pool.warn('{target} refused TLS; continuing unencrypted, since ssl is "{mode}"', {
-				target: target(options, host, port),
-				mode: options.ssl,
-			});
+		} else {
+			tls_refused(options, host, port);
 		}
 	}
 

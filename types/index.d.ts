@@ -261,7 +261,7 @@ declare namespace postgres {
 		/** Custom types; see the README */
 		types?: T | undefined;
 
-		/** Called with each notice; false to drop them @default console.log */
+		/** Called with each notice; false to drop them. By default, the notice is logged (the README's section "Logging") */
 		onnotice?: false | ((notice: Notice) => void) | undefined;
 		/** Called with each notification, whether listened to or not */
 		onnotify?: ((channel: string, payload: string, pid: number) => void) | undefined;

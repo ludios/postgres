@@ -121,20 +121,110 @@ export function target(options: Options, host?: string | null, port?: number) {
  *   `connect ECONNREFUSED 127.0.0.1:5432`)
  */
 export function reason(thrown: unknown) {
-	const error = as_error(thrown),
-		{ code } = error,
-		message = typeof error.message === "string" ? error.message : util.inspect(error);
-	if (typeof code !== "string") {
-		return message;
+	// What a callback threw may have a `code` or `message` getter that throws
+	try {
+		const error = as_error(thrown),
+			{ code } = error,
+			message = typeof error.message === "string" ? error.message : util.inspect(error);
+		if (typeof code !== "string") {
+			return message;
+		}
+		if (error instanceof PostgresError) {
+			return code + " " + message;
+		}
+		const written = "write " + code + " ";
+		if (message.startsWith(written)) {
+			return code + " (" + message.slice(written.length) + ")";
+		}
+		return message.includes(code) ? message : code + ": " + message;
+	} catch {
+		return "(an error that cannot be shown)";
 	}
-	if (error instanceof PostgresError) {
-		return code + " " + message;
+}
+
+/**
+ * Calls `fn`, a handler of the application's, and logs what it throws, at error, so that a
+ * handler that throws neither breaks the caller nor goes unnoticed.
+ * @param logger - the logger of the caller's category
+ * @param template - what threw, such as `{handler} handler threw on connection {id} to {target}`
+ * @param properties - the properties of `template`
+ */
+export function guarded<A extends unknown[]>(
+	logger: Logger,
+	template: string,
+	properties: Record<string, unknown>,
+	fn: (...xs: A) => void,
+	...xs: A
+) {
+	try {
+		fn(...xs);
+	} catch (error) {
+		logger.error(template + "; ignored: {reason}", { ...properties, reason: reason(error), error });
 	}
-	const written = "write " + code + " ";
-	if (message.startsWith(written)) {
-		return code + " (" + message.slice(written.length) + ")";
+}
+
+/**
+ * @param kind - the kind of a lease: "transaction" or "reserve"
+ * @returns the call that made it, as log lines name it: `sql.begin()` or `sql.reserve()`
+ */
+export function lease_name(kind: string) {
+	return kind === "transaction" ? "sql.begin()" : "sql.reserve()";
+}
+
+/**
+ * Logs that the server refused TLS and the connection goes on unencrypted, as `ssl` prefer or
+ * allow lets it; once per host of the pool.
+ * @param options - the options of the pool
+ * @param host - the host that refused
+ * @param port - its port
+ */
+export function tls_refused(options: Options, host: string | null, port: number) {
+	const where = target(options, host, port);
+	if (once(options, "tls " + where)) {
+		log.pool.warn('{target} refused TLS; continuing unencrypted, since ssl is "{mode}"', {
+			target: where,
+			mode: options.ssl,
+		});
 	}
-	return message.includes(code) ? message : code + ": " + message;
+}
+
+/**
+ * Counts events of one kind, so that a line about them goes out at most once per
+ * `logged_every_ms`, and the events between two lines are counted in the second.
+ */
+export class Throttle {
+	/** When the last line went out, by the caller's clock; 0 before the first */
+	private at = 0;
+	/** The events since the last line */
+	private count = 0;
+
+	/**
+	 * Counts an event.
+	 * @param t - now
+	 * @returns what a line reports now: the events since the last line (this one included), and
+	 *   the seconds since that line (0 for the first); null if no line goes out yet
+	 */
+	hit(t: number) {
+		this.count++;
+		return this.at === 0 || t - this.at >= logged_every_ms ? this.take(t) : null;
+	}
+
+	/**
+	 * Reports the events counted since the last line, once `logged_every_ms` has passed since it,
+	 * so that a burst is reported even if no event follows it; a watchdog calls this.
+	 * @param t - now
+	 * @returns as hit() does; null if no line goes out yet
+	 */
+	flush(t: number) {
+		return this.count !== 0 && t - this.at >= logged_every_ms ? this.take(t) : null;
+	}
+
+	private take(t: number) {
+		const x = { count: this.count, since: this.at === 0 ? 0 : tenths(t - this.at) };
+		this.count = 0;
+		this.at = t;
+		return x;
+	}
 }
 
 /**

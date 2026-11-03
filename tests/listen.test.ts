@@ -3,6 +3,7 @@ import {
 	postgres,
 	options,
 	delay,
+	until,
 	defer,
 	pg_socket_dir,
 	terminate,
@@ -68,16 +69,6 @@ function tracked_timers() {
 		};
 	return { pending, timers };
 }
-
-const until = async (fn: () => unknown, ms = 5000) => {
-	const end = Date.now() + ms;
-	while (!(await fn())) {
-		if (Date.now() > end) {
-			throw new Error("Timed out waiting");
-		}
-		await delay(10);
-	}
-};
 
 test("listen and notify", async () => {
 	await using sql = postgres(options);

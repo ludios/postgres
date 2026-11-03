@@ -2,7 +2,7 @@ import { expect, onTestFinished, test } from "vitest";
 import type { LogRecord } from "@logtape/logtape";
 import type { ReplicationEvent } from "../types/index.js";
 import { postgres, options, delay, camel_case, snake_case, defer } from "./setup.ts";
-import { log_records } from "./helpers.ts";
+import { log_records, until } from "./helpers.ts";
 
 test("subscribe", async () => {
 	await using sql = postgres({
@@ -149,16 +149,6 @@ test("subscribe reconnects and calls onsubscribe", async () => {
 		],
 	]);
 });
-
-const until = async (fn: () => unknown, ms = 5000, state?: () => string) => {
-	const start = Date.now();
-	while (!fn()) {
-		if (Date.now() - start > ms) {
-			throw new Error("Timed out waiting for " + fn + (state ? " with " + state() : ""));
-		}
-		await delay(10);
-	}
-};
 
 /**
  * Creates the publication alltables and the table `test (id serial primary key, name text)`, after

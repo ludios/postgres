@@ -80,6 +80,8 @@ export class Query extends Promise<any> {
 	declare aborted: Failure | null | undefined;
 	/** When run() was called, by the options' `timers.now()`; 0 until then */
 	declare started: number;
+	/** When the query was first written to a connection, by the same clock; 0 until then */
+	declare written: number;
 	/**
 	 * When the query's exchange last became the head of its connection's pipeline, so that the
 	 * server works on it, by the same clock; 0 until then
@@ -124,6 +126,7 @@ export class Query extends Promise<any> {
 		this.cursor_fn = null;
 		this.cursor_rows = 0;
 		this.started = 0;
+		this.written = 0;
 		this.headed = 0;
 
 		this.origin_error = handler.debug ? new Error() : null;
@@ -422,12 +425,25 @@ function context(q: Query): postgres.QueryTrace {
 }
 
 /**
- * Logs that `q` has settled: at debug; or at warning if it was slow (see `slow_query_ms`), unless
- * it is a cursor or a COPY stream, which the application paces.
+ * Logs that `q` has settled (see log_settled()); never throws, as it runs before `q` settles.
+ */
+function logged(q: Query, error: unknown, result: unknown) {
+	try {
+		log_settled(q, error, result);
+	} catch {
+		// A filter of the application's LogTape configuration may throw; the query settles anyway
+	}
+}
+
+/**
+ * Logs that `q` has settled: at debug; or at warning if it ran for `slow_query_ms` or more on the
+ * server, unless it is a cursor or a COPY stream, which the application paces. A query's time is
+ * counted from when it reached the head of its connection's pipeline (the server works on it from
+ * then on), or from its write if it never did; what came before counts as queued.
  * @param error - what `q` was rejected with; null if it resolved
  * @param result - what `q` resolved with: a Result, or a COPY stream
  */
-function logged(q: Query, error: unknown, result: unknown) {
+function log_settled(q: Query, error: unknown, result: unknown) {
 	// Not the pool's own queries (the lookup of the types), which run without run()
 	if (!q.started) {
 		return;
@@ -435,9 +451,9 @@ function logged(q: Query, error: unknown, result: unknown) {
 
 	const { options } = q.handler,
 		t = options.timers.now(),
-		ms = t - (q.headed || q.started),
-		sent = q.headed !== 0,
-		slow = sent && ms >= slow_query_ms && !q.cursor_fn && !q.streaming;
+		from = q.headed || q.written,
+		ms = t - (from || q.started),
+		slow = q.headed !== 0 && ms >= slow_query_ms && !q.cursor_fn && !q.streaming;
 	if (!slow && !log.query.isEnabledFor("debug")) {
 		return;
 	}
@@ -449,7 +465,7 @@ function logged(q: Query, error: unknown, result: unknown) {
 				: null,
 		prefix = slow ? "slow query" : "query";
 	let template: string;
-	if (!sent) {
+	if (error && from === 0) {
 		template =
 			"query to {target} failed after {wait} ms in the queue, before it was sent: {reason}; sql: {text}";
 	} else if (error) {
@@ -467,7 +483,7 @@ function logged(q: Query, error: unknown, result: unknown) {
 		id: c ? c.id : null,
 		target: c ? target(options, c.host, c.port) : target(options),
 		ms: Math.round(ms),
-		wait: Math.round((q.headed || t) - q.started),
+		wait: Math.round((from || t) - q.started),
 		command: done ? done.command : null,
 		count: done ? done.count : null,
 		text: text_of(q),

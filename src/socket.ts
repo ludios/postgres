@@ -129,7 +129,9 @@ function connect(
 
 function wrap(socket: RawSocket, host: string | null) {
 	let closed = false,
-		failure: Error | null = null;
+		failure: Error | null = null,
+		// Whether upgrade() has put TLS on the socket
+		upgraded = false;
 
 	if (socket.shared) {
 		socket.ondata = data;
@@ -150,6 +152,10 @@ function wrap(socket: RawSocket, host: string | null) {
 		},
 		get negotiated() {
 			return socket.secure === true || socket.negotiated === true;
+		},
+		/** Whether the socket carries TLS: from the start, or since upgrade() */
+		get encrypted() {
+			return upgraded || socket.secure === true;
 		},
 		certificate() {
 			const cert = typeof socket.getPeerCertificate === "function" && socket.getPeerCertificate();
@@ -238,6 +244,7 @@ function wrap(socket: RawSocket, host: string | null) {
 			function ready() {
 				secure.off("error", fail);
 				socket = secure;
+				upgraded = true;
 				listen();
 				resolve(x);
 			}

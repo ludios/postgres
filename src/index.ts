@@ -12,7 +12,7 @@ import { Errors, PostgresError, throw_on_casing_transforms } from "./errors.ts";
 import Subscribe from "./subscribe.ts";
 import largeObject from "./large.ts";
 import { channels, active, start, finish, user_name } from "./diagnostics.ts";
-import { log_at, log, reason, target, tenths } from "./log.ts";
+import { guarded, log, log_at, reason, target, tenths } from "./log.ts";
 import type postgres from "../types/index.js";
 import type { open } from "./startup.ts";
 import type { RawSocket } from "./socket.ts";
@@ -511,7 +511,7 @@ function Listen(options: Options) {
 		closing: Promise<unknown> | null = null,
 		// The channels whose LISTEN is sent again since the listener connection closed (at
 		// `since`), so that one line can say when all of them listen again; null outside that
-		relistening: { channels: Set<Channel>; n: number; since: number } | null = null;
+		relistening: { channels: Set<Channel>; since: number } | null = null;
 
 	return {
 		listen,
@@ -559,33 +559,30 @@ function Listen(options: Options) {
 						"LISTEN connection {id} to {target} closed; sending LISTEN again for {n} channels; notifications sent until the new LISTENs succeed are lost",
 						{ id, target: where, n: lost.length },
 					);
-					relistening = {
-						channels: new Set(lost.map(([, channel]) => channel)),
-						n: lost.length,
-						since: now(),
-					};
+					// A close while channels of an earlier close still retry adds to that set, so
+					// that the line about all of them comes once the last of them listens again
+					if (relistening === null) {
+						relistening = { channels: new Set(), since: now() };
+					}
+					for (const [, channel] of lost) {
+						relistening.channels.add(channel);
+					}
 				}
 				lost.forEach(([name, channel]) => relisten(channel, name));
 			},
 			onnotify(channel: string, payload: string) {
 				const listening = channel_by_name.get(channel);
 				if (listening) {
-					[...listening.listeners].forEach((l) => {
-						try {
-							l.fn(payload);
-						} catch (error) {
-							// One listener's error must not stop the calls of the others
-							log.listen.error(
-								"listener of channel {channel} at {target} threw; ignored: {reason}",
-								{
-									channel,
-									target: where,
-									reason: reason(error),
-									error,
-								},
-							);
-						}
-					});
+					// One listener's error must not stop the calls of the others
+					[...listening.listeners].forEach((l) =>
+						guarded(
+							log.listen,
+							"listener of channel {channel} at {target} threw",
+							{ channel, target: where },
+							l.fn,
+							payload,
+						),
+					);
 				}
 			},
 		});
@@ -634,16 +631,14 @@ function Listen(options: Options) {
 				relistened(channel);
 				listeners.forEach((l) => {
 					if (channel.listeners.has(l) && l.onlisten) {
-						try {
-							l.onlisten();
-						} catch (error) {
-							// As for a listener's fn in onnotify: one listener's error must not stop the
-							// calls of the others, or reject this promise, which nothing handles
-							log.listen.error(
-								"onlisten of channel {channel} at {target} threw; ignored: {reason}",
-								{ channel: name, target: where, reason: reason(error), error },
-							);
-						}
+						// As for a listener's fn in onnotify: one listener's error must not stop the
+						// calls of the others, or reject this promise, which nothing handles
+						guarded(
+							log.listen,
+							"onlisten of channel {channel} at {target} threw",
+							{ channel: name, target: where },
+							l.onlisten,
+						);
 					}
 				});
 			},
@@ -659,10 +654,11 @@ function Listen(options: Options) {
 						relisten(channel, name);
 					}
 				}, delay * 1000);
-				// The LISTEN connection's own lines say why it cannot connect
+				// At warning only if the server refused the LISTEN: the LISTEN connection's own lines
+				// say why it cannot connect
 				log_at(
 					log.listen,
-					String((error as Failure).code).startsWith("CONNECTION_") ? "debug" : "warning",
+					error instanceof PostgresError ? "warning" : "debug",
 					"LISTEN {channel} at {target} failed ({retries} in a row); next attempt in {delay} ms: {reason}",
 					{
 						channel: name,
@@ -687,8 +683,8 @@ function Listen(options: Options) {
 		}
 		if (relistening.channels.size === 0) {
 			log.listen.info(
-				"listening again on all {n} channels at {target}, {secs} s after their connection closed",
-				{ n: relistening.n, target: where, secs: tenths(now() - relistening.since) },
+				"listening again on all channels at {target}, {secs} s after their connection closed",
+				{ target: where, secs: tenths(now() - relistening.since) },
 			);
 			relistening = null;
 		}

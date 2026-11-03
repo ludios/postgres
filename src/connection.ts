@@ -16,8 +16,9 @@ import { now, channels, listened } from "./diagnostics.ts";
 import {
 	log_at,
 	excerpt,
+	guarded,
+	lease_name,
 	log,
-	logged_every_ms,
 	notice as log_notice,
 	reason,
 	target,
@@ -25,6 +26,7 @@ import {
 	unanswered_ms,
 	unanswered_again_ms,
 } from "./log.ts";
+import type { Throttle } from "./log.ts";
 
 const text = p.text,
 	noop = (..._: any[]) => {},
@@ -300,6 +302,8 @@ export type Events = Pick<
 	onnotify: Options["onnotify"];
 	/** Called with each ParameterStatus of connection `c`, at its startup and after */
 	onparameter(key: string, value: string, c: Connection): void;
+	/** Throttles the lines about the server's own trouble (see ErrorResponse()) for the whole pool */
+	trouble: Throttle;
 	/** Called with how long the head of `sent` took, for the scheduler */
 	ontimed: (sample: number, t: number) => void;
 };
@@ -358,10 +362,6 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		// Why close() was called, for the log line of an orderly close; null if it was not called
 		close_reason: string | null = null;
 
-	// When the server's errors of its own trouble (see ErrorResponse()) were last logged, and how
-	// many came since
-	const trouble = { at: 0, count: 0 };
-
 	const connection = {
 		id: ids++,
 		host: ready.host,
@@ -418,6 +418,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	socket.ondata = (x) => frames.push(x);
 	socket.ondrain = ondrain;
 	socket.onclose = onclose;
+	// The startup's ParameterStatus values, before whatever the server sent after ReadyForQuery
+	if (events.onparameter) {
+		for (const [k, v] of Object.entries(ready.parameters)) {
+			events.onparameter(k, v, connection);
+		}
+	}
 	if (ready.rest && ready.rest.length) {
 		frames.push(ready.rest);
 	}
@@ -555,6 +561,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		x.epoch = epoch;
 		if (sent.length === 0) {
 			headed(x, timers.now());
+		}
+		if (x.query && x.query.written === 0) {
+			x.query.written = x.headed || timers.now();
 		}
 		sent.push(x);
 		if (holds(x)) {
@@ -1200,7 +1209,11 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		);
 		closed = ended;
 		ended.cause = fatal || error || undefined;
-		log_close(error, fatal, orderly);
+		try {
+			log_close(error, fatal, orderly);
+		} catch {
+			// A filter of the application's LogTape configuration may throw; the close goes on
+		}
 		// A FATAL error that came with no query to give it to, such as from
 		// idle_in_transaction_session_timeout, is what ended the lease (if any)
 		let lease_error =
@@ -1258,12 +1271,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		const lost =
 				sent.concat(pending).filter((x) => user(x) && !x.query.settled).length + running.size,
 			kind = connection.lease ? connection.lease.kind : null,
-			held =
-				kind === "transaction"
-					? "held by sql.begin()"
-					: kind === "reserve"
-						? "held by sql.reserve()"
-						: "",
+			held = kind === null ? "" : "held by " + lease_name(kind),
 			// What the close cost, or how long the connection had been idle
 			impact =
 				lost || held
@@ -1754,17 +1762,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			klass = error.code ? error.code.slice(0, 2) : "";
 
 		if (klass === "53" || klass === "58" || klass === "XX") {
-			// Logged at most once per `logged_every_ms`: a full disk fails every write
-			const t = timers.now();
-			trouble.count++;
-			if (trouble.at === 0 || t - trouble.at >= logged_every_ms) {
-				const suppressed = trouble.count - 1,
-					since = tenths(t - trouble.at);
-				trouble.at = t;
-				trouble.count = 0;
+			// At most once per `logged_every_ms` for the whole pool: a full disk fails every write
+			const hit = events.trouble.hit(timers.now());
+			if (hit !== null) {
 				log.connection.error(
 					"server reports {what} on connection {id} to {target}" +
-						(suppressed ? " ({suppressed} more such errors in the last {since} s)" : "") +
+						(hit.count > 1 ? " ({suppressed} more such errors in the last {since} s)" : "") +
 						": {reason}",
 					{
 						what:
@@ -1775,8 +1778,8 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 									: "an internal error",
 						id: connection.id,
 						target: where,
-						suppressed,
-						since,
+						suppressed: hit.count - 1,
+						since: hit.since,
 						reason: reason(error),
 						error,
 					},
@@ -2137,14 +2140,13 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 * @param name - the handler's option, such as `onnotify`
 	 */
 	function guard<A extends unknown[]>(name: string, fn: (...xs: A) => void, ...xs: A) {
-		try {
-			fn(...xs);
-		} catch (error) {
-			log.connection.error(
-				"{handler} handler threw on connection {id} to {target}; ignored: {reason}",
-				{ handler: name, id: connection.id, target: where, reason: reason(error), error },
-			);
-		}
+		guarded(
+			log.connection,
+			"{handler} handler threw on connection {id} to {target}",
+			{ handler: name, id: connection.id, target: where },
+			fn,
+			...xs,
+		);
 	}
 
 	/**

@@ -6,7 +6,7 @@ import { Socket, secured, secure_options } from "./socket.ts";
 import type { RawSocket } from "./socket.ts";
 import type { Options } from "./index.ts";
 import { Errors } from "./errors.ts";
-import { log, notice as log_notice, once, reason, target } from "./log.ts";
+import { guarded, log, notice as log_notice, once, reason, target, tls_refused } from "./log.ts";
 import {
 	channels,
 	active,
@@ -160,7 +160,10 @@ export type Ready = {
 	elapsed: number;
 	/** How the server authenticated the connection: Auth()'s `method` */
 	auth: string;
-	/** "verified" (TLS, and the certificate checked), "unverified" (TLS, but not checked) or "off" */
+	/**
+	 * "verified" (TLS, and the certificate checked), "unverified" (TLS, but not checked), "on"
+	 * (TLS by a socket of the application's, which checks as it likes) or "off"
+	 */
 	tls: string;
 };
 
@@ -246,11 +249,8 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 				);
 			socket.keep_alive(options.keep_alive);
 			await negotiate(socket, options);
-			if (secured(options) && !socket.negotiated && once(options, "tls " + where)) {
-				log.pool.warn('{target} refused TLS; continuing unencrypted, since ssl is "{mode}"', {
-					target: where,
-					mode: options.ssl,
-				});
+			if (secured(options) && !socket.encrypted) {
+				tls_refused(options, host, port);
 			}
 			const user = typeof options.user === "function" ? await options.user() : options.user;
 			return startup(socket, user, options.database || user);
@@ -306,15 +306,13 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 
 				function notice(x: Record<string, string>) {
 					if (options.onnotice) {
-						try {
-							options.onnotice(x);
-						} catch (error) {
-							// An onnotice that throws must not break the connection
-							log.connection.error(
-								"onnotice handler threw during the startup of a connection to {target}; ignored: {reason}",
-								{ target: where, reason: reason(error), error },
-							);
-						}
+						guarded(
+							log.connection,
+							"onnotice handler threw during the startup of a connection to {target}",
+							{ target: where },
+							options.onnotice,
+							x,
+						);
 					} else if (options.onnotice !== false) {
 						log_notice(x, "from {target} during startup", { target: where });
 					}
@@ -324,7 +322,7 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 					// Not over a Unix-domain socket, which crosses no network
 					if (
 						x.readInt32BE(5) === 3 &&
-						!socket.negotiated &&
+						!socket.encrypted &&
 						!options.path &&
 						once(options, "cleartext")
 					) {
@@ -388,12 +386,16 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 						cancel: () => (backend ? cancel(options, host, port, backend) : Promise.resolve()),
 						elapsed: now() - since,
 						auth: auth.method,
-						tls: socket.negotiated
-							? (secure_options(options.ssl) as { rejectUnauthorized?: boolean })
-									.rejectUnauthorized === false
-								? "unverified"
-								: "verified"
-							: "off",
+						// A socket of the application's (Cloudflare Workers give one) checks the
+						// certificate as it likes: "on" says no more than that TLS is on
+						tls: !socket.encrypted
+							? "off"
+							: options.socket
+								? "on"
+								: (secure_options(options.ssl) as { rejectUnauthorized?: boolean })
+											.rejectUnauthorized === false
+									? "unverified"
+									: "verified",
 					});
 				}
 			});
