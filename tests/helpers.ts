@@ -66,7 +66,8 @@ function set_env(name: string, value: string | undefined) {
 
 /**
  * @param vars - the environment variables to set while `f` runs, by name; `undefined` unsets one
- * @param f    - a function to run; a promise that it returns is not awaited
+ * @param f    - a function to run, which must not return a promise: the variables are restored
+ *   as soon as `f` returns, so the rest of an async `f` would run without them
  * @returns what `f` returns; whether `f` returns or throws, each variable in `vars` then has the
  * value that it had before `with_env` was called, or is unset if it was unset then
  */
@@ -76,7 +77,11 @@ export function with_env<T>(vars: Record<string, string | undefined>, f: () => T
 		set_env(name, value);
 	}
 	try {
-		return f();
+		const result = f();
+		if (result instanceof Promise) {
+			throw new Error("with_env() was given a function that returned a promise");
+		}
+		return result;
 	} finally {
 		for (const [name, value] of before) {
 			set_env(name, value);
