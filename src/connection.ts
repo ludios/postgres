@@ -558,7 +558,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 *   written in `x`'s place, so that the lease's transaction fails too.
 	 */
 	function skipped(x: Exchange): SimpleExchange | null {
-		if (x.kind === "describe" || x.kind === "internal") {
+		if (x.kind === "describe") {
+			// Nothing was written, so the connection goes on; the describe fails with what writing threw
+			x.reject(x.own || new Error("Bug: a describe wrote nothing"));
+			return null;
+		}
+		if (x.kind === "internal") {
 			// The connection's own messages are always written: this is a bug of this file
 			abandon(x.own || new Error("Bug: an exchange of the connection's own wrote nothing"));
 			return null;
@@ -1544,6 +1549,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function PortalSuspended() {
 		const item = answered("PortalSuspended", "query", "step");
+		if (item.kind === "query" && !is_cursor(item)) {
+			throw Errors.generic(
+				"UNEXPECTED_MESSAGE",
+				"A PortalSuspended came for a query without a cursor",
+			);
+		}
 		if (unnamed_cursor(item)) {
 			void resume(item);
 		} else {
@@ -1665,8 +1676,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 
 		if (x.kind === "describe") {
-			if (x.error) {
-				x.reject(x.error);
+			const failure = x.own || x.error;
+			if (failure) {
+				x.reject(failure);
 			} else {
 				x.resolve({ params: x.params || [], columns: x.columns });
 			}
@@ -1819,7 +1831,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		const origin = x.kind === "step" ? x.origin : is_cursor(x) ? x : null,
 			{ query } = x;
 		if (origin === null) {
-			throw new Error("Bug: a PortalSuspended came for a query without a cursor");
+			// PortalSuspended() refuses such a query, so this does not happen
+			query.reject(decorate(query, new Error("Bug: a suspended query without a cursor")));
+			return;
 		}
 
 		running.add(query);
