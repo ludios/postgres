@@ -2,7 +2,7 @@
 
 Reviewer: Claude Mythos 5.1, on 2026-11-02, at commit `33aa4bd` on `prime`.
 
-This is not a full review. The four items below turned up while reading every file in `src/` to mark where an operator would want a log line. 1, 2 and 4 are confirmed against the working tree with the scripts under [How this was tested](#how-this-was-tested); 3 is from reading only.
+This is not a full review. The four items below turned up while reading every file in `src/` to mark where an operator would want a log line; that audit is in [logging-audit.md](logging-audit.md). 1, 2 and 4 are confirmed against the working tree with the scripts under [How this was tested](#how-this-was-tested); 3 is from reading only.
 
 ## 1. A non-numeric value for a numeric option becomes `NaN` silently; `backoff=abc` is a hot reconnect loop
 

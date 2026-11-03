@@ -1,0 +1,2798 @@
+diff --git a/src/build.ts b/src/build.ts
+index 9f7396f..57432fe 100644
+--- a/src/build.ts
++++ b/src/build.ts
+@@ -56,6 +56,9 @@ export function build(query, options) {
+ 		? stringify(query, o)
+ 		: (query.args.forEach((x) => value(x, o)), "" + query.strings[0]);
+ 
++	// XXX(claude): log warn "query has <n> parameters (max 65534)" with query text truncated — usually a
++	//   huge sql(array) insert that should be batched or done with COPY
++	// XXX(astra): log warn "query parameter limit exceeded" if count >= 65534, with query id, parameter count, rejection boundary 65534, MAX_PARAMETERS_EXCEEDED, opt-in redacted SQL truncated to 512 chars; never values
+ 	if (values.length >= 65534)
+ 		throw Errors.generic("MAX_PARAMETERS_EXCEEDED", "Max number of parameters (65534) exceeded");
+ 
+@@ -124,9 +127,11 @@ export function value(x, o) {
+ 	if (v === undefined) {
+ 		v = o.transform.undefined;
+ 		if (v === undefined)
++			// XXX(astra): log warn "undefined query parameter rejected" with query id, one-based parameter index, UNDEFINED_VALUE; report once at final rejection and omit surrounding values
+ 			throw Errors.generic("UNDEFINED_VALUE", "Undefined values are not allowed");
+ 		x instanceof Parameter || (x = v);
+ 	}
++	// XXX(astra): do not log builder input values, parameter arrays or inferred values because they contain application data; parameter counts and OIDs are sufficient
+ 	o.values.push(v);
+ 	o.oids.push(x instanceof Parameter ? o.resolve(x.type) : o.infer ? infer(x) : 0);
+ 	return "$" + o.values.length;
+@@ -327,6 +332,7 @@ function columns(first, rest) {
+ }
+ 
+ function empty(x) {
++	// XXX(astra): log warn "SQL helper has no columns" with query id if available, helper kind, NO_COLUMNS; omit input objects and deduplicate final rejection
+ 	throw Errors.generic("NO_COLUMNS", "The " + x + " helper got no columns");
+ }
+ 
+@@ -371,5 +377,6 @@ export function escapeIdentifier(x) {
+ }
+ 
+ export function notTagged() {
++	// XXX(astra): log warn "SQL fragment awaited without tagged query" with NOT_TAGGED_CALL, call site, fragment kind; no fragment contents
+ 	throw Errors.generic("NOT_TAGGED_CALL", "Query not called as a tagged template literal");
+ }
+diff --git a/src/cf.ts b/src/cf.ts
+index f9c03fa..091561d 100644
+--- a/src/cf.ts
++++ b/src/cf.ts
+@@ -15,6 +15,7 @@ Object.assign(Postgres, postgres);
+ export { PostgresError };
+ 
+ export async function socket(options, host, port) {
++	// XXX(astra): log error "direct TLS unsupported by Workers sockets" if requested, with attempt id, runtime, sslnegotiation, required ALPN postgresql, SSL_NEGOTIATION_NOT_SUPPORTED
+ 	if (direct(options))
+ 		throw Errors.generic(
+ 			"SSL_NEGOTIATION_NOT_SUPPORTED",
+@@ -26,6 +27,8 @@ export async function socket(options, host, port) {
+ 		{ hostname: host, port },
+ 		{ secureTransport: tls ? "starttls" : "off", allowHalfOpen: false },
+ 	);
++	// XXX(claude): log debug "workers socket opened" with host:port, secureTransport
++	// XXX(astra): log debug "Workers socket opening" with attempt id, host:port, secureTransport, allowHalfOpen=false; record elapsed ms and rejection code at this await
+ 	await raw.opened;
+ 
+ 	let secure = false;
+@@ -37,13 +40,22 @@ export async function socket(options, host, port) {
+ 		writer.releaseLock();
+ 		reader.releaseLock();
+ 
++		// XXX(claude): log debug "server closed the socket in reply to SSLRequest" with host:port
++		// XXX(astra): log warn "Workers socket reached EOF during SSL negotiation" if done, with attempt id, host:port, ssl mode, elapsed ms
+ 		if (done) throw Errors.connection("CONNECTION_CLOSED", options, host, port);
+ 
+ 		if (value[0] === 83) {
++			// XXX(claude): log debug "startTls" with host:port
++			// XXX(astra): log debug "Workers TLS upgrade started" with attempt id, host:port, ssl mode, platform-managed certificate verification; requested insecure Node TLS settings cannot bypass Workers trust policy
+ 			raw = raw.startTls();
+ 			await raw.opened;
++			// XXX(astra): log debug "Workers TLS socket opened; awaiting PostgreSQL response" with attempt id, host:port, elapsed ms, actual secure transport; this does not prove the handshake survived the first read
+ 			secure = true;
++		// XXX(claude): log warn "server refused TLS; continuing in plaintext because ssl=<prefer|allow>"
++		//   with host:port (the same downgrade as startup.ts negotiate)
++		// XXX(astra): log warn "Workers server refused TLS; continuing plaintext" if reply is not S and ssl is prefer/allow, with attempt id, host:port, ssl mode, response byte
+ 		} else if (options.ssl !== "prefer" && options.ssl !== "allow") {
++			// XXX(astra): log error "Workers server refused required TLS" with attempt id, host:port, ssl mode, response byte; observe this detached close promise for cleanup failure without masking SSL_NOT_SUPPORTED
+ 			raw.close();
+ 			throw Errors.generic("SSL_NOT_SUPPORTED", "The server does not support SSL connections");
+ 		}
+@@ -66,6 +78,7 @@ function Stream(raw, secure, host, port) {
+ 		pending = 0,
+ 		answered = !secure;
+ 
++	// XXX(astra): log trace "Workers write queue drained" when recovering from backpressure, with connection id, host:port, pause duration ms; avoid per-chunk logs
+ 	const written = () => --pending === 0 && x.emit("drain");
+ 
+ 	Object.assign(x, {
+@@ -77,16 +90,20 @@ function Stream(raw, secure, host, port) {
+ 
+ 			for (let i = 0; i < data.length; i += chunk) {
+ 				pending++;
++				// XXX(astra): do not log Workers socket chunks because they carry authentication and application data; retain only byte counts and pending-write gauges
+ 				writer.write(data.subarray(i, i + chunk)).then(written, fail);
+ 			}
++			// XXX(astra): log trace "Workers write backpressure" if pending first crosses 16 chunks, with connection id, pending writes/bytes, chunk size 16384; rate-limit transitions
+ 			return pending < 16;
+ 		},
+ 		end(data) {
+ 			data && x.write(data);
++			// XXX(astra): log warn "Workers writer close failed" if unsent work may be lost (debug for already closed teardown), with connection id, pending write count, sanitized error code; rejection is currently ignored
+ 			writer.close().catch(() => {});
+ 		},
+ 		destroy() {
+ 			x.destroyed = true;
++			// XXX(astra): log debug "Workers socket close failed during destroy" if promise rejects, with connection id, host:port, pending writes, sanitized error code; rejection is currently ignored
+ 			raw.close().catch(() => {});
+ 			finish();
+ 		},
+@@ -97,10 +114,12 @@ function Stream(raw, secure, host, port) {
+ 			paused = false;
+ 			wake && (wake(), (wake = null));
+ 		},
++		// XXX(astra): log debug "Workers cannot apply TCP keepalive setting" once per client configuration if requested, with runtime and requested seconds; the shim method is a no-op
+ 		setKeepAlive() {},
+ 		setNoDelay() {},
+ 	});
+ 
++	// XXX(astra): log error "Workers background read task failed" if this detached promise rejects outside its handled read errors, with connection id, phase, sanitized error code; avoid duplicate read-loop failure reports
+ 	read();
+ 	return x;
+ 
+@@ -114,18 +133,25 @@ function Stream(raw, secure, host, port) {
+ 				paused && (await resumed());
+ 				const { value, done } = await reader.read();
+ 
++				// XXX(astra): log debug "Workers readable reached EOF" if done, with connection id, secure flag, first-response-seen flag, local close intent, bytes received; unexpected EOF is classified by connection lifecycle
+ 				if (done) break;
+ 
+ 				answered = true;
+ 				x.emit("data", Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+ 			}
+ 		} catch (error) {
++			// XXX(claude): log debug "workers socket read failed" with host:port, error —
++			//   TLS_HANDSHAKE_FAILED when the server never answered (certificate not trusted by
++			//   a public CA)
++			// XXX(astra): log debug "Workers socket read failed" with connection id, secure flag, first-response-seen flag, error code, sanitized cause; report teardown errors only once
+ 			closed || x.emit("error", handshake(error));
+ 		}
+ 		finish();
+ 	}
+ 
+ 	function fail(error) {
++		// XXX(claude): log debug "workers socket write failed" with host:port, error
++		// XXX(astra): log debug "Workers socket write failed" with connection id, pending write count, secure flag, first-response-seen flag, error code; retain cause for connection-loss event
+ 		closed || x.emit("error", handshake(error));
+ 		x.destroy();
+ 	}
+@@ -133,6 +159,7 @@ function Stream(raw, secure, host, port) {
+ 	function finish() {
+ 		if (closed) return;
+ 
++		// XXX(astra): log error "Workers TLS connection closed before first server response" if !answered and !destroyed, with attempt id, host:port, elapsed ms, underlying cause if available; do not assert an unverified certificate diagnosis
+ 		answered || x.destroyed || x.emit("error", handshake());
+ 		closed = true;
+ 		x.emit("close");
+diff --git a/src/connection.ts b/src/connection.ts
+index 1637fd4..bc83202 100644
+--- a/src/connection.ts
++++ b/src/connection.ts
+@@ -36,6 +36,10 @@ export function Connection(ready, options, events) {
+ 		frames = p.Frames(
+ 			frame,
+ 			socket.shared,
++			// XXX(claude): log error "protocol error from server; destroying connection" with connection
++			//   id, host:port, the error — an invalid message length usually means the port is
++			//   not PostgreSQL, or a corrupted stream
++			// XXX(astra): log error "invalid PostgreSQL frame; destroying connection" with connection id, backend pid, error code, frame length, in-flight count; omit frame bytes
+ 			(error) => ((connection.fatal = error), socket.destroy()),
+ 		);
+ 
+@@ -106,6 +110,7 @@ export function Connection(ready, options, events) {
+ 	function ondrain() {
+ 		const x = drained;
+ 		drained = null;
++		// XXX(astra): log trace "COPY write resumed after drain" if a callback was waiting, with connection id, query id, pause duration ms, buffered bytes
+ 		x && x();
+ 	}
+ 
+@@ -120,6 +125,8 @@ export function Connection(ready, options, events) {
+ 		flushing = false;
+ 		if (closed) return (out.take(), true);
+ 
++		// XXX(claude): log trace "socket send buffer full; waiting for drain" if socket.write returns
++		//   false, with connection id, bytes
+ 		return out.length ? socket.write(out.take()) : true;
+ 	}
+ 
+@@ -145,6 +152,9 @@ export function Connection(ready, options, events) {
+ 	function queue(x) {
+ 		if (closed) return settleError(x, closed);
+ 
++		// XXX(claude): log warn "query rejected: COPY in progress on this connection" with query text
++		//   truncated
++		// XXX(astra): log warn "query rejected while COPY owns connection" if this branch is taken, with connection id, query id, COPY query id, lease kind; rate-limit
+ 		if (blocker && blocker.streaming && blocker.open)
+ 			return settleError(
+ 				x,
+@@ -152,6 +162,7 @@ export function Connection(ready, options, events) {
+ 			);
+ 
+ 		x.query && (x.query.state = connection.backend);
++		// XXX(astra): log debug "query waiting behind connection blocker" if queued, with connection id, query id, blocker kind (cursor/COPY/describe/exclusive), pending count; measure wait separately from pool wait
+ 		if (fence) pending.splice(pending.indexOf(fence), 0, x);
+ 		else if (x.ends && open.size) pending.push((fence = x));
+ 		else if (blocker || pending.length) pending.push(x);
+@@ -174,6 +185,9 @@ export function Connection(ready, options, events) {
+ 		try {
+ 			result = x.write(x);
+ 		} catch (error) {
++			// XXX(claude): log debug "query could not be serialized" with the error, query text truncated
++			//   (the query is rejected with it)
++			// XXX(astra): log debug "query could not be encoded" with connection id, query id, phase, error code, parameter count and type OIDs; final query rejection owns the failure log
+ 			x.own = error;
+ 			result = skip;
+ 		}
+@@ -190,6 +204,7 @@ export function Connection(ready, options, events) {
+ 				return sent.length === 0 ? queueMicrotask(() => settle(x)) : sent.push(x);
+ 			}
+ 
++			// XXX(astra): log debug "forcing transaction into failed state after local query error" with connection id, query id, lease kind, original error code; synthetic SQL errors are not separate application failures
+ 			x.kind = "simple";
+ 			x.text = refused;
+ 			x.results = [];
+@@ -223,8 +238,12 @@ export function Connection(ready, options, events) {
+ 		entry.owner.fresh = null;
+ 		if (prepared.size <= limit) return;
+ 
++		// XXX(claude): log debug "per-connection prepared statement limit (<limit>) reached; closing the
++		//   oldest statement" with connection id, name (rate-limited; frequent hits mean the
++		//   statement cache is thrashing)
+ 		for (const [name, x] of prepared) {
+ 			if (x.state !== "parsing") {
++				// XXX(astra): log debug "connection prepared statement evicted" with connection id, statement name, cache size, limit 1000, reason capacity
+ 				prepared.delete(name);
+ 				p.close(out, "S", name);
+ 				return;
+@@ -308,6 +327,7 @@ export function Connection(ready, options, events) {
+ 			name = statement.name,
+ 			current = name ? prepared.get(name) : null;
+ 
++		// XXX(astra): log debug "cursor started" if cursorFn is set, with connection id, query id, batch rows, transaction id, named versus unnamed portal
+ 		if (query.cursorFn) {
+ 			x.rows = query.cursorRows;
+ 			x.portal = transaction() ? "c" + portals++ : "";
+@@ -323,6 +343,7 @@ export function Connection(ready, options, events) {
+ 			);
+ 
+ 		if (current && current !== x.previous && usable(current, statement)) {
++			// XXX(astra): log trace "prepared statement cache hit" with connection id, query id, statement name, version; prefer hit/miss counters for routine monitoring
+ 			x.entry = current;
+ 			x.columns = current.columns;
+ 			x.values = serialize(current.oids, built, current);
+@@ -338,6 +359,7 @@ export function Connection(ready, options, events) {
+ 			return;
+ 		}
+ 
++		// XXX(astra): log debug "preparing statement" with connection id, query id, statement name or unnamed, cache miss/stale reason, parameter OIDs, redacted SQL truncated to 512 chars only if opted in
+ 		const typed = !inferred(built);
+ 		name && (x.fresh = Entry(name, x, typed ? built.oids : null));
+ 		current && p.close(out, "S", name);
+@@ -369,6 +391,8 @@ export function Connection(ready, options, events) {
+ 			throw error;
+ 		}
+ 		x.flushing || (x.synced = true);
++		// XXX(claude): log trace "query sent" with connection id, statement name, text truncated, parameter
++		//   count (never the values) — this is what the user-supplied debug() hook sees today
+ 		debug(x.statement.text, x.values, x.entry ? x.entry.oids : x.params || x.query.wire.built.oids);
+ 	}
+ 
+@@ -432,7 +456,10 @@ export function Connection(ready, options, events) {
+ 						x.own = x.original;
+ 						return sync(x);
+ 					}
++				// XXX(claude): log info "prepared statement <name> result shape changed; re-prepared" with
++				//   query text truncated — a schema change under a running application
+ 				} else if (previous) {
++					// XXX(astra): log debug "prepared statement result or parameter shape changed" with connection id, query id, statement name, old/new type OIDs and column counts, version
+ 					stale(previous);
+ 					x.statement.version++;
+ 				}
+@@ -440,6 +467,7 @@ export function Connection(ready, options, events) {
+ 				return run(x, "");
+ 			}
+ 			const entry = x.entry;
++			// XXX(astra): log trace "statement description received" with connection id, query id, statement name, parameter OIDs, column count; omit column values
+ 			entry && ((entry.oids = params), (entry.columns = columns), learned(entry, x.statement));
+ 			x.values = serialize(params, built, entry || {});
+ 			run(x, name);
+@@ -476,6 +504,7 @@ export function Connection(ready, options, events) {
+ 	}
+ 
+ 	function simple(query, sql) {
++		// XXX(astra): log debug "executing simple-protocol query" with connection id, query id, reason (explicit/unsafe without parameters/COPY/internal), prepare=false, redacted SQL truncated to 512 chars only if opted in
+ 		const x = Exchange("simple", query, connection.lease, (x) => {
+ 			debug(sql, [], []);
+ 			p.query(out, sql);
+@@ -498,6 +527,7 @@ export function Connection(ready, options, events) {
+ 	}
+ 
+ 	function cancel(query) {
++		// XXX(astra): log debug "query cancellation requested" with connection id, query id, phase (cursor callback/queued/sent/active), backend pid, elapsed ms
+ 		if (running.has(query) || (sent[0] && sent[0].query === query && sent[0].awaiting))
+ 			return (
+ 				(query.aborted = Errors.generic("57014", "canceling statement due to user request")),
+@@ -517,12 +547,18 @@ export function Connection(ready, options, events) {
+ 		const x = sent.find((x) => x.query === query);
+ 		if (!x) return Promise.resolve();
+ 
++		// XXX(claude): log debug "sending CancelRequest" with connection id, backend pid, query text
++		//   truncated — cancel opens a new socket; its failure rejects query.cancel()
++		// XXX(astra): log debug "cancellation deferred until query becomes active" if x is not the active head, with connection id, query id, pipeline position, pending count
+ 		return x === sent[0] && query.active
+ 			? ready.cancel()
+ 			: new Promise((resolve, reject) => (x.cancel = { resolve, reject }));
+ 	}
+ 
+ 	function close() {
++		// XXX(claude): log debug "close requested" with connection id, in-flight count (Terminate is
++		//   deferred until idle)
++		// XXX(astra): log debug "graceful connection close requested" if this is the first request, with connection id, backend pid, caller reason (idle/lifetime/pool close/end/session state), sent/pending counts, lease kind
+ 		closing ||
+ 			(closing = new Promise((r) => {
+ 				connection.onended = r;
+@@ -539,11 +575,14 @@ export function Connection(ready, options, events) {
+ 		if (closed) return connection.onended && connection.onended();
+ 
+ 		flush();
++		// XXX(astra): log debug "sending connection termination" with connection id, backend pid, recorded close reason, connection age ms, prepared statement count
+ 		socket.end(p.Terminate());
+ 	}
+ 
+ 	function destroy(error) {
++		// XXX(claude): log debug "destroying connection" with connection id and the error if given
+ 		closing || (closing = Promise.resolve());
++		// XXX(astra): log debug "destroying connection" with connection id, recorded reason, error code, in-flight count, lease kind; shutdown timeout and unexpected failures have their own severity
+ 		socket.destroy(error);
+ 	}
+ 
+@@ -558,12 +597,20 @@ export function Connection(ready, options, events) {
+ 			fatal =
+ 				connection.fatal ||
+ 				(head && !head.ends && head.error && head.error.severity === "FATAL" && head.error);
++		// XXX(claude): log error "connection closed unexpectedly" if !closing, else debug "connection
++		//   closed" — with connection id, host:port, backend pid, cause code/message
++		//   (connection.fatal, a FATAL ErrorResponse, or the socket error), <sent.length>
++		//   in-flight and <pending.length> queued queries failed, <running.size> cursor
++		//   callbacks aborted, COPY streams destroyed; choose this or pool.onclose as the single
++		//   place
++		// XXX(astra): log warn "connection closed unexpectedly" if !closing (error if work was lost), with connection id, backend pid, EOF/socket/server-FATAL cause, sqlstate, age ms, sent/pending/cursor counts, active query id, transaction outcome unknown
+ 		closed = Errors.connection(
+ 			closing ? "CONNECTION_DESTROYED" : "CONNECTION_CLOSED",
+ 			options,
+ 			ready.host,
+ 			ready.port,
+ 		);
++		// XXX(astra): log debug "connection closed by client" if closing, with connection id, recorded close reason, duration ms, in-flight count, sanitized transport error if present
+ 		closed.cause = fatal || error || undefined;
+ 		sent.splice(0).forEach((x) => {
+ 			x.stream && x.stream.destroy(closed);
+@@ -591,7 +638,10 @@ export function Connection(ready, options, events) {
+ 			: x.query && !x.query.settled && x.query.reject(decorate(x.query, error));
+ 	}
+ 
++	// XXX(claude): the debug option is the only per-query hook today; a trace-level log in run()/simple()
++	//   (text truncated, parameter count) would subsume it — keep the option for compatibility
+ 	function debug(text, values, oids) {
++		// XXX(astra): do not forward debug callback arguments to logs because values contain query parameters and text may contain literals; callback exceptions should identify the callback without dumping arguments
+ 		typeof options.debug === "function" && options.debug(connection.id, text, values, oids);
+ 	}
+ 
+@@ -600,6 +650,7 @@ export function Connection(ready, options, events) {
+ 		traced++;
+ 		trace.query = x.text || x.statement.text;
+ 		trace.statement = x.statement ? x.statement.name : "";
++		// XXX(astra): do not reuse trace.parameters for logging because options.debug exposes parameter values; SQL text also requires explicit opt-in and redaction
+ 		trace.parameters = options.debug ? x.query.parameters : undefined;
+ 		trace.connection = connection.id;
+ 		trace.host = connection.host;
+@@ -659,9 +710,14 @@ export function Connection(ready, options, events) {
+ 																								? unsupported("FunctionCallResponse")
+ 																								: type === 118
+ 																									? unsupported("NegotiateProtocolVersion")
++																									// XXX(astra): log debug "unhandled backend message ignored" if no dispatch branch matches, once per type per connection, with connection id, query id if active, message type/length, transaction status; never packet bytes
+ 																									: null;
+ 		} catch (error) {
++			// XXX(claude): log error "exception while handling server message type <type>" with the error,
++			//   connection id; it fails sent[0] (often a custom parser, transform or forEach
++			//   callback threw) or destroys the connection when nothing is in flight
+ 			const x = sent[0];
++			// XXX(astra): log error "backend message processing failed" with connection id, query id if present, frame type/length, parser or callback phase, sanitized error code/message; omit frame and row contents
+ 			x ? fail(x, error) : destroy(error);
+ 		}
+ 		blocker && !holds(blocker) && ((blocker = null), release());
+@@ -676,6 +732,8 @@ export function Connection(ready, options, events) {
+ 	}
+ 
+ 	function unsupported(x) {
++		// XXX(claude): log warn "server sent an unsupported message: <name>" with connection id
++		// XXX(astra): log error "unsupported backend message" with connection id, message type, active query id or none; include idle messages currently discarded here
+ 		sent[0] && fail(sent[0], Errors.notSupported(x));
+ 	}
+ 
+@@ -688,6 +746,7 @@ export function Connection(ready, options, events) {
+ 			x.entry.name === name &&
+ 			x.entry.owner === x &&
+ 			x.entry.state === "parsing" &&
++			// XXX(astra): log trace "prepared statement accepted by server" with connection id, statement name, cache size
+ 			(x.entry.state = "ready");
+ 	}
+ 
+@@ -784,7 +843,9 @@ export function Connection(ready, options, events) {
+ 			}
+ 		}
+ 
++		// XXX(astra): do not log decoded rows or transformation inputs because they contain application data and run once per row; report parser/transform/forEach failures with column index/type only
+ 		const out = transform.row.from ? transform.row.from(row) : row;
++		// XXX(astra): log warn "query result buffering exceeded threshold" if buffered row/byte counts first cross configurable limits, with connection/query id, rows, bytes, thresholds, elapsed ms; do not wait for CommandComplete on a runaway result
+ 		query.forEachFn ? query.forEachFn(out, result) : (result[result.length] = out);
+ 	}
+ 
+@@ -793,6 +854,7 @@ export function Connection(ready, options, events) {
+ 			{ command, count } = p.commandComplete(x, start, end),
+ 			result = item.result;
+ 
++		// XXX(astra): log debug "large query result completed" if row/byte totals exceeded configured limits, with connection/query id, actual rows received, bytes, duration ms, delivery mode; command count is not always returned rows and threshold warning was already emitted
+ 		result.command = command;
+ 		result.count = count;
+ 		result.state = connection.backend;
+@@ -800,6 +862,7 @@ export function Connection(ready, options, events) {
+ 		item.query && (item.query.source = item);
+ 		result.columns = result.columns || item.columns;
+ 
++		// XXX(astra): log debug "COPY command completed" if item.final or COPY mode was active, with connection id, query id, direction, command, rows, bytes, duration ms; this confirms server completion
+ 		item.final &&
+ 			(item.stream && Object.assign(item.stream, { count, command }),
+ 			item.final(),
+@@ -814,6 +877,7 @@ export function Connection(ready, options, events) {
+ 		if (item.rows) {
+ 			item.finished = true;
+ 			item.flushing && sync(item);
++			// XXX(astra): do not log this catch as an ignored failure because settle() later observes item.last; log a final cursor callback failure once at rejection
+ 			result.count && (item.last = new Promise((r) => r(item.query.cursorFn(result)))).catch(noop);
+ 		}
+ 	}
+@@ -821,6 +885,10 @@ export function Connection(ready, options, events) {
+ 	function unsafe(item) {
+ 		const error = () =>
+ 			Errors.generic("UNSAFE_TRANSACTION", "Only use sql.begin, sql.reserved or max: 1");
++		// XXX(claude): log warn "a query left the connection inside a transaction without
++		//   sql.begin/reserve; rolling back" with connection id, query text truncated — an
++		//   application bug that today only surfaces as UNSAFE_TRANSACTION rejections
++		// XXX(astra): log error "unreserved transaction detected; rolling back connection" with connection id, query id, pool max, transaction status, affected in-flight count, UNSAFE_TRANSACTION
+ 		rolling = true;
+ 		item.own = error();
+ 		sent.forEach((x) => x.kind !== "local" && (x.own = error()));
+@@ -836,8 +904,12 @@ export function Connection(ready, options, events) {
+ 
+ 	async function PortalSuspended() {
+ 		const item = sent[0];
++		// XXX(astra): log trace "cursor batch complete; waiting for consumer" with connection id, query id, portal, batch rows, total rows, batch duration ms
+ 		if (!item.flushing) return (item.suspended = true);
+ 
++		// XXX(claude): log warn "cursor callback has held connection <id> for more than <n>s" with query
++		//   text truncated — the connection is exclusive while the cursor is open, so a slow
++		//   callback starves the pool
+ 		try {
+ 			item.awaiting = true;
+ 			const next = await item.query.cursorFn(item.result);
+@@ -845,11 +917,13 @@ export function Connection(ready, options, events) {
+ 			item.result = new Result();
+ 			if (closed || item.synced || sent[0] !== item) return;
+ 			if (item.query.aborted) throw item.query.aborted;
++			// XXX(astra): log debug "cursor closed early by consumer" if next === CLOSE, with connection id, query id, portal, rows delivered, duration ms
+ 			next === CLOSE
+ 				? (p.close(out, "P", ""), sync(item))
+ 				: (p.execute(out, "", item.rows), p.flush(out), schedule());
+ 		} catch (error) {
+ 			item.awaiting = false;
++			// XXX(astra): log warn "cursor callback failed after exchange ended" if this return discards a distinct callback error, with connection/query id, portal, sanitized error code, ended/closed/cancelled flags
+ 			if (closed || item.synced || sent[0] !== item) return;
+ 			fail(item, error);
+ 		}
+@@ -861,17 +935,33 @@ export function Connection(ready, options, events) {
+ 		const item = sent[0],
+ 			error = Errors.postgres(p.error(x, start, end));
+ 
++		// XXX(claude): log error "server error with no query in flight" with connection id, backend pid,
++		//   severity, sqlstate, message — FATAL 57P01 terminating connection due to
++		//   administrator command, 57P05 idle session timeout, 57P02 crash shutdown, 08P01
++		//   protocol violation
++		// XXX(astra): log error "server error without an active query" if !item, with connection id, backend pid, severity, sqlstate, sanitized message truncated to 512 chars; correlate subsequent close
+ 		if (!item) return (connection.fatal = error);
+ 
++		// XXX(claude): log debug "query failed" with sqlstate, message, position, statement name,
++		//   connection id, ms since sent, text truncated; log warn instead for sqlstates an
++		//   operator acts on: 40001 serialization_failure, 40P01 deadlock_detected, 57014
++		//   query_canceled (statement_timeout), 53xxx insufficient resources, 55P03
++		//   lock_not_available, 42P05/26000 (see failed()), and severity FATAL/PANIC
++		// XXX(astra): log debug "server rejected query attempt" with connection id, query id, sqlstate, severity, position, statement name, bound/retried flags; final rejection or retry owns the operator-facing event
+ 		item.stream && item.stream.destroy(error);
+ 		item.final && (item.final(error), (item.final = null));
++		// XXX(astra): log warn "server cancelled query" if sqlstate is 57014, with connection/query id, elapsed ms, reason (statement_timeout/user request/unknown), configured timeout if known, local-cancel flag; explicit user cancellation is debug and must not be inferred from sqlstate alone
+ 		fail(item, error);
+ 	}
+ 
+ 	function ReadyForQuery(x, start) {
++		// XXX(astra): log trace "server transaction status changed" if status changes, with connection id, transaction id, previous/new status (idle/in transaction/failed transaction)
+ 		status = p.readyForQuery(x, start);
+ 		frames.own(false);
+ 		const item = sent.shift();
++		// XXX(claude): log info "slow query" if the head time (timed() computes sample = now - headSince)
++		//   exceeds a configurable threshold, with connection id, text truncated, elapsed ms,
++		//   rows (item.result.count), statement name; parameters only when options.debug is set
+ 		options.scheduler && timed(item);
+ 		item.done = true;
+ 		item.open = false;
+@@ -935,6 +1025,10 @@ export function Connection(ready, options, events) {
+ 		const entry = x.kind === "query" ? x.entry : null;
+ 		const parsing = x.fresh || (entry && entry.owner === x && entry.state === "parsing");
+ 
++		// XXX(claude): log warn "prepared statement name <name> already exists on the server (42P05);
++		//   renaming and retrying" with connection id — expected only behind a
++		//   transaction-pooling proxy or after a reconnect race
++		// XXX(astra): log debug "prepared statement name collision" if sqlstate 42P05, with connection id, query id, statement name, retry eligibility; retry renames the statement
+ 		if (x.error.code === "42P05" && x.kind === "query" && x.statement.name && parsing) {
+ 			entry && drop(entry);
+ 			x.statement.name += "_";
+@@ -946,6 +1040,9 @@ export function Connection(ready, options, events) {
+ 		if (entry.owner === x && entry.state === "parsing")
+ 			return (drop(entry), settleError(x, x.error));
+ 
++		// XXX(claude): log warn "server forgot prepared statement <name> (26000); re-preparing" with
++		//   connection id — DISCARD ALL, or a pooler switched backends
++		// XXX(astra): log debug "server lost prepared statement" if sqlstate 26000, with connection id, query id, statement name, retry eligibility
+ 		if (x.error.code === "26000") {
+ 			drop(entry);
+ 			return retryable(x) ? again(x, null) : settleError(x, x.error);
+@@ -953,13 +1050,17 @@ export function Connection(ready, options, events) {
+ 
+ 		if (x.bound) return settleError(x, x.error);
+ 
++		// XXX(claude): log info "retrying query after <sqlstate>" with statement name, text truncated —
++		//   typically 0A000 "cached plan must not change result type" after a schema change
+ 		if (retryable(x)) return again(x, x.error);
+ 
++		// XXX(claude): log debug "marking prepared statement <name> stale" with sqlstate
+ 		stale(entry);
+ 		settleError(x, x.error);
+ 	}
+ 
+ 	function stale(entry) {
++		// XXX(astra): log debug "prepared statement marked stale" if still cached, with connection id, statement name, version, triggering sqlstate
+ 		prepared.get(entry.name) === entry && (entry.state = "stale");
+ 	}
+ 
+@@ -978,6 +1079,7 @@ export function Connection(ready, options, events) {
+ 	}
+ 
+ 	function again(x, original) {
++		// XXX(astra): log warn "retrying query after prepared statement failure" with connection id, query id, statement name, sqlstate, sanitized message, retry number 1, elapsed ms, reparse/shape-check strategy; rate-limit repeated cache churn
+ 		const retry = Exchange("query", x.query, x.lease, extended);
+ 		retry.statement = x.statement;
+ 		retry.ends = x.ends;
+@@ -1008,6 +1110,7 @@ export function Connection(ready, options, events) {
+ 			(error) => {
+ 				running.delete(query);
+ 				if (query.settled) return unfence(cursor);
++				// XXX(astra): log warn "cursor callback failed; closing portal" with connection id, query id, portal, rows delivered, sanitized error code/message; preserve final rejection
+ 				queue(step(cursor, true, error));
+ 			},
+ 		);
+@@ -1029,13 +1132,16 @@ export function Connection(ready, options, events) {
+ 	function stepped(x) {
+ 		const cursor = x.origin;
+ 
++		// XXX(astra): log warn "cursor outlived its transaction" if the lease or epoch changed and another batch was requested, with connection id, query id, portal, original/current epoch, UNSAFE_TRANSACTION
+ 		if (connection.lease !== cursor.lease || cursor.epoch !== epoch) {
+ 			if (x.failure) throw x.failure;
++			// XXX(claude): log warn "cursor outlived its transaction" with query text truncated
+ 			if (!x.end) throw outlived();
+ 			return skip;
+ 		}
+ 
+ 		x.own = x.failure;
++		// XXX(astra): log debug "cursor portal closing" if x.end, with connection id, query id, portal, reason (consumer/cancel/callback error), rows delivered, duration ms
+ 		x.end ? p.close(out, "P", x.portal) : p.execute(out, x.portal, x.rows);
+ 		sync(x);
+ 	}
+@@ -1045,6 +1151,7 @@ export function Connection(ready, options, events) {
+ 	}
+ 
+ 	function finish(x) {
++		// XXX(astra): log debug "query exchange completed" with connection id, query id, command, result-set count, rows/bytes, elapsed ms, retry count; cursor completion includes total batches and consumer wait
+ 		const { query } = x;
+ 
+ 		if (x.kind === "simple") {
+@@ -1053,11 +1160,17 @@ export function Connection(ready, options, events) {
+ 			return query.resolve(results.length > 1 ? results : results[0] || x.result);
+ 		}
+ 
++		// XXX(claude): log warn "large result: <n> rows" if x.result.length exceeds a configurable
++		//   threshold (e.g. 100k) with text truncated, connection id — predicts memory blow-ups;
++		//   suggest .cursor() or .forEach()
+ 		query.resolve(x.result);
+ 	}
+ 
+ 	function NotificationResponse(x, start) {
+ 		const { pid, channel, payload } = p.notification(x, start);
++		// XXX(claude): log trace "notification received" with channel, backend pid, payload length (not the
++		//   payload)
++		// XXX(astra): log trace "notification received" with connection id, sender backend pid, channel, payload byte length, listener present; never payload contents
+ 		events.onnotify && guard(events.onnotify, channel, payload, pid);
+ 	}
+ 
+@@ -1065,6 +1178,9 @@ export function Connection(ready, options, events) {
+ 		try {
+ 			fn(...xs);
+ 		} catch (error) {
++			// XXX(claude): log warn "<onnotify|onnotice|onparameter> callback threw" with the error,
++			//   connection id — swallowed silently by noop(error) today
++			// XXX(astra): log warn "application event callback threw; error ignored" with connection id, callback kind (notice/notify/parameter), sanitized error code/message; rate-limit and omit callback arguments
+ 			noop(error);
+ 		}
+ 	}
+@@ -1079,19 +1195,29 @@ export function Connection(ready, options, events) {
+ 				port: connection.port,
+ 				database: options.database,
+ 			});
++		// XXX(claude): replace the console.log default: log at a level derived from notice.severity
++		//   (WARNING -> warn; NOTICE/INFO -> info; LOG/DEBUG -> debug) with sqlstate, message,
++		//   detail, hint, where, connection id, backend pid; keep onnotice overriding and
++		//   onnotice: false silencing
+ 		options.onnotice
+ 			? guard(options.onnotice, notice)
++			// XXX(astra): log info "server notice" (replace console.log; WARNING -> warn, DEBUG -> debug) with connection id, backend pid, severity, sqlstate, sanitized message truncated to 512 chars; do not dump notice detail/where
+ 			: options.onnotice === false || console.log(notice);
+ 	}
+ 
+ 	function ParameterStatus(x, start) {
+ 		const [k, v] = p.parameterStatus(x, start);
++		// XXX(claude): log info "server parameter <k> changed to <v>" if connection.parameters[k] existed
++		//   and differs (SET in a query, server reload); debug otherwise
++		// XXX(astra): log debug "session parameter changed" if value changed for server_version, client_encoding, standard_conforming_strings, TimeZone or application_name, with connection id, key, previous/new value
+ 		connection.parameters[k] = v;
+ 		events.onparameter && guard(events.onparameter, k, v);
+ 	}
+ 
+ 	function writeData(chunk, callback) {
++		// XXX(astra): do not log COPY chunks because they contain application or replication data; track byte counts without retaining buffers
+ 		p.copyData(out, chunk);
++		// XXX(astra): log trace "COPY write paused for socket backpressure" if flush returns false, with connection id, query id, buffered bytes; log drain duration on resume, rate-limit transitions
+ 		flush() ? callback() : (drained = callback);
+ 	}
+ 
+@@ -1104,7 +1230,10 @@ export function Connection(ready, options, events) {
+ 			destroy(error, callback) {
+ 				callback(error);
+ 				item.stream = null;
++				// XXX(claude): log warn "COPY FROM STDIN stream destroyed; sending CopyFail" with the
++				//   reason, connection id, query text truncated, bytes written
+ 				if (!item.copied && !closed && !item.error) {
++					// XXX(astra): log warn "COPY input aborted" with connection id, query id, bytes sent, elapsed ms, sanitized error code or consumer-destroy reason; never raw error payload
+ 					p.copyFail(out, (error || "The COPY stream was destroyed") + "");
+ 					item.copied = true;
+ 					item.open = false;
+@@ -1113,6 +1242,9 @@ export function Connection(ready, options, events) {
+ 				}
+ 			},
+ 			final(callback) {
++				// XXX(claude): log debug "COPY FROM STDIN finished" with connection id, bytes written,
++				//   elapsed ms
++				// XXX(astra): log debug "COPY input finished; awaiting server completion" with connection id, query id, bytes sent, elapsed ms
+ 				p.copyDone(out);
+ 				item.copied = true;
+ 				item.open = false;
+@@ -1125,6 +1257,8 @@ export function Connection(ready, options, events) {
+ 
+ 	function CopyInResponse() {
+ 		const item = sent[0];
++		// XXX(claude): log debug "COPY FROM STDIN started" with connection id, query text truncated
++		// XXX(astra): log debug "COPY input started" with connection id, query id, direction in, stream highWaterMark
+ 		item.stream = new Stream.Writable(writable(item));
+ 		item.query.resolve(item.stream);
+ 	}
+@@ -1135,6 +1269,7 @@ export function Connection(ready, options, events) {
+ 
+ 			if (!frames.paused) return;
+ 
++			// XXX(astra): log trace "COPY output resumed after consumer backpressure" with connection id, query id, paused duration ms, buffered bytes; rate-limit transitions
+ 			frames.resume();
+ 			frames.paused || socket.resume();
+ 		};
+@@ -1142,6 +1277,8 @@ export function Connection(ready, options, events) {
+ 
+ 	function CopyOutResponse() {
+ 		const item = sent[0];
++		// XXX(claude): log debug "COPY TO STDOUT started" with connection id, query text truncated
++		// XXX(astra): log debug "COPY output started" with connection id, query id, direction out, stream highWaterMark; also log consumer destroy/error and whether the server is still sending
+ 		item.stream = new Stream.Readable({ read: readable(item) });
+ 		item.open = false;
+ 		frames.own(true);
+@@ -1150,6 +1287,8 @@ export function Connection(ready, options, events) {
+ 
+ 	function CopyBothResponse() {
+ 		const item = sent[0];
++		// XXX(claude): log debug "replication stream started (CopyBoth)" with connection id
++		// XXX(astra): log debug "bidirectional COPY started" with connection id, query id, direction both, replication flag
+ 		item.stream = new Stream.Duplex({ ...writable(item), read: readable(item) });
+ 		frames.own(true);
+ 		item.query.resolve(item.stream);
+@@ -1158,6 +1297,7 @@ export function Connection(ready, options, events) {
+ 	function CopyData(x, start, end) {
+ 		const item = sent[0];
+ 
++		// XXX(astra): log debug "discarding COPY data after consumer stream ended" if this begins, with connection id, query id, discarded byte count; aggregate instead of logging each chunk
+ 		if (!item.stream) return;
+ 
+ 		item.wanted = false;
+@@ -1167,6 +1307,9 @@ export function Connection(ready, options, events) {
+ 			) &&
+ 			!item.wanted
+ 		) {
++			// XXX(claude): log trace "pausing the socket: COPY consumer is not reading" with connection id
++			//   (and "resumed" in readable()) — sustained pauses mean a slow consumer
++			// XXX(astra): log trace "COPY output paused for consumer backpressure" with connection id, query id, buffered bytes, highWaterMark; measure pause duration
+ 			frames.pause();
+ 			socket.pause();
+ 		}
+@@ -1175,6 +1318,9 @@ export function Connection(ready, options, events) {
+ 	function CopyDone() {
+ 		frames.own(false);
+ 		const item = sent[0];
++		// XXX(claude): log debug "COPY finished" with connection id, elapsed ms (the row count arrives in
++		//   CommandComplete)
++		// XXX(astra): log debug "server finished COPY output" with connection id, query id, bytes received, elapsed ms; CommandComplete remains the command-success boundary
+ 		item.stream && item.stream.push(null);
+ 		item.stream = null;
+ 	}
+@@ -1273,6 +1419,10 @@ function read(state, array, text, from) {
+ 	try {
+ 		return (state[key] = compile(state.columns, array, text, from));
+ 	} catch (_) {
++		// XXX(claude): log info once "row reader compilation failed; using the slower generic path" with
++		//   the error — new Function is blocked by CSP, Cloudflare Workers, or
++		//   --disallow-code-generation-from-strings
++		// XXX(astra): log debug "compiled row decoder unavailable; using interpreter" once per process, with sanitized error type, column count, runtime; omit generated code and row data
+ 		compiles = state.compilable = false;
+ 		return null;
+ 	}
+diff --git a/src/diagnostics.ts b/src/diagnostics.ts
+index 6e1c236..bd9246c 100644
+--- a/src/diagnostics.ts
++++ b/src/diagnostics.ts
+@@ -1,5 +1,12 @@
+ import dc from "diagnostics_channel";
+ 
++// XXX(claude): design note: these channels (postgres:query, postgres:connect, postgres:transaction,
++//   postgres:pool, postgres:notice) already carry most of the context a log line needs (query
++//   text, timings, connection, host, outcome). A built-in logging sink could subscribe to them
++//   instead of adding log calls at every site, leaving direct log calls only for events that
++//   have no channel: connection retries/backoff, swallowed callback errors, TLS downgrade and
++//   unverified certificates, auth method, listen/subscribe reconnects, statement-cache retries
++//   and evictions, idle/lifetime closes, pool end/destroy
+ export const channels = {
+ 	query: tracing("postgres:query"),
+ 	connect: tracing("postgres:connect"),
+@@ -32,6 +39,7 @@ export function listened(channel) {
+ }
+ 
+ export function start(t, context, fn) {
++	// XXX(astra): do not equate tracing end.publish with operation completion because it only ends synchronous dispatch; async query/connect/transaction outcomes require finish()
+ 	return typeof t.start.runStores === "function"
+ 		? t.start.runStores(context, run)
+ 		: (t.start.publish(context), run());
+@@ -51,6 +59,7 @@ export function finish(t, context, error, result) {
+ 	context[done] = true;
+ 
+ 	if (error) {
++		// XXX(astra): do not forward whole diagnostics contexts/errors/results to logs because they may contain SQL parameters, rows and backend secrets; build a sanitized logging record independently of subscriber presence
+ 		context.error = error;
+ 		t.error.publish(context);
+ 	} else {
+@@ -63,8 +72,12 @@ export function finish(t, context, error, result) {
+ 
+ function tracing(name) {
+ 	try {
++		// XXX(claude): log debug once "diagnostics_channel tracing unavailable" if tracingChannel is
++		//   missing (Node < 19.9) — the tracing channels silently become null
++		// XXX(astra): log debug "tracing diagnostics unavailable" once per runtime if tracingChannel is absent, with runtime/version and channel name; logging must still work
+ 		return typeof dc.tracingChannel === "function" ? dc.tracingChannel(name) : null;
+ 	} catch (error) {
++		// XXX(astra): log debug "tracing channel creation failed; continuing without tracing" once per channel, with channel name, runtime, sanitized error type/code
+ 		return null;
+ 	}
+ }
+@@ -73,6 +86,7 @@ function plain(name) {
+ 	try {
+ 		return dc.channel(name);
+ 	} catch (error) {
++		// XXX(astra): log debug "diagnostics channel creation failed; continuing without channel" once per channel, with channel name, runtime, sanitized error type/code; avoid recursive logging through the failed channel
+ 		return null;
+ 	}
+ }
+diff --git a/src/errors.ts b/src/errors.ts
+index b6084a8..1e4cccc 100644
+--- a/src/errors.ts
++++ b/src/errors.ts
+@@ -6,10 +6,13 @@ export class PostgresError extends Error {
+ 	}
+ 
+ 	toJSON() {
++		// XXX(astra): do not serialize complete PostgresError objects into logs because detail, where, internal_query and debug-added fields may expose values; allowlist and sanitize code/severity/position/message
+ 		return { ...this, message: this.message };
+ 	}
+ }
+ 
++// XXX(claude): nothing to log in this file: these constructors have no context; log at the site that knows
++//   the connection and the query
+ export const Errors = {
+ 	connection,
+ 	postgres,
+@@ -30,6 +33,7 @@ function connection(code, options, host, port) {
+ }
+ 
+ function postgres(x) {
++	// XXX(astra): do not log at error construction because errors can be recovered or retried; query, startup and stream outcome boundaries own severity and deduplication
+ 	const error = new PostgresError(x);
+ 	Error.captureStackTrace(error, postgres);
+ 	return error;
+@@ -67,6 +71,7 @@ function locations() {
+ 		const url = new URL(".", import.meta.url);
+ 		return url.protocol === "file:" ? [url.href, decodeURIComponent(url.pathname)] : [url.href];
+ 	} catch (error) {
++		// XXX(astra): do not log this stack-location fallback repeatedly because it only removes internal-frame filtering; at most one debug event with runtime and error type
+ 		return [];
+ 	}
+ }
+@@ -94,6 +99,7 @@ export function queryError(error, q, debug) {
+ 	if (!q || "query" in error) return error;
+ 
+ 	const built = q.built;
++	// XXX(astra): do not log queryError properties wholesale because query, parameters and args may contain secrets even when non-enumerable; debug=true does not authorize logging those fields
+ 	Object.defineProperties(error, {
+ 		query: {
+ 			value: built ? built.text : q.strings[0],
+diff --git a/src/index.ts b/src/index.ts
+index 721b31e..fc8dd32 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -53,6 +53,7 @@ function Postgres(a, b) {
+ 		subscribe = options.no_subscribe || Subscribe(Postgres, { ...options, shared_types: types }),
+ 		listener = Listen(options);
+ 
++	// XXX(astra): log error "named custom types require fetch_types" if this combination is configured, with pool id, named type count, fetch_types=false, TYPE_NOT_FOUND
+ 	if (types.named && options.fetch_types === false)
+ 		throw Errors.generic(
+ 			"TYPE_NOT_FOUND",
+@@ -127,6 +128,7 @@ function Postgres(a, b) {
+ 
+ 		function unsafe(string, args = [], options = {}) {
+ 			arguments.length === 2 && !Array.isArray(args) && ((options = args), (args = []));
++			// XXX(astra): do not log unsafe SQL at construction because it may be an embedded fragment or never execute, and literals can contain secrets; record protocol/prepare choices when dispatched
+ 			return new Query([string], args, handler, {
+ 				prepare: false,
+ 				...options,
+@@ -135,6 +137,7 @@ function Postgres(a, b) {
+ 		}
+ 
+ 		async function notify(channel, payload) {
++			// XXX(astra): log trace "notification sent" after success, with pool id, connection id, channel, payload byte length, elapsed ms; omit payload
+ 			return await sql`select pg_notify(${channel}, ${"" + payload})`;
+ 		}
+ 
+@@ -142,6 +145,7 @@ function Postgres(a, b) {
+ 			arguments.length === 2 && !Array.isArray(args) && ((options = args), (args = []));
+ 			const fileHandler = (query) =>
+ 				fs.readFile(path, "utf8", (err, string) => {
++					// XXX(astra): log error "SQL file read failed" if err, with pool id, query id, path, filesystem error code; do not log file contents
+ 					if (err) return query.reject(err);
+ 					query.strings = [string];
+ 					handler(query);
+@@ -211,8 +215,12 @@ function Postgres(a, b) {
+ 			});
+ 
+ 		try {
++			// XXX(claude): log debug "transaction begin" with mode, connection id, backend pid, ms waited
++			//   for the lease
++			// XXX(astra): log debug "beginning transaction" with pool id, connection id, backend pid, transaction/lease id, normalized mode, lease wait ms; record BEGIN success separately
+ 			await control(lease, "begin " + mode.replace(/[^a-z ]/gi, ""));
+ 			const done = scope(fn);
++			// XXX(astra): log warn "transaction callback failed after connection-loss race settled" only for a distinct late callback failure, with transaction id, connection id, sanitized error; ordinary done rejection is already awaited
+ 			done.catch(() => {});
+ 			return await Promise.race([done, lease.closed]);
+ 		} finally {
+@@ -231,7 +239,9 @@ function Postgres(a, b) {
+ 				scoped = Sql(
+ 					Object.assign(
+ 						(q) => {
++							// XXX(astra): log warn "query attempted after transaction rollback" if stopped, with transaction id, connection id, query id, savepoint id, TRANSACTION_ROLLED_BACK; rate-limit
+ 							if (stopped()) return q.reject(after || (after = rolledBack()));
++							// XXX(astra): log debug "remembering transaction query failure for rollback" on first failure, with transaction id, query id, sqlstate/code; do not duplicate the final query-failure event
+ 							q.catch((e) => uncaught || (uncaught = e));
+ 							lease.send(q);
+ 						},
+@@ -241,20 +251,24 @@ function Postgres(a, b) {
+ 
+ 			scoped.savepoint = savepoint;
+ 			scoped.begin = nested;
++			// XXX(astra): log debug "explicit rollback requested" when invoked for the first time, with transaction id, connection id, savepoint id or whole-transaction scope, elapsed ms
+ 			scoped.rollback = () =>
+ 				rolled ||
+ 				(rolled = control(lease, name ? "rollback to " + identifier(name) : "rollback").then(
+ 					() => {},
+ 				));
+ 			scoped.prepare = (x) => {
++				// XXX(astra): log warn "nested transaction cannot be prepared" if inside, with transaction id, savepoint id, NESTED_TRANSACTION_MODE
+ 				if (inside)
+ 					throw Errors.generic(
+ 						"NESTED_TRANSACTION_MODE",
+ 						"A nested transaction can not be prepared, only the outermost one",
+ 					);
++				// XXX(astra): log debug "two-phase transaction preparation requested" with transaction id, connection id, redacted prepared-transaction identifier; flag identifier normalization if it changed
+ 				prepare = x.replace(/[^a-z0-9$\-_. ]/gi, "");
+ 			};
+ 
++			// XXX(astra): log debug "creating savepoint" if name is set, with transaction id, connection id, redacted savepoint name/id, nesting depth
+ 			name && (await control(lease, "savepoint " + identifier(name)));
+ 			try {
+ 				result = await new Promise((resolve, reject) => {
+@@ -264,8 +278,14 @@ function Postgres(a, b) {
+ 				if (uncaught && !stopped()) throw uncaught;
+ 				if (lease.connection.closed) throw lease.error || lease.connection.closed;
+ 			} catch (error) {
++				// XXX(claude): log info "transaction rolled back after an error" with sqlstate/code,
++				//   message, connection id, elapsed ms, savepoint name if nested; log warn
++				//   "rollback failed" with both errors if the rollback below rejects (its error
++				//   replaces the original one)
++				// XXX(astra): log warn "transaction callback failed; rolling back" with transaction id, connection id, savepoint id, originating query id if known, sqlstate/code, sanitized error, elapsed ms, rollback skipped if connection lost
+ 				context && !name && (context.outcome = "rollback");
+ 				stopped()
++					// XXX(astra): log warn "explicit rollback also failed while handling transaction error" if rolled rejects, with transaction id, connection id, rollback error code and original error code; this secondary failure is currently ignored
+ 					? rolled && (await rolled.catch(() => {}))
+ 					: lease.connection.closed ||
+ 						(await control(lease, name ? "rollback to " + identifier(name) : "rollback"));
+@@ -282,6 +302,10 @@ function Postgres(a, b) {
+ 			}
+ 
+ 			if (!name) {
++				// XXX(claude): log debug "transaction committed" with connection id, elapsed ms, savepoints
++				//   used; log info "transaction prepared" with the gid when prepare is set — an
++				//   orphaned prepared transaction holds locks until an operator removes it
++				// XXX(astra): log debug "finishing transaction" with transaction id, connection id, requested outcome (commit/prepare), elapsed ms; record returned command and failure, since connection loss can leave outcome unknown
+ 				const done = await control(
+ 					lease,
+ 					prepare ? "prepare transaction '" + prepare.replace(/'/g, "''") + "'" : "commit",
+@@ -293,6 +317,9 @@ function Postgres(a, b) {
+ 							? "commit"
+ 							: "rollback");
+ 
++				// XXX(claude): log warn "server rolled back the transaction on COMMIT" with connection id —
++				//   deferred constraint failure, or the transaction was already aborted
++				// XXX(astra): log error "server rolled back instead of committing transaction" if !prepare and returned command is not COMMIT, with transaction id, connection id, command, elapsed ms
+ 				if (!prepare && done.command !== "COMMIT")
+ 					throw Errors.generic(
+ 						"TRANSACTION_ROLLED_BACK",
+@@ -312,6 +339,7 @@ function Postgres(a, b) {
+ 			async function nested(inner, fn) {
+ 				!fn && ((fn = inner), (inner = ""));
+ 
++				// XXX(astra): log warn "nested transaction requested incompatible mode" if modes differ, with transaction id, normalized outer/inner modes, NESTED_TRANSACTION_MODE
+ 				if (normal(inner) && normal(inner) !== normal(mode))
+ 					throw Errors.generic(
+ 						"NESTED_TRANSACTION_MODE",
+@@ -349,10 +377,14 @@ function Postgres(a, b) {
+ 			Object.assign((q) => lease.send(q), { options, cancel: pool.cancel }),
+ 			{ simple: true },
+ 		);
++		// XXX(astra): log debug "transaction control completed" when this promise settles, with transaction id, connection id, operation (begin/commit/rollback/savepoint/rollback-to/prepare), returned command, elapsed ms, error code if failed
+ 		return q.execute();
+ 	}
+ 
+ 	async function end(options) {
++		// XXX(claude): log info "sql.end() called" with pool stats (connections, in-flight, waiting) and
++		//   the timeout; log info "sql ended" with elapsed ms when it resolves
++		// XXX(astra): log info "client end requested" with client/pool id, main/listen/replication pool ids, requested timeout, outstanding work counts; measure time spent stopping auxiliary connections before pool.end
+ 		await Promise.all([listener.end(), subscribe.sql ? subscribe.sql.end({ timeout: 0 }) : null]);
+ 		return pool.end(options);
+ 	}
+@@ -370,6 +402,7 @@ function Listen(options) {
+ 	return {
+ 		listen,
+ 		end: () => {
++			// XXX(astra): log debug "stopping LISTEN service" with listen pool id, channel/listener counts, reconnect timers cancelled, shutdown reason
+ 			channels.forEach((channel) => clearTimeout(channel.timer));
+ 			return closing || (sql ? (closing = sql.end({ timeout: 0 })) : Promise.resolve());
+ 		},
+@@ -388,10 +421,18 @@ function Listen(options) {
+ 				onclose() {
+ 					if (closing) return;
+ 
++					// XXX(claude): log warn "listen connection lost; re-subscribing to <n> channels" with
++					//   channel names and the close reason — notifications sent until re-listen
++					//   completes are lost
++					// XXX(astra): log warn "dedicated LISTEN connection lost; restoring subscriptions" with listen pool id, connection id, previous backend pid, channel/listener counts, disconnect reason; notifications during the gap are not replayed
+ 					channels.forEach((channel, name) => relisten(channel, name));
+ 				},
+ 				onnotify(channel, payload) {
++					// XXX(claude): log trace "notification received" with channel, backend pid, payload
++					//   length (not the payload); log warn "listener callback for channel <name>
++					//   threw" when l.fn throws — guard() in connection.ts swallows it today
+ 					channels.has(channel) &&
++						// XXX(astra): log warn "notification listener failed" if a listener throws or rejects, with listen pool id, channel, listener id, sanitized error, remaining listener count; omit payload and observe async callback failures too
+ 						[...channels.get(channel).listeners].forEach((l) => l.fn(payload));
+ 				},
+ 			}))
+@@ -400,15 +441,23 @@ function Listen(options) {
+ 
+ 	function relisten(channel, name, retries = 0) {
+ 		channel.timer = null;
++		// XXX(astra): log debug "reissuing LISTEN after reconnect" with listen pool id, channel name, retry number, disconnected duration ms
+ 		channel.result = start(name);
+ 		channel.result.then(
+ 			(result) => {
++				// XXX(claude): log info "re-listened on channel <name>" with the new backend pid, retries
++				//   used, ms since the connection was lost
++				// XXX(astra): log info "LISTEN subscription restored" with listen pool id, channel name, new backend pid, retry count, notification-gap duration ms; never spread result.state because it includes secret
+ 				Object.assign(channel.state, result.state);
++				// XXX(astra): log warn "onlisten callback failed after reconnect" if it throws or rejects, with channel name, listener id, sanitized error; the returned then-promise is currently unobserved
+ 				channel.listeners.forEach((l) => l.onlisten && l.onlisten());
+ 			},
+ 			() => {
+ 				if (closing || channels.get(name) !== channel) return;
+ 
++				// XXX(claude): log warn "re-listen on channel <name> failed; retrying in <seconds>s" with
++				//   error code/message, retries — today these retries are silent and unbounded
++				// XXX(astra): log warn "re-LISTEN failed; scheduling retry" with listen pool id, channel name, retry count, actual backoff seconds, failure sqlstate/code and sanitized message; rejection reason is currently discarded
+ 				retries++;
+ 				const seconds =
+ 					typeof options.backoff === "function" ? options.backoff(retries) : options.backoff;
+@@ -422,12 +471,15 @@ function Listen(options) {
+ 
+ 	function start(name) {
+ 		const x = connection();
++		// XXX(astra): log debug "LISTEN requested" with listen pool id, channel name, initial versus reconnect reason
+ 		return x`listen ${x.unsafe('"' + name.replace(/"/g, '""') + '"')}`;
+ 	}
+ 
+ 	async function listen(name, fn, onlisten) {
+ 		const listener = { fn, onlisten };
+ 		if (!channels.has(name))
++			// XXX(claude): log debug "listen <name>" with backend pid once the LISTEN resolves (the
++			//   dedicated listen connection is opened here on first use)
+ 			channels.set(name, { listeners: new Set(), result: start(name), state: {} });
+ 
+ 		const channel = channels.get(name);
+@@ -436,16 +488,20 @@ function Listen(options) {
+ 		try {
+ 			result = await channel.result;
+ 		} catch (error) {
++			// XXX(astra): log error "initial LISTEN failed" with listen pool id, channel name, error code/sqlstate, sanitized message, remaining listener count
+ 			channel.listeners.delete(listener);
+ 			channel.listeners.size || channels.delete(name);
+ 			throw error;
+ 		}
++		// XXX(astra): log debug "LISTEN subscription active" with listen pool id, channel name, backend pid, listener count, elapsed ms; omit backend secret
+ 		Object.assign(channel.state, result.state);
++		// XXX(astra): log warn "initial onlisten callback failed" if it throws or rejects, with channel name, listener id, sanitized error; subscription may already be active
+ 		listener.onlisten && listener.onlisten();
+ 
+ 		return { state: channel.state, unlisten };
+ 
+ 		async function unlisten() {
++			// XXX(astra): log debug "LISTEN listener removed" if registered, with listen pool id, channel name, remaining listener count; send UNLISTEN only for the last listener
+ 			if (!channel.listeners.delete(listener) || channel.listeners.size) return;
+ 
+ 			channels.get(name) === channel && channels.delete(name);
+@@ -453,7 +509,11 @@ function Listen(options) {
+ 
+ 			if (closing || !x) return;
+ 
++			// XXX(claude): log debug "unlisten <name>"; log debug "listen connection ended: no channels
++			//   left" when x.end() runs below
++			// XXX(astra): log debug "UNLISTEN requested" with listen pool id, channel name, backend pid; record completion before closing the last-listener connection
+ 			await x`unlisten ${x.unsafe('"' + name.replace(/"/g, '""') + '"')}`.catch((e) => {
++				// XXX(astra): log debug "UNLISTEN skipped because connection was lost" if code starts CONNECTION_, with listen pool id, channel name, error code; other failures remain errors
+ 				if (!/^CONNECTION_/.test(e.code)) throw e;
+ 			});
+ 			if (channels.size === 0 && sql === x) {
+@@ -477,7 +537,10 @@ function parseOptions(a, b) {
+ 
+ 	o.no_prepare && (o.prepare = false);
+ 	query.sslmode && ((query.ssl = query.sslmode), delete query.sslmode);
++	// XXX(claude): log warn "the 'timeout' option is deprecated; use idle_timeout" with the value given —
++	//   replaces this console.log
+ 	"timeout" in o &&
++		// XXX(astra): log warn "timeout option is deprecated; use idle_timeout" (replace console.log) once per client configuration, with option name, supplied timeout seconds, effective idle_timeout seconds
+ 		(console.log("The timeout option is deprecated, use idle_timeout instead"),
+ 		(o.idle_timeout = o.timeout));
+ 	query.sslrootcert === "system" && (query.ssl = "verify-full");
+@@ -532,6 +595,7 @@ function parseOptions(a, b) {
+ 		user: user,
+ 		pass: o.pass || o.password || url.url.password || env.PGPASSWORD || "",
+ 		...Object.entries(defaults).reduce((acc, [k, d]) => {
++			// XXX(astra): log debug "option resolved from environment or URL" in one configuration summary, with option name, source (explicit/URL/PG variable/default), allowlisted effective value; credentials expose source only
+ 			const value =
+ 				k in o && o[k] !== undefined
+ 					? o[k]
+@@ -540,13 +604,20 @@ function parseOptions(a, b) {
+ 							? false
+ 							: query[k]
+ 						: env["PG" + k.toUpperCase()] || d;
++			// XXX(claude): log warn "option <k> is not a number: '<value>' (from <options|URL|PG<K> env>)"
++			//   if ints.includes(k) and Number.isNaN(+value); today e.g. PGCONNECT_TIMEOUT=abc
++			//   silently becomes NaN, which disables the timeout
+ 			acc[k] = typeof value === "string" && ints.includes(k) ? +value : value;
+ 			return acc;
+ 		}, {}),
++		// XXX(astra): log debug "startup session options resolved" once per client, with allowlisted application_name, client_encoding, TimeZone, statement_timeout, lock_timeout, idle_in_transaction_session_timeout and each source; never arbitrary GUC values
+ 		connection: {
+ 			application_name: env.PGAPPNAME || "postgres.js",
+ 			...o.connection,
+ 			...Object.entries(query).reduce(
++				// XXX(claude): log warn "unknown URL parameter '<k>' is sent to the server as a startup
++				//   parameter" for each k here; a typo like ?idle_timout=10 otherwise only shows
++				//   up as a server error at connect time
+ 				(acc, [k, v]) => (k in defaults || k === "host" || k === "port" || (acc[k] = v), acc),
+ 				{},
+ 			),
+@@ -577,8 +648,17 @@ function parseOptions(a, b) {
+ 		},
+ 	};
+ 
++	// XXX(claude): log info once per postgres() call: the effective configuration — hosts:ports or path,
++	//   database, user, ssl mode (plus "server certificate is NOT verified" when ssl is
++	//   require/prefer/allow), sslnegotiation, channel_binding, target_session_attrs, max/min,
++	//   max_pipeline, idle_timeout, max_lifetime, connect_timeout, queue_timeout, prepare,
++	//   fetch_types, application_name, and which PG* environment variables supplied values.
++	//   Never the password.
++	// XXX(claude): log warn "min (<min>) is larger than max (<max>); using max" if options.min >
++	//   options.max (pool.ts clamps silently)
+ 	options.infer = options.infer === true || options.infer === "true";
+ 	options.max === 1 && (options.scheduler = false);
++	// XXX(astra): log debug "client options resolved" once per user-created client, with host:port targets, database, user/provider flag, max/min/max_pipeline, timeout seconds, TLS mode/negotiation, channel_binding, fetch_types, prepare, infer, scheduler, source map
+ 	return options;
+ }
+ 
+@@ -590,6 +670,7 @@ function tsa(o, url, env) {
+ 	if (!x || ["read-write", "read-only", "primary", "standby", "prefer-standby"].includes(x))
+ 		return x;
+ 
++	// XXX(astra): log error "unsupported target_session_attrs" with option name, sanitized supplied value truncated to 64 chars, source, supported modes
+ 	throw new Error("target_session_attrs " + x + " is not supported");
+ }
+ 
+@@ -601,6 +682,7 @@ function binding(o, url, env) {
+ 		"prefer";
+ 	if (["disable", "prefer", "require"].includes(x)) return x;
+ 
++	// XXX(astra): log error "unsupported channel_binding" with option name, sanitized supplied value truncated to 64 chars, source, supported modes
+ 	throw new Error("channel_binding " + x + " is not supported");
+ }
+ 
+@@ -633,6 +715,7 @@ function parseTransform(x) {
+ function parseUrl(url) {
+ 	if (!url || typeof url !== "string") return { url: { searchParams: new Map() }, targets: [] };
+ 
++	// XXX(astra): do not log raw connection URLs, environment objects, option objects, passwords or TLS keys because they contain secrets; allowlist configuration fields and track provenance separately
+ 	const rest = url.slice(url.indexOf("://") + 3),
+ 		end = rest.search(/[/?]/),
+ 		authority = end === -1 ? rest : rest.slice(0, end),
+@@ -656,6 +739,7 @@ function decode(x) {
+ 	try {
+ 		return decodeURIComponent(x);
+ 	} catch (_) {
++		// XXX(astra): log debug "invalid percent encoding retained in connection option" with option/component name, decode error type; never the input because it can be a password
+ 		return x;
+ 	}
+ }
+@@ -691,6 +775,7 @@ function passfile(env) {
+ 				: os.homedir() + "/.pgpass")
+ 		);
+ 	} catch (_) {
++		// XXX(astra): log debug "default password-file path unavailable" with error type, platform, fallback none; never environment contents
+ 		return null;
+ 	}
+ }
+@@ -699,6 +784,7 @@ function osUsername() {
+ 	try {
+ 		return os.userInfo().username;
+ 	} catch (_) {
++		// XXX(astra): log debug "OS username lookup failed; using environment fallback" with error code, chosen variable name, resolved user if allowed; never dump environment
+ 		return process.env.USERNAME || process.env.USER || process.env.LOGNAME;
+ 	}
+ }
+diff --git a/src/large.ts b/src/large.ts
+index b233d92..2d239ee 100644
+--- a/src/large.ts
++++ b/src/large.ts
+@@ -5,16 +5,23 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
+ 		await sql
+ 			.begin(async (sql) => {
+ 				let finish;
++				// XXX(claude): log debug "large object opened" with oid, fd, mode (and "created" when oid
++				//   was 0); log debug "large object closed" in close()
++				// XXX(astra): log debug "creating large object" if no OID was supplied, with transaction/connection id, mode; record allocated OID and elapsed ms on success
+ 				!oid && ([{ oid }] = await sql`select lo_creat(-1) as oid`);
++				// XXX(astra): log debug "opening large object" with transaction/connection id, OID, mode; record descriptor and elapsed ms after success, error code on failure
+ 				const [{ fd }] = await sql`select lo_open(${oid}, ${mode}) as fd`;
+ 
+ 				const lo = {
+ 					writable,
+ 					readable,
++					// XXX(astra): log debug "large object close requested" with transaction/connection id, OID, fd, held ms, transferred bytes; log descriptor close and transaction outcome separately
+ 					close: () => sql`select lo_close(${fd})`.then(finish),
+ 					tell: () => sql`select lo_tell64(${fd})`,
++					// XXX(astra): do not log large-object read results or write arguments because they are binary application data; aggregate requested/transferred byte counts per object or stream
+ 					read: (x) => sql`select loread(${fd}, ${x}) as data`,
+ 					write: (x) => sql`select lowrite(${fd}, ${x})`,
++					// XXX(astra): log debug "large object truncated" after success, with transaction/connection id, OID, fd, new byte length, elapsed ms
+ 					truncate: (x) => sql`select lo_truncate64(${fd}, ${x})`,
+ 					seek: (x, whence = 0) => sql`select lo_lseek64(${fd}, ${x}, ${whence})`,
+ 					size: () => sql`
+@@ -32,19 +39,27 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
+ 
+ 				resolve(lo);
+ 
++				// XXX(claude): log warn "large object transaction open for more than <n>s" with oid — this
++				//   promise holds a transaction and a pool connection until close() is called; a
++				//   forgotten close() is a silent leak
++				// XXX(astra): log warn "large object remains open and holds a transaction" if configurable lifetime threshold is exceeded, with connection/transaction id, OID, fd, held ms, active stream count; rate-limit until close
+ 				return new Promise(async (r) => (finish = r));
+ 
+ 				async function readable({ highWaterMark = 2048 * 8, start = 0, end = Infinity } = {}) {
+ 					let max = end - start;
+ 					start && (await lo.seek(start));
+ 
++					// XXX(astra): log debug "large object read stream started" with connection/transaction id, OID, fd, start/end offsets, highWaterMark; track end/error/consumer destroy with bytes and duration
+ 					return new Stream.Readable({
+ 						highWaterMark,
+ 						async read(size) {
+ 							const l = Math.min(size, max);
+ 							max -= l;
++							// XXX(astra): log error "large object read stream failed" if this await rejects, with connection/transaction id, OID, fd, offset, requested bytes, sqlstate/code; the async read callback rejection is otherwise unobserved by the stream
+ 							const [{ data }] = await lo.read(l);
++							// XXX(astra): log trace "large object read stream backpressure" if push returns false, with OID, fd, buffered bytes, highWaterMark; no payload, aggregate pause duration
+ 							data.length && this.push(data);
++							// XXX(astra): log debug "large object read stream finished" if EOF or requested range exhausted, with OID, fd, bytes read, elapsed ms, reason; the descriptor/transaction still requires close
+ 							if (data.length < l || max === 0) this.push(null);
+ 						},
+ 					});
+@@ -53,14 +68,17 @@ export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
+ 				async function writable({ highWaterMark = 2048 * 8, start = 0 } = {}) {
+ 					start && (await lo.seek(start));
+ 
++					// XXX(astra): log debug "large object write stream started" with connection/transaction id, OID, fd, start offset, highWaterMark; track finish/error/consumer destroy with bytes and duration
+ 					return new Stream.Writable({
+ 						highWaterMark,
+ 						write(chunk, encoding, callback) {
++							// XXX(astra): log error "large object write stream failed" if write rejects, with connection/transaction id, OID, fd, bytes attempted/completed, sqlstate/code; never chunk contents
+ 							lo.write(chunk).then(() => callback(), callback);
+ 						},
+ 					});
+ 				}
+ 			})
++			// XXX(astra): log error "large object transaction failed" with connection/transaction id, OID, phase, handle-already-returned flag, sqlstate/code; after resolve(lo), this reject cannot notify the caller and needs an observable failure
+ 			.catch(reject);
+ 	});
+ }
+diff --git a/src/pool.ts b/src/pool.ts
+index 5f6689f..8ac289a 100644
+--- a/src/pool.ts
++++ b/src/pool.ts
+@@ -63,6 +63,9 @@ export function Pool(options, types) {
+ 	return pool;
+ 
+ 	function query(q, lease) {
++		// XXX(claude): log debug "query rejected: pool has ended" with query text truncated (rate-limited;
++		//   the caller gets CONNECTION_ENDED)
++		// XXX(astra): log warn "query submitted after pool end" if ending and no lease, with pool id, query id, shutdown elapsed ms, CONNECTION_ENDED; rate-limit
+ 		if (ending && !lease)
+ 			return q.reject(
+ 				queryError(
+@@ -76,11 +79,13 @@ export function Pool(options, types) {
+ 		try {
+ 			built = q.build();
+ 		} catch (error) {
++			// XXX(astra): log debug "query build failed before dispatch" with pool id, query id, error code, lease kind; the final query-failure event owns severity and excludes arguments
+ 			return unbuilt(q, error, lease);
+ 		}
+ 
+ 		const free = !lease && options.max !== 1;
+ 
++		// XXX(astra): log trace "query protocol selected" with pool id, query id, requested/actual simple mode, parameter count, prepare option; parameters force extended protocol even when simple was requested
+ 		if (q.options.simple && !built.values.length) {
+ 			const known = (free || options.scheduler) && statements.known(built.text);
+ 			q.alone = free && alone(known);
+@@ -151,11 +156,21 @@ export function Pool(options, types) {
+ 				Errors.connection("CONNECTION_DESTROYED", options, options.host[0], options.port[0]),
+ 			);
+ 
++		// XXX(claude): log warn "query rejected immediately: connection attempts are failing fast until
++		//   <nextAttempt>" with the last error code/message, retries (rate-limited to once per
++		//   fail-fast window)
++		// XXX(astra): log warn "pool rejecting work during connection backoff" on entry into fail-fast state, with pool id, retry count, next attempt delay ms, last error code, pool stats; aggregate rejected count
+ 		if (failingFast()) return reject(job, copy(failure.error));
+ 
+ 		const c = waiting.length === 0 && pick(job);
+ 		if (c) return run(c, job);
+ 
++		// XXX(claude): log warn "pool exhausted; query queued" when waiting.length goes 0 -> 1, with the
++		//   reason (max connections reached / every connection at max_pipeline / all leased),
++		//   connections, opening, max, query text truncated; edge-triggered, then log info
++		//   "queue drained" with the peak queue length and the longest wait in ms when it
++		//   returns to 0
++		// XXX(astra): log warn "pool capacity exhausted; query queued" if queue was empty and max connections/pipeline or leases prevent dispatch, with pool id, max, max_pipeline, opening/idle/leased/in-flight counts, queue length; cold startup is debug
+ 		waiting.push(wait(job));
+ 		drain();
+ 	}
+@@ -164,7 +179,10 @@ export function Pool(options, types) {
+ 		if (!options.queue_timeout) return job;
+ 
+ 		job.timer = setTimeout(() => {
++			// XXX(astra): log warn "pool queue wait timed out" if job is still queued when timer fires, with pool id, query/lease request id, queue_timeout seconds, waited ms, queue length, connection/lease counts
+ 			job.timer = null;
++			// XXX(claude): log warn "query waited more than queue_timeout (<n>s) for a connection;
++			//   rejecting" with pool stats, query text truncated
+ 			waiting.remove((x) => x === job) &&
+ 				reject(
+ 					job,
+@@ -179,6 +197,7 @@ export function Pool(options, types) {
+ 	}
+ 
+ 	function started(job) {
++		// XXX(astra): log debug "pool wait ended" if job was queued, with pool id, query/lease request id, waited ms, outcome (assigned/rejected/cancelled), queue length; use warn if configurable wait threshold exceeded
+ 		job.timer && (clearTimeout(job.timer), (job.timer = null));
+ 	}
+ 
+@@ -201,13 +220,21 @@ export function Pool(options, types) {
+ 			if (!c && !copying(job)) break;
+ 
+ 			waiting.shift();
++			// XXX(claude): log warn "all <max> connections are busy with COPY; rejecting queued query" with
++			//   query text truncated
++			// XXX(astra): log warn "query rejected because every connection is copying" if !c, with pool id, query id, connection count, max, queue length
+ 			!c
+ 				? reject(job, Errors.generic("COPY_IN_PROGRESS", "You cannot execute queries during copy"))
+ 				: job.lease
+ 					? grant(c, job)
+ 					: run(c, job);
+ 		}
++		// XXX(claude): log trace "queries still waiting" with waiting.length — the postgres:pool
++		//   diagnostics channel already publishes this; a logging sink could subscribe to it
++		//   instead of adding a log call here
++		// XXX(astra): log warn "pool queue growing" if a configurable queue-size or oldest-wait threshold is crossed, with pool id, queue length/high-water mark, oldest wait ms, max, max_pipeline, pool stats; rate-limit
+ 		waiting.length && listened(channels.pool) && event("wait", null, { waiting: waiting.length });
++		// XXX(astra): log info "pool backlog drained" if a previously reported pressure episode has ended, with pool id, duration ms, peak queue length, timeout/rejection counts
+ 		grow();
+ 	}
+ 
+@@ -295,6 +322,7 @@ export function Pool(options, types) {
+ 				connections.size - Math.ceil(work.slow / 2000),
+ 			),
+ 		);
++		// XXX(astra): log trace "scheduler routing query around slow work" with pool id, query id, estimated cost ms, heavy connection count, reserved fast capacity; sample decisions and prefer latency metrics
+ 		return heavy < connections.size - reserve
+ 			? soonest(t, Infinity, false)
+ 			: soonest(t, 2 * e, true) || soonest(t, Infinity, false);
+@@ -335,7 +363,10 @@ export function Pool(options, types) {
+ 		if (failingSince !== null) {
+ 			if (opening || !waiting.length || retryTimer || [...connections].some((x) => x.loading))
+ 				return;
++			// XXX(claude): log debug "next connection attempt in <wait>ms" with retries, seconds since
++			//   failingSince, waiting.length
+ 			const wait = nextAttempt - now();
++			// XXX(astra): log debug "waiting before connection retry" if wait > 0, with pool id, retry count, delay ms, queued work count, outage duration ms
+ 			return wait > 0
+ 				? (retryTimer = setTimeout(() => ((retryTimer = null), grow()), wait))
+ 				: connect();
+@@ -353,8 +384,12 @@ export function Pool(options, types) {
+ 	}
+ 
+ 	function connect() {
++		// XXX(claude): log debug "opening connection" with the reason (waiting queue / min fill / replacing
++		//   a closed one), host index tried, connections.size, opening, max
++		// XXX(astra): log debug "pool opening connection" with pool id, attempt id, reason (demand/minimum/replacement/retry), connection/opening counts, min, max, replacement host index
+ 		opening++;
+ 		retryTimer && (clearTimeout(retryTimer), (retryTimer = null));
++		// XXX(astra): log error "pool connection lifecycle task failed" if open hook throws or opened/failed handlers reject this detached chain, with pool id, attempt id, phase, opening/waiting counts, sanitized cause; distinguish from a normally handled connect rejection
+ 		(options.open || startup)(options, signal, replacing.length ? replacing.shift() : 0).then(
+ 			opened,
+ 			failed,
+@@ -385,13 +420,19 @@ export function Pool(options, types) {
+ 		opening--;
+ 
+ 		if (signal.aborted || (ending && waiting.length === 0)) {
++			// XXX(claude): log debug "discarding a freshly opened connection: pool is ending or destroyed"
++			// XXX(astra): log debug "discarding newly opened connection during shutdown" with pool id, attempt id, backend pid, shutdown reason, queue length
+ 			ready.socket.destroy();
+ 			return finishing();
+ 		}
+ 
+ 		Object.entries(ready.parameters).forEach(([k, v]) => onparameter(k, v));
++		// XXX(claude): log info "connection opened" with connection id, host:port or path, database, user,
++		//   backend pid, server_version, tls on/off, read-only/standby, pool stats — the one
++		//   line an operator expects per connection
+ 		const c = Connection(ready, options, events);
+ 		c.index = ready.index || 0;
++		// XXX(astra): log info "connected" with pool id, attempt id, connection id, host:port or socket path, database, resolved user, backend pid, actual TLS/verification mode, startup elapsed ms, new connection count
+ 		connections.add(c);
+ 		lifetime(c);
+ 		listened(channels.pool) && event("open", c);
+@@ -401,6 +442,9 @@ export function Pool(options, types) {
+ 	}
+ 
+ 	function recovered() {
++		// XXX(claude): log info "connection attempts recovered" with retries and seconds since
++		//   failingSince, if retries > 0
++		// XXX(astra): log info "pool recovered from connection failures" if failingSince was set, with pool id, retry count, outage duration ms, queued count, connection count
+ 		retries = 0;
+ 		failingSince = null;
+ 		failure = null;
+@@ -409,8 +453,10 @@ export function Pool(options, types) {
+ 	function retype() {
+ 		if (!typesError) return null;
+ 
++		// XXX(astra): log debug "type lookup temporarily rejecting queries" if within the one-second cooldown, with pool id, TYPE_NOT_FOUND, cooldown remaining ms; rate-limit
+ 		if (now() - typesFailed < 1000) return copy(typesError);
+ 
++		// XXX(astra): log debug "retrying type discovery" with pool id, previous error code, elapsed ms since failure, queued query count
+ 		typesError = null;
+ 		connections.forEach((x) => (x.loading = true));
+ 		[...connections].some((x) => !x.closed && (loadTypes(x), true));
+@@ -419,8 +465,11 @@ export function Pool(options, types) {
+ 
+ 	function loadTypes(c) {
+ 		hold(c);
++		// XXX(astra): log debug "loading PostgreSQL type catalog" with pool id, connection id, fetch_types, named custom type count; catalog loading gates queued work
+ 		typesLoading = true;
+ 		c.loading = true;
++		// XXX(claude): log debug "fetching type OIDs from pg_catalog" with connection id and the named
++		//   types wanted; log debug "types fetched" with count and elapsed ms
+ 		types
+ 			.load(
+ 				(text) =>
+@@ -437,14 +486,22 @@ export function Pool(options, types) {
+ 					}),
+ 			)
+ 			.then(
++				// XXX(astra): log debug "type catalog loaded" with pool id, connection id, elapsed ms, registered domain/array/named type counts
+ 				() => (typesLoaded = true),
+ 				(error) =>
++					// XXX(claude): log warn "fetching types failed; arrays of custom types and domains will
++					//   come back as text" with sqlstate/message, if error is a PostgresError —
++					//   today this is silently treated as success (typesLoaded = true)
++					// XXX(claude): log error "named custom type(s) not found" with the missing names, if
++					//   TYPE_NOT_FOUND — every query is rejected until a retry succeeds
++					// XXX(astra): log warn "type discovery failed" with pool id, connection id, sqlstate/code, sanitized message, action (PostgresError continues with partial/builtin types; TYPE_NOT_FOUND rejects; other errors retry)
+ 					error instanceof PostgresError
+ 						? (typesLoaded = true)
+ 						: error &&
+ 							error.code === "TYPE_NOT_FOUND" &&
+ 							((typesError = error), (typesFailed = now())),
+ 			)
++			// XXX(astra): log error "type-loading completion task failed" if this detached continuation rejects, with pool id, connection id, type-loading state, queue length, sanitized error; pending work can otherwise remain blocked
+ 			.then(() => {
+ 				typesLoading = false;
+ 				connections.forEach((x) => (x.loading = !typesLoaded && !typesError));
+@@ -465,8 +522,14 @@ export function Pool(options, types) {
+ 	}
+ 
+ 	function attempted(error) {
++		// XXX(claude): log warn "connection attempt failed; retrying in <backoff>s" with host:port tried,
++		//   error code/message (ECONNREFUSED, ENOTFOUND, CONNECT_TIMEOUT, 28P01 invalid
++		//   password, 53300 too many connections, 57P03 cannot connect now, ...), retries,
++		//   seconds since failingSince, waiting.length — today these retries are completely
++		//   silent
+ 		failingSince === null && (failingSince = now());
+ 		retries++;
++		// XXX(astra): log warn "connection attempt failed; applying backoff" with pool id, retry count, outage duration ms, next delay ms, error code/sqlstate, transient classification, connect_timeout budget, queued count; rate-limit
+ 		nextAttempt =
+ 			now() +
+ 			1000 * (typeof options.backoff === "function" ? options.backoff(retries) : options.backoff);
+@@ -474,10 +537,13 @@ export function Pool(options, types) {
+ 		const transient = !!error && (error.code === "CONNECTION_CLOSED" || error.code === "53300"),
+ 			expired = options.connect_timeout && now() - failingSince >= options.connect_timeout * 1000;
+ 
++		// XXX(claude): log error "giving up on <n> queued queries: the failure is not transient (<code>) or
++		//   connect_timeout (<n>s) elapsed" if failure is set and jobs are waiting
+ 		failure = !transient || expired ? { error } : null;
+ 		stuck() &&
+ 			opening === 0 &&
+ 			(failure || ending) &&
++			// XXX(astra): log error "pool cannot serve queued work" if this rejection branch runs, with pool id, rejected count, cause code/sqlstate, elapsed failure ms, connect_timeout budget exhausted, next retry delay ms
+ 			waiting.take().forEach((job, i) => reject(job, i ? copy(error) : error));
+ 	}
+ 
+@@ -496,6 +562,9 @@ export function Pool(options, types) {
+ 		life &&
+ 			(c.lifeTimer = unref(
+ 				setTimeout(() => {
++					// XXX(claude): log debug "connection reached max_lifetime (<life>s); retiring" with
++					//   connection id, and "deferred until idle" if it is busy or leased
++					// XXX(astra): log debug "connection max_lifetime expired; retiring" with pool id, connection id, actual lifetime seconds, age ms, in-flight count, lease kind, deferred-close flag
+ 					c.retiring = true;
+ 					c.inflight === 0 && !c.lease && c.close();
+ 				}, life * 1000),
+@@ -504,6 +573,7 @@ export function Pool(options, types) {
+ 	}
+ 
+ 	function event(name, c, extra) {
++		// XXX(astra): do not mirror every pool event to info logs because idle/wait events occur on query hot paths; expose gauges/counters and log pressure/recovery transitions independently of diagnostics subscribers
+ 		channels.pool.publish({
+ 			event: name,
+ 			connection: c ? c.id : null,
+@@ -519,6 +589,7 @@ export function Pool(options, types) {
+ 		listened(channels.pool) && event("idle", c);
+ 		if (c.inflight || c.lease) return;
+ 
++		// XXX(astra): log trace "idle socket released from event-loop keepalive" if unref_sockets applies, with pool id, connection id, idle/loading state; sample ref/unref churn
+ 		options.unref_sockets && !c.loading && waiting.length === 0 && c.unref();
+ 		if (!options.idle_timeout) return;
+ 
+@@ -542,6 +613,9 @@ export function Pool(options, types) {
+ 		if (connections.size <= options.min) return;
+ 
+ 		const left = options.idle_timeout * 1000 - (now() - c.idleSince);
++		// XXX(claude): log debug "closing idle connection" with connection id, idle seconds,
++		//   connections.size, min
++		// XXX(astra): log debug "closing idle connection" if left < 1, with pool id, connection id, idle ms, idle_timeout seconds, min, connection count, close reason idle timeout
+ 		left >= 1 ? (c.idleTimer = unref(setTimeout(() => idled(c), left))) : c.close();
+ 	}
+ 
+@@ -550,8 +624,13 @@ export function Pool(options, types) {
+ 			if (c.inflight) return;
+ 
+ 			c.releasing = false;
++			// XXX(claude): log warn "lease released while the connection was still in a transaction (status
++			//   <status>); closing it" with connection id, lease kind — the application released
++			//   a reserved connection mid-transaction
++			// XXX(astra): log warn "released connection still has a transaction; closing it" if status is not I, with pool id, connection id, status, previous lease kind, close reason unreleased transaction
+ 			if (c.status !== "I") return c.close();
+ 		}
++		// XXX(astra): log debug "retired connection finished outstanding work" if this branch closes it, with pool id, connection id, close reason (max_lifetime/close/end), retirement wait ms
+ 		if (c.inflight === 0 && !c.lease && (c.retiring || (ending && waiting.length === 0)))
+ 			return c.close();
+ 
+@@ -569,13 +648,23 @@ export function Pool(options, types) {
+ 	}
+ 
+ 	function onclose(c, error) {
++		// XXX(claude): log info "connection closed" if the close was ours (idle, retire, end, destroy),
++		//   else log error "connection lost" — with connection id, host:port, backend pid, cause
++		//   (socket error code like ECONNRESET/ETIMEDOUT, or FATAL sqlstate like 57P01
++		//   admin_shutdown / 57P05 idle_session_timeout), seconds alive, in-flight queries
++		//   failed, pool stats; connection.ts onclose knows the in-flight counts, so log in one
++		//   of the two places only
++		// XXX(astra): log debug "connection removed from pool" with pool id, connection id, recorded close reason, new connection/opening/leased/waiting counts, replacement host index; underlying failure is logged once
+ 		connections.delete(c);
++		// XXX(claude): log warn "connection closed while fetching types; counted as a failed attempt"
+ 		c.loading && !signal.aborted && attempted(copy(error));
+ 		ending || replacing.push((c.index + 1) % (options.path ? 1 : options.host.length));
+ 		replacing.length > options.max && replacing.shift();
+ 		c.retired && c.retired.forEach((r) => r());
+ 		c.idleTimer && clearTimeout(c.idleTimer);
+ 		c.lifeTimer && clearTimeout(c.lifeTimer);
++		// XXX(claude): log warn "connection closed while leased" with lease kind (transaction/reserve),
++		//   connection id — the lease's pending queries now fail
+ 		c.lease &&
+ 			c.lease.onclose &&
+ 			c.lease.onclose(
+@@ -585,15 +674,21 @@ export function Pool(options, types) {
+ 						? Errors.connection("CONNECTION_CLOSED", options, c.host, c.port)
+ 						: error,
+ 			);
++		// XXX(astra): log warn "onclose callback failed" if it throws or rejects, with pool id, connection id, sanitized error code/message; synchronous failure currently interrupts pool cleanup
+ 		options.onclose && options.onclose(c.id);
+ 		listened(channels.pool) && event("close", c, { error });
++		// XXX(claude): log debug "all connections gone; prepared statement cache cleared"
+ 		connections.size === 0 && opening === 0 && statements.clear();
+ 		drain();
+ 		ending && finishing();
+ 	}
+ 
+ 	function onparameter(k, v) {
++		// XXX(claude): log info "server parameter changed" with key, old value, new value, connection id,
++		//   if options.parameters[k] already existed and differs (server reload, SET in a query,
++		//   or a differently configured host); log debug on first sight
+ 		options.parameters[k] !== v &&
++			// XXX(astra): log warn "onparameter callback failed" if it throws or rejects, with pool id, connection id if available, allowlisted parameter name, sanitized error code; never arbitrary parameter values
+ 			((options.parameters[k] = v), options.onparameter && options.onparameter(k, v));
+ 	}
+ 
+@@ -609,6 +704,7 @@ export function Pool(options, types) {
+ 		if (missing) throw missing;
+ 
+ 		return new Promise((resolve, reject) => {
++			// XXX(astra): log debug "exclusive connection requested" with pool id, request id, kind (reserve/transaction), queue length, leased/connection counts; include this request in pool-pressure thresholds
+ 			waiting.push(
+ 				wait({ lease: true, kind, resolve, reject, queued: listened(channels.pool) ? now() : 0 }),
+ 			);
+@@ -625,6 +721,7 @@ export function Pool(options, types) {
+ 			lost;
+ 
+ 		const closed = new Promise((_, reject) => (lost = reject));
++		// XXX(astra): do not log this rejection twice because lease.onclose records connection loss; reserved connections without a waiter still need that loss event
+ 		closed.catch(() => {});
+ 
+ 		const x = {
+@@ -651,21 +748,32 @@ export function Pool(options, types) {
+ 			},
+ 			release() {
+ 				if (released) return;
++				// XXX(astra): log debug "connection lease released" with pool id, connection id, lease id/kind, held ms, transaction status, remaining in-flight count; warn if held beyond a configurable threshold
+ 				released = true;
+ 				c.lease === x && (c.lease = null);
++				// XXX(claude): log debug "lease released" with kind, connection id, ms held; arm a timer at
++				//   grant and log warn "lease held for more than <threshold>s" with kind,
++				//   connection id — a reserve() that is never released starves the pool and is
++				//   invisible otherwise
+ 				listened(channels.pool) && event("release", c, { kind: job.kind });
+ 				if (c.closed) return;
+ 
+ 				if (c.inflight) return (c.releasing = true);
+ 
++				// XXX(claude): log warn "lease released with the connection in status <status>; closing it"
++				//   (see onready)
++				// XXX(astra): log warn "released lease left transaction open; closing connection" if status is not I, with pool id, connection id, lease id/kind, status, held ms
+ 				c.status === "I" ? onready(c) : c.close();
+ 			},
+ 			onclose(error) {
++				// XXX(astra): log error "leased connection lost" with pool id, connection id, lease id/kind, held ms, in-flight count, error code/sqlstate, transaction outcome unknown; correlate transport failure instead of duplicating it
+ 				x.error = error;
+ 				lost(error);
+ 			},
+ 		};
+ 
++		// XXX(claude): log debug "lease granted" with kind, connection id, ms waited
++		// XXX(astra): log debug "exclusive connection granted" with pool id, connection id, lease id/kind, waited ms, remaining queue length, leased count
+ 		c.lease = x;
+ 		listened(channels.pool) &&
+ 			event("lease", c, { kind: job.kind, waited: job.queued ? now() - job.queued : 0 });
+@@ -677,6 +785,9 @@ export function Pool(options, types) {
+ 	}
+ 
+ 	function cancel(q) {
++		// XXX(claude): log debug "cancelling query" with whether it was still queued (removed locally), in
++		//   flight (CancelRequest with backend pid), or not placed yet; query text truncated
++		// XXX(astra): log debug "query cancelled before pool dispatch" if removed from waiting, with pool id, query id, waited ms, remaining queue length; no backend cancellation was sent
+ 		if (waiting.remove((x) => x.q === q && (started(x), true))) {
+ 			q.reject(
+ 				queryError(
+@@ -697,10 +808,14 @@ export function Pool(options, types) {
+ 	function end({ timeout = null } = {}) {
+ 		if (ending) return ending;
+ 
++		// XXX(claude): log info "pool ending" with pool stats (connections, in-flight, waiting) and the
++		//   timeout
++		// XXX(astra): log info "pool end requested" with pool id, timeout seconds/null, connection/opening/queued/leased/in-flight counts; record shutdown start and whether work must drain
+ 		ending = new Promise((resolve) => {
+ 			pool.ended = resolve;
+ 			timeout !== null && (endTimer = setTimeout(destroy, timeout * 1000));
+ 			retryTimer && (clearTimeout(retryTimer), (retryTimer = null));
++			// XXX(astra): log error "pool shutdown task failed" if this detached promise rejects, with pool id, shutdown elapsed ms, connection/queued/leased counts, sanitized error; end() may otherwise remain pending
+ 			Promise.resolve().then(finishing);
+ 		});
+ 
+@@ -719,19 +834,25 @@ export function Pool(options, types) {
+ 				options.host[0],
+ 				options.port[0],
+ 			);
++			// XXX(astra): log warn "shutdown cannot drain queued work; rejecting it" with pool id, rejected count, shutdown elapsed ms, CONNECTION_ENDED
+ 			waiting.take().forEach((job) => reject(job, error));
+ 		}
+ 
+ 		if (connections.size === 0 && (opening === 0 || signal.aborted) && waiting.length === 0) {
+ 			endTimer && clearTimeout(endTimer);
+ 			retryTimer && clearTimeout(retryTimer);
++			// XXX(claude): log info "pool ended" with elapsed ms
+ 			const resolve = pool.ended;
++			// XXX(astra): log info "pool ended" with pool id, shutdown duration ms, graceful/forced outcome, completed/rejected/cancelled counts
+ 			pool.ended = null;
+ 			resolve();
+ 		}
+ 	}
+ 
+ 	function destroy() {
++		// XXX(claude): log warn "end timeout (<timeout>s) elapsed; destroying <n> connections with <m>
++		//   queries in flight and <w> queued"
++		// XXX(astra): log warn "pool shutdown deadline reached; destroying connections" if timeout > 0 (debug for explicitly immediate shutdown), with pool id, timeout seconds, elapsed ms, queued/in-flight/leased/opening counts
+ 		endTimer = null;
+ 		signal.aborted = true;
+ 		signal.sockets.forEach((x) => x.destroy());
+@@ -747,6 +868,9 @@ export function Pool(options, types) {
+ 	}
+ 
+ 	function close() {
++		// XXX(claude): log info "closing all connections" with the count; leased connections are retired
++		//   when released
++		// XXX(astra): log info "pool close requested; retiring current connections" with pool id, connection/in-flight/leased counts, deferred leased count; pool remains usable
+ 		used = false;
+ 		return Promise.all(
+ 			[...connections].map((c) =>
+@@ -851,6 +975,7 @@ function Statements(scheduler) {
+ 		const tagged = !built.dynamic && (templates.get(built.strings) || set(built.strings)),
+ 			cached = tagged && tagged.get(built.types);
+ 
++		// XXX(astra): do not log every shared statement-cache lookup because it is a hot path; use hit/miss counters and sampled trace events with statement ids only
+ 		if (cached && cached.live) return ((cached.used = clock++), cached);
+ 
+ 		const key = built.types + "\0" + built.text;
+@@ -887,14 +1012,19 @@ function Statements(scheduler) {
+ 			cost: { est: undefined },
+ 			alone: undefined,
+ 		};
++		// XXX(astra): log debug "shared prepared statement allocated" with pool id, statement name, parameter type OIDs, cache size/limit 2000; never log the cache key because it contains SQL text
+ 		map.set(key, statement);
+ 		map.size > limit && evict();
+ 		return statement;
+ 	}
+ 
+ 	function evict() {
++		// XXX(claude): log debug "prepared statement cache full (<limit>); evicting the least recently
++		//   used" (rate-limited); log warn if evictions exceed N per minute — dynamic SQL is
++		//   defeating prepared statements
+ 		let oldest = null;
+ 		for (const x of map.values()) (!oldest || x.used < oldest.used) && (oldest = x);
++		// XXX(astra): log debug "shared prepared statement evicted" with pool id, statement name, cache size/limit, reason least recently used; this does not itself close every server-side statement
+ 		oldest.live = false;
+ 		map.delete(oldest.key);
+ 	}
+@@ -906,6 +1036,7 @@ function Statements(scheduler) {
+ 	}
+ 
+ 	function clear() {
++		// XXX(astra): log debug "shared prepared statement cache cleared" with pool id, entry count, reason last connection closed
+ 		map.forEach((x) => (x.live = false));
+ 		map.clear();
+ 	}
+diff --git a/src/protocol.ts b/src/protocol.ts
+index a9cc0b1..ccc1c41 100644
+--- a/src/protocol.ts
++++ b/src/protocol.ts
+@@ -94,6 +94,7 @@ export function Writer(size = 16384) {
+ 		if (b.length - i >= n) return;
+ 
+ 		const prev = b;
++		// XXX(astra): log warn "large protocol write buffer allocated" if a configurable byte threshold is crossed, with connection/query id, old/new capacity, pending bytes, threshold; aggregate and never dump buffer contents
+ 		b = Buffer.allocUnsafe(Math.max(size, prev.length * 2, i + n));
+ 		prev.copy(b, 0, 0, i);
+ 	}
+@@ -121,6 +122,7 @@ export const terminate = (w) => w.type(X).end();
+ export const copyDone = (w) => w.type(c).end();
+ export const sslRequest = (w) => w.untyped().i32(80877103).endUntyped();
+ export const query = (w, text) => w.type(Q).str(text).end();
++// XXX(astra): do not log Password, SASL or SASLResponse frames because they contain passwords or authentication proofs, even at trace level
+ export const password = (w, x) => w.type(p).str(x).end();
+ export const saslResponse = (w, x) => w.type(p).bytes(x).end();
+ export const copyData = (w, x) => w.type(d).bytes(x).end();
+@@ -128,6 +130,7 @@ export const copyFail = (w, x) => w.type(f).str(x).end();
+ export const describe = (w, kind, name) => w.type(D).u8(kind.charCodeAt(0)).str(name).end();
+ export const close = (w, kind, name) => w.type(C).u8(kind.charCodeAt(0)).str(name).end();
+ export const execute = (w, portal, rows = 0) => w.type(E).str(portal).i32(rows).end();
++// XXX(astra): do not log CancelRequest bytes or secret because the key authorizes cancellation; only backend pid and parent query/connection id are safe metadata
+ export const cancel = (w, pid, secret) =>
+ 	w.untyped().i32(80877102).i32(pid).i32(secret).endUntyped();
+ 
+@@ -173,6 +176,7 @@ export function startup(w, parameters) {
+ 
+ function unbroken(k, x) {
+ 	if (x.indexOf("\0") !== -1)
++		// XXX(astra): log error "startup parameter contains NUL" with attempt id, parameter name, NUL_CHARACTER; never parameter value, and deduplicate startup failure
+ 		throw Object.assign(new Error("The connection parameter " + k + " contains a NUL character"), {
+ 			code: "NUL_CHARACTER",
+ 		});
+@@ -196,6 +200,7 @@ export function bind(w, portal, name, values = [], formats = [], resultFormats =
+ 	for (let j = 0; j < formats.length; j++) w.i16(formats[j]);
+ 
+ 	w.u16(values.length);
++	// XXX(astra): do not log Bind payloads because they contain serialized query parameters; log count/type OIDs and total byte length only
+ 	for (let j = 0; j < values.length; j++) w.value(values[j]);
+ 
+ 	w.i16(resultFormats.length);
+@@ -280,8 +285,12 @@ export function Frames(onframe, shared = false, onerror = null) {
+ 	}
+ 
+ 	function invalid(length) {
++		// XXX(claude): the PROTOCOL_ERROR raised here is logged by connection.ts with context; include the
++		//   first bytes received (hex, truncated) in the error so the log can show e.g. an HTTP
++		//   response from the wrong port
+ 		if (length >= 4 && length <= largest) return false;
+ 
++		// XXX(astra): log error "invalid backend frame length" with connection/attempt id, advertised length, allowed range 4..1073741824, PROTOCOL_ERROR; caller supplies context and emits once
+ 		broken = true;
+ 		chunks.length = 0;
+ 		data = part = null;
+@@ -290,6 +299,7 @@ export function Frames(onframe, shared = false, onerror = null) {
+ 			new Error("The server sent a message with an invalid length (" + length + ")"),
+ 			{ code: "PROTOCOL_ERROR" },
+ 		);
++		// XXX(astra): log error "protocol failure has no error handler" if onerror is absent, with connection/attempt id if known, code PROTOCOL_ERROR, advertised length; avoid silence when frame processing stops
+ 		onerror && onerror(error);
+ 		return true;
+ 	}
+@@ -316,6 +326,7 @@ export function Frames(onframe, shared = false, onerror = null) {
+ 	}
+ 
+ 	function start(length) {
++		// XXX(astra): log warn "large backend frame being buffered" if length crosses configurable byte threshold, with connection/query id, frame type, advertised bytes, threshold; emit once per oversized frame and rate-limit
+ 		part = Buffer.allocUnsafe(length);
+ 		shared && owned.add(part);
+ 		filled = data.copy(part, 0, at);
+@@ -333,6 +344,7 @@ export function Frames(onframe, shared = false, onerror = null) {
+ 				length = head.readInt32BE(1);
+ 			if (invalid(length)) return;
+ 
++			// XXX(astra): log warn "large backend frame being buffered after split header" if length crosses configurable byte threshold, with connection/query id, frame type, advertised bytes, threshold; share the oversized-frame event policy
+ 			part = Buffer.allocUnsafe(1 + length);
+ 			shared && owned.add(part);
+ 			filled = head.copy(part);
+@@ -370,6 +382,7 @@ const errorFields = {
+ };
+ 
+ export function error(x, start, end) {
++	// XXX(astra): do not dump parsed server error fields because detail, hint, where and internal_query can contain secrets or row values; sanitize message and allowlist code/severity/position
+ 	const fields = {};
+ 	for (let i = start + 5; i < end - 1;) {
+ 		const zero = x.indexOf(0, i + 1);
+@@ -445,5 +458,6 @@ export function parameterStatus(x, start) {
+ }
+ 
+ export function backendKeyData(x, start) {
++	// XXX(astra): do not log BackendKeyData verbatim because it contains the cancellation secret; log pid and a secret-present boolean at startup only
+ 	return { pid: x.readInt32BE(start + 5), secret: x.readInt32BE(start + 9) };
+ }
+diff --git a/src/query.ts b/src/query.ts
+index 50950c5..213c8e1 100644
+--- a/src/query.ts
++++ b/src/query.ts
+@@ -58,6 +58,7 @@ export class Query extends Promise {
+ 		this.active = false;
+ 		this.settled = true;
+ 		this.trace && traced(this, null, x);
++		// XXX(astra): log debug "query completed" if not resolving a COPY stream handle, with pool/connection/query id, backend pid, command, row/result-set counts, queue/pipeline/execution/total ms, retry count; never result data
+ 		this.fulfil(x);
+ 	}
+ 
+@@ -66,6 +67,7 @@ export class Query extends Promise {
+ 		this.active = false;
+ 		this.settled = true;
+ 		this.trace && traced(this, x);
++		// XXX(astra): log error "query failed" once at final rejection, with pool/connection/query id, sqlstate/code, severity, position, sanitized message, duration ms, retry count, opt-in redacted SQL truncated to 512 chars; expected cancellations/conflicts may be debug/warn
+ 		this.fail(x);
+ 	}
+ 
+@@ -87,6 +89,8 @@ export class Query extends Promise {
+ 		return this.build().text;
+ 	}
+ 
++	// XXX(claude): do not log parameters (q.args / built.values) at any level unless options.debug is set:
++	//   they routinely contain secrets and PII
+ 	get parameters() {
+ 		return this.build().values;
+ 	}
+@@ -100,18 +104,23 @@ export class Query extends Promise {
+ 		} catch (error) {
+ 			return "Query { " + error.message + " }";
+ 		}
++		// XXX(astra): do not log inspected Query objects because debug mode includes parameter values and SQL literals
+ 		return "Query " + inspect({ text: x.text, parameters: x.values }, options);
+ 	}
+ 
+ 	cancel() {
++		// XXX(astra): log debug "query cancellation requested by caller" with query id, connection id if assigned, execution phase, elapsed ms; a resolved cancellation promise is not a query outcome
+ 		return this.handler.cancel ? this.handler.cancel(this) : Promise.resolve();
+ 	}
+ 
+ 	signal(signal) {
+ 		if (!signal || this.settled) return this;
+ 
++		// XXX(claude): log debug "query cancelled by AbortSignal" with query text truncated
++		// XXX(astra): log warn "cancellation triggered by already-aborted signal failed" if detached cancel promise rejects, with query id, connection id, error code; do not log arbitrary AbortSignal.reason data
+ 		if (signal.aborted) return (this.cancel(), this);
+ 
++		// XXX(astra): log warn "AbortSignal cancellation failed" if detached cancel promise rejects, with query id, connection id, elapsed ms, sanitized error code; distinguish signal cancellation from server statement_timeout
+ 		const abort = () => this.cancel();
+ 		signal.addEventListener("abort", abort, { once: true });
+ 		this.aborts = () => ((this.aborts = null), signal.removeEventListener("abort", abort));
+@@ -165,6 +174,7 @@ export class Query extends Promise {
+ 							this.trace && traced(this, null, x),
+ 							resolve({ done: true })
+ 						);
++						// XXX(astra): log error "cursor query failed" once here because this override bypasses Query.reject, with query/connection id, portal, sqlstate/code, position, duration ms, rows delivered, opt-in redacted SQL truncated to 512 chars
+ 						this.reject = (x) => (
+ 							(this.active = false),
+ 							(this.settled = true),
+@@ -176,6 +186,7 @@ export class Query extends Promise {
+ 					return promise;
+ 				},
+ 				return() {
++					// XXX(astra): log debug "cursor iterator stopped by consumer" with query id, connection id, portal, batches/rows delivered, elapsed ms; do not log batch contents
+ 					prev && prev(CLOSE);
+ 					return { done: true };
+ 				},
+@@ -217,6 +228,7 @@ export class Query extends Promise {
+ 	}
+ 
+ 	run() {
++		// XXX(astra): log trace "query execution requested" with query id, pool id, mode, prepare flag, call site, parameter count if already built; do not build/execute the query merely to enrich a log
+ 		active(channels.query)
+ 			? start(channels.query, (this.trace = context(this)), () => this.handler(this))
+ 			: this.handler(this);
+@@ -250,6 +262,7 @@ function context(q) {
+ 		try {
+ 			text = q.text;
+ 		} catch (error) {
++			// XXX(astra): do not log this failed diagnostic SQL build separately because the actual dispatch reports the build failure; diagnostics must not turn it into a second failure
+ 			text = null;
+ 		}
+ 	}
+@@ -274,11 +287,13 @@ function context(q) {
+ function traced(q, error, result) {
+ 	const x = q.trace;
+ 	q.trace = null;
++	// XXX(astra): log warn "slow query" if actual completion exceeds configurable threshold, with query/connection id, threshold ms, total/pool-wait/pipeline-wait/execution/consumer ms, outcome, rows, opt-in redacted SQL truncated to 512 chars; instrument independently of diagnostics subscribers
+ 	x.complete = now();
+ 	if (result && typeof result === "object" && "command" in result) {
+ 		x.command = result.command;
+ 		x.count = result.count;
+ 	}
++	// XXX(astra): do not treat COPY handle resolution as COPY completion because bytes, server errors and CommandComplete arrive later; retain stream timing and completion/error logs until the exchange actually finishes
+ 	finish(channels.query, x, error, result);
+ }
+ 
+@@ -288,6 +303,7 @@ function located() {
+ 	try {
+ 		return trim(String(new Error().stack));
+ 	} catch (error) {
++		// XXX(astra): do not log every missing call-site stack because restricted runtimes can reject stack inspection routinely; at most one debug capability event
+ 		return "";
+ 	} finally {
+ 		Error.stackTraceLimit = limit;
+diff --git a/src/result.ts b/src/result.ts
+index 144aa33..e87b087 100644
+--- a/src/result.ts
++++ b/src/result.ts
+@@ -15,6 +15,7 @@ export default class Result extends Array {
+ 		return this.#state;
+ 	}
+ 	set state(x) {
++		// XXX(astra): do not log Result.state because it contains backend pid and the cancellation secret; select pid explicitly
+ 		this.#state = x;
+ 	}
+ 	get command() {
+@@ -45,6 +46,7 @@ export default class Result extends Array {
+ 
+ export function statement(item) {
+ 	const x = item.statement;
++	// XXX(astra): do not log the complete statement/result descriptor because string may contain SQL literals and Result contains rows; use statement id, command and row/column counts at completion
+ 	return {
+ 		name: x ? x.name : "",
+ 		string: x ? x.text : item.text || "",
+diff --git a/src/socket.ts b/src/socket.ts
+index 2116ea6..c0b2537 100644
+--- a/src/socket.ts
++++ b/src/socket.ts
+@@ -11,6 +11,7 @@ const noop = () => {},
+ 	contexts = new WeakMap();
+ 
+ export async function Socket(options, host, port, track = noop) {
++	// XXX(astra): log debug "socket provider selected" with attempt id, host:port or socket path, runtime, builtin/custom provider; report provider rejection with elapsed ms and sanitized error code
+ 	const raw = options.socket
+ 		? await options.socket(options, host, port)
+ 		: await connect(options, host, port, track);
+@@ -19,6 +20,10 @@ export async function Socket(options, host, port, track = noop) {
+ }
+ 
+ export function secureOptions(ssl) {
++	// XXX(claude): log warn once per process "ssl=<require|allow|prefer> does not verify the server
++	//   certificate (rejectUnauthorized: false); use ssl='verify-full' or a tls options object"
++	//   — many deployments assume require verifies
++	// XXX(astra): log warn "TLS certificate verification disabled" once per client configuration if effective rejectUnauthorized is false, with ssl mode, runtime, effective certificate/hostname verification policy; Workers use platform verification
+ 	return ssl === "require" || ssl === "allow" || ssl === "prefer"
+ 		? workers
+ 			? {}
+@@ -34,6 +39,7 @@ function context(ssl) {
+ 	const values = { ...ssl };
+ 	let last = contexts.get(ssl);
+ 	(last && same(values, last.values)) ||
++		// XXX(astra): log debug "TLS context rebuilt" if cache misses or options changed, with CA/client-certificate presence booleans; never key/cert/passphrase bytes, and report invalid TLS options through attempt failure
+ 		contexts.set(ssl, (last = { values, secureContext: tls.createSecureContext(values) }));
+ 	return { ...values, secureContext: last.secureContext };
+ }
+@@ -70,9 +76,16 @@ function connect(options, host, port, track) {
+ 		socket.shared = !!reads;
+ 		socket.secure = tlsNow;
+ 		socket.ondata = noop;
++		// XXX(claude): log debug "socket error before connect" with host:port or path, error code
++		//   (ECONNREFUSED, ENOTFOUND, EHOSTUNREACH, ETIMEDOUT, or a certificate error for direct
++		//   TLS)
++		// XXX(astra): log debug "socket connection failed" when error fires, with attempt id, phase (DNS/TCP/Unix/direct TLS), host:port/path, error code/syscall, elapsed ms; attach cause to startup failure instead of double logging
+ 		socket.once("error", reject);
++		// XXX(claude): log trace "tcp connected" with local/remote address, elapsed ms; for direct TLS log
++		//   debug "TLS negotiated" with protocol, cipher, ALPN, authorized/authorizationError
+ 		socket.once(tlsNow ? "secureConnect" : "connect", () => {
+ 			socket.off("error", reject);
++			// XXX(astra): log debug "transport connected" with attempt id, local/remote address and port, elapsed ms, direct TLS flag; for TLS include protocol, cipher, authorized, authorization error, ALPN, verification policy
+ 			socket.setNoDelay(true);
+ 			resolve(socket);
+ 		});
+@@ -119,6 +132,7 @@ function wrap(socket, host) {
+ 			socket.destroy();
+ 		},
+ 		keepAlive(seconds) {
++			// XXX(astra): log debug "TCP keepalive configured" with connection/attempt id, requested delay seconds, provider support; do not treat keepalive as a query timeout
+ 			seconds && socket.setKeepAlive && socket.setKeepAlive(true, 1000 * seconds);
+ 		},
+ 	};
+@@ -141,12 +155,16 @@ function wrap(socket, host) {
+ 	}
+ 
+ 	function data(buffer) {
++		// XXX(astra): do not log raw socket buffers because authentication frames, cancellation keys, query parameters, results and COPY data all pass through here
+ 		x.ondata(buffer);
+ 	}
+ 	function drain() {
+ 		x.ondrain();
+ 	}
+ 	function error(err) {
++		// XXX(claude): log debug "socket error" with host, error code — connection.ts onclose reports the
++		//   consequence with context, so keep this low
++		// XXX(astra): log debug "socket error captured" with connection/attempt id, error code/syscall, host:port, transport phase; retain original cause for the single connection-loss event
+ 		failure || (failure = err);
+ 		socket.destroy();
+ 		close();
+@@ -156,23 +174,34 @@ function wrap(socket, host) {
+ 		if (closed) return;
+ 
+ 		closed = true;
++		// XXX(astra): log debug "transport closed" with connection/attempt id, local end/destroy flag, socket error code or EOF, duration ms; higher layers decide expected versus unexpected closure
+ 		x.onclose(failure);
+ 	}
+ 
+ 	function upgrade(options = {}) {
+ 		return new Promise((resolve, reject) => {
++			// XXX(astra): log debug "TLS handshake started" with attempt id, host:port, SNI hostname, effective certificate/hostname verification policy, ALPN request
+ 			unlisten();
+ 			const secure = tls.connect({
+ 				socket,
+ 				servername: net.isIP(host || "") ? undefined : host,
+ 				...options,
+ 			});
++			// XXX(claude): log debug "TLS upgrade failed" with host, error code
++			//   (UNABLE_TO_VERIFY_LEAF_SIGNATURE, CERT_HAS_EXPIRED,
++			//   ERR_TLS_CERT_ALTNAME_INVALID, DEPTH_ZERO_SELF_SIGNED_CERT, ...) — pool.attempted
++			//   logs the warn
+ 			const fail = (err) => {
++				// XXX(astra): log error "TLS handshake failed" with attempt id, host:port, elapsed ms, TLS error code, sanitized verification reason, SNI, verification policy; deduplicate startup failure
+ 				secure.off("secureConnect", ready);
+ 				reject(err);
+ 			};
++			// XXX(claude): log debug "TLS negotiated" with secure.getProtocol(), getCipher().name,
++			//   secure.authorized, secure.authorizationError, servername; log warn once per host
++			//   "server certificate not verified: <authorizationError>" if !secure.authorized
+ 			function ready() {
+ 				secure.off("error", fail);
++				// XXX(astra): log debug "TLS negotiated" with attempt id, host:port, protocol version, cipher, ALPN, authorized flag, sanitized authorization error, verification policy, handshake ms; never session tickets or key material
+ 				socket = secure;
+ 				listen();
+ 				resolve(x);
+diff --git a/src/startup.ts b/src/startup.ts
+index 87da1b3..624c234 100644
+--- a/src/startup.ts
++++ b/src/startup.ts
+@@ -23,8 +23,12 @@ export async function open(options, signal = { aborted: false, sockets: new Set(
+ 
+ 	let last;
+ 
++	// XXX(astra): log info "falling back from standby preference to any server" if the standby pass found no usable host, with attempt group id, target_session_attrs, host count
+ 	for (const want of passes) {
++		// XXX(astra): log debug "trying connection candidate" with attempt group id, attempt id, host:port or socket path, candidate index, target_session_attrs, pass
+ 		for (let n = 0; n < hosts.length; n++) {
++			// XXX(claude): log debug "connecting" with host:port or path, database, user, attempt n+1 of
++			//   hosts.length, target_session_attrs pass (want)
+ 			const i = (first + n) % hosts.length,
+ 				host = hosts[i],
+ 				port = options.port[i] || options.port[0],
+@@ -33,12 +37,18 @@ export async function open(options, signal = { aborted: false, sockets: new Set(
+ 					(x) => [true, x],
+ 				);
+ 			if (!failed && fits(want, ready.attributes)) return ((ready.index = i), ready);
++			// XXX(claude): log debug "host <host:port> does not satisfy target_session_attrs=<want>
++			//   (read-only=<>, standby=<>); trying the next host" if !failed && !fits
++			// XXX(astra): log debug "server does not satisfy target_session_attrs; closing candidate" if !failed, with attempt id, host:port, backend pid, wanted, readOnly, standby
+ 			failed || ready.socket.end(p.Terminate());
+ 			last = failed ? error : Errors.connection("CONNECTION_DESTROYED", options, host, port);
+ 			if (signal.aborted) throw last;
+ 		}
+ 	}
+ 
++	// XXX(claude): log warn "no host satisfied target_session_attrs=<wanted>" with the hosts tried and the
++	//   last error, when every attempt connected but none fit
++	// XXX(astra): log error "no usable server found" with attempt group id, hosts attempted, elapsed ms, target_session_attrs, final error code/sqlstate and sanitized cause; rate-limit repeated failures
+ 	throw last;
+ }
+ 
+@@ -88,9 +98,14 @@ function attempt(options, host, port, signal) {
+ 	const { setTimeout, clearTimeout } = options.timers,
+ 		fail = (code) => Errors.connection(code, options, host, port);
+ 
++	// XXX(astra): log debug "connection attempt started" with attempt id, host:port or socket path, database, user/provider flag, connect_timeout seconds, TLS mode, sslnegotiation
+ 	return new Promise((resolve, reject) => {
++		// XXX(claude): log warn "connect timed out after <connect_timeout>s" with host:port and the phase
++		//   reached (tcp connect / tls / auth / startup) — record phase timestamps in session()
++		//   so this line can say where it hung
+ 		const timer =
+ 			options.connect_timeout &&
++			// XXX(astra): log warn "connection startup timed out" if this timer fires, with attempt id, host:port, connect_timeout seconds, elapsed ms, phase (socket/TLS/auth/probe)
+ 			setTimeout(() => done(true, fail("CONNECT_TIMEOUT")), options.connect_timeout * 1000);
+ 
+ 		let socket = null,
+@@ -111,21 +126,32 @@ function attempt(options, host, port, signal) {
+ 			signal.aborted && !failed && ((failed = true), (error = fail("CONNECTION_DESTROYED")));
+ 
+ 			if (failed) {
++				// XXX(claude): log debug "connection attempt failed" with host:port, error code, elapsed ms
++				//   (pool.attempted logs the warn with retry info)
++				// XXX(astra): log warn "connection attempt failed" unless this is deliberate shutdown or an already logged timeout, with attempt id, phase, elapsed ms, error code/sqlstate, sanitized cause
+ 				socket ? socket.destroy() : raw && raw.destroy();
+ 				return reject(error);
+ 			}
+ 
++			// XXX(astra): log debug "startup completed" with attempt id, host:port, backend pid, transaction status, elapsed ms; target-session acceptance still follows
+ 			ready.socket.onclose = () => {};
++			// XXX(claude): log debug "connection established" with host:port, backend pid, elapsed ms per
++			//   phase (tcp, tls, auth, startup), tls on/off, server_version — pool.opened logs
++			//   the info line
+ 			resolve(ready);
+ 		}
+ 
+ 		async function session() {
+ 			socket = await Socket(options, host, port, (x) => (raw = x));
++			// XXX(claude): log trace "tcp connected" with local address:port -> host:port, elapsed ms
+ 			if (settled || signal.aborted)
+ 				return (socket.destroy(), done(true, fail("CONNECTION_DESTROYED")));
+ 
+ 			signal.sockets.add(socket);
++			// XXX(astra): log warn "socket closed during startup" if not locally aborted, with attempt id, startup phase, EOF versus socket error, error code; attach to the single attempt-failure event
+ 			socket.onclose = (error) =>
++				// XXX(claude): log debug "socket closed during startup" with host:port, socket error code,
++				//   phase — ECONNRESET here is often a pg_hba.conf rejection or a proxy
+ 				done(
+ 					true,
+ 					signal.aborted
+@@ -136,6 +162,7 @@ function attempt(options, host, port, signal) {
+ 				);
+ 			socket.keepAlive(options.keep_alive);
+ 			await negotiate(socket, options);
++			// XXX(astra): log error "username provider failed" if it throws or rejects, with attempt id, provider kind, elapsed ms, sanitized error code; log resolved user only under the configured identity policy
+ 			const user = typeof options.user === "function" ? await options.user() : options.user;
+ 			return startup(user, options.database || user);
+ 		}
+@@ -160,17 +187,33 @@ function attempt(options, host, port, signal) {
+ 					authing = Promise.resolve();
+ 
+ 				socket.ondata = (x) => frames.push(x);
++				// XXX(claude): log trace "sending StartupMessage" with user, database, application_name and
++				//   the other connection parameters (the password is never in this message)
++				// XXX(astra): do not log the Startup packet or arbitrary connection options because custom GUCs may contain secrets; allowlist application_name, client_encoding and timeout settings
+ 				socket.write(p.Startup({ user, database, client_encoding: "UTF8", ...options.connection }));
+ 
++				// XXX(claude): log error "server rejected the connection during startup" for type E with
++				//   host:port, user, database, sqlstate, message — 28P01 invalid password, 28000
++				//   pg_hba.conf rejection, 3D000 database does not exist, 53300 too many
++				//   connections, 57P03 cannot connect now; the most common first-deploy problem,
++				//   and today the error only reaches whichever query triggered the connect
++				// XXX(claude): log debug for type K: backend pid (never the cancel secret); for type S:
++				//   each ParameterStatus; after ReadyForQuery log info once with server_version,
++				//   server_encoding, client_encoding, TimeZone, standard_conforming_strings,
++				//   integer_datetimes, in_hot_standby, default_transaction_read_only — and log
++				//   warn if client_encoding is not UTF8 or standard_conforming_strings is off
+ 				function frame(type, x, start, end) {
+ 					try {
+ 						type === R
+ 							? authenticate(Buffer.from(x.subarray(start, end)))
+ 							: type === S
++								// XXX(astra): log debug "startup parameter received" if key is server_version, client_encoding, standard_conforming_strings, TimeZone, application_name, in_hot_standby or default_transaction_read_only, with attempt id, key, value
+ 								? (([k, v]) => (parameters[k] = v))(p.parameterStatus(x, start))
+ 								: type === K
++									// XXX(astra): log debug "cancellation credentials received" with attempt id, backend pid, secret_present boolean; never include the cancellation secret
+ 									? Object.assign(backend, p.backendKeyData(x, start))
+ 									: type === E
++										// XXX(astra): log error "server rejected startup" with attempt id, phase, host:port, database, user, severity, sqlstate, sanitized message truncated to 512 chars; deduplicate the attempt-failure event
+ 										? reject(Errors.postgres(p.error(x, start, end)))
+ 										: type === N
+ 											? notice(p.error(x, start, end))
+@@ -187,26 +230,38 @@ function attempt(options, host, port, signal) {
+ 
+ 				function notice(x) {
+ 					try {
++						// XXX(claude): same as NoticeResponse in connection.ts: level from notice.severity,
++						//   replaces this console.log; startup notices carry useful hints
++						// XXX(astra): log info "server notice during startup" (replace console.log; WARNING -> warn, DEBUG -> debug) with attempt id, severity, sqlstate, sanitized message truncated to 512 chars
+ 						options.onnotice ? options.onnotice(x) : options.onnotice === false || console.log(x);
+ 					} catch (error) {
++						// XXX(astra): log warn "startup onnotice callback threw; error ignored" with attempt id, callback name, sanitized error code/message; rate-limit
+ 						noop(error);
+ 					}
+ 				}
+ 
+ 				function authenticate(x) {
+ 					authing = authing.then(() => auth(x)).then((reply) => reply && socket.write(reply));
++					// XXX(claude): log error "authentication failed" with host:port, user, mechanism, error
++					//   code/message — never the password, nonces or proofs
++					// XXX(astra): log error "authentication failed" with attempt id, auth method, channel_binding mode, actual TLS state, error code, sanitized cause; do not include auth frames
+ 					authing.catch((error) => (reject(error), socket.destroy()));
+ 				}
+ 
+ 				function settled(x, rest) {
+ 					authing.then(
+ 						() => ready(x, rest),
++						// XXX(astra): do not log this authentication rejection again because authenticate() already handles the same promise failure
+ 						() => {},
+ 					);
+ 				}
+ 
+ 				function ready(x, rest) {
+ 					if (!auth.authenticated)
++						// XXX(claude): log error "server sent ReadyForQuery before authentication
++						//   completed" (AUTHENTICATION_INCOMPLETE) with host:port — protocol
++						//   violation or hostile server
++						// XXX(astra): log error "server became ready before authentication completed" with attempt id, auth method, AUTHENTICATION_INCOMPLETE
+ 						return reject(
+ 							Errors.generic(
+ 								"AUTHENTICATION_INCOMPLETE",
+@@ -219,7 +274,11 @@ function attempt(options, host, port, signal) {
+ 						"in_hot_standby" in parameters && "default_transaction_read_only" in parameters;
+ 
+ 					if (options.target_session_attrs && !known && !probing) {
++						// XXX(astra): log debug "probing server session attributes" with attempt id, target_session_attrs, missing startup parameter names
+ 						probing = true;
++						// XXX(claude): log debug "server did not report
++						//   in_hot_standby/default_transaction_read_only (PostgreSQL < 14);
++						//   probing with a query" with host:port
+ 						return socket.write(
+ 							p.Query("show transaction_read_only; select pg_catalog.pg_is_in_recovery()"),
+ 						);
+@@ -249,33 +308,52 @@ function attempt(options, host, port, signal) {
+ }
+ 
+ async function negotiate(socket, options) {
++	// XXX(astra): log debug "TLS negotiation bypassed" if this branch is taken, with attempt id, reason (disabled/already negotiated by socket provider), actual TLS state, configured mode
+ 	if (!secured(options) || socket.negotiated) return;
+ 
+ 	const ssl = options.ssl,
+ 		tls = secureOptions(ssl);
+ 
++	// XXX(claude): log debug "starting TLS" with host:port, mode (direct with ALPN vs SSLRequest),
++	//   servername, and whether the certificate is verified (ssl=require/prefer/allow set
++	//   rejectUnauthorized: false)
++	// XXX(astra): log debug "direct TLS requested on supplied socket" if sslnegotiation is direct, with attempt id, host:port, ALPN postgresql, certificate and hostname verification policy
+ 	if (options.sslnegotiation === "direct")
+ 		return socket.upgrade({ ...tls, ALPNProtocols: ["postgresql"] });
+ 
+ 	const answer = new Promise((r) => (socket.ondata = (x) => r(x[0])));
++	// XXX(astra): log debug "requesting PostgreSQL TLS upgrade" with attempt id, host:port, ssl mode, effective certificate verification policy
+ 	socket.write(p.SSLRequest());
+ 
++	// XXX(claude): log debug "TLS negotiated" with protocol version, cipher, authorized, authorizationError
++	//   (socket.raw.getProtocol()/getCipher()/authorized); log warn once per host "server
++	//   certificate not verified: <authorizationError>" if !authorized
+ 	if ((await answer) === S) return socket.upgrade(tls);
+ 
++	// XXX(claude): log warn "server refused TLS; continuing in plaintext because ssl=<prefer|allow>" with
++	//   host:port — a silent security downgrade today
++	// XXX(astra): log warn "server refused TLS; continuing without encryption" if ssl is prefer/allow, with attempt id, host:port, ssl mode, server response byte; flag responses other than N as unexpected protocol data
+ 	if (ssl !== "prefer" && ssl !== "allow")
++		// XXX(astra): log error "server refused required TLS" with attempt id, host:port, database, ssl mode, server response byte, SSL_NOT_SUPPORTED
+ 		throw Errors.generic("SSL_NOT_SUPPORTED", "The server does not support SSL connections");
+ }
+ 
+ async function cancel(options, host, port, { pid, secret }) {
++	// XXX(claude): log debug "sending CancelRequest" with host:port, backend pid; log warn "cancel request
++	//   failed" with the error if Socket() or negotiate rejects
++	// XXX(astra): log debug "opening cancellation connection" with parent connection id, query id, backend pid, host:port, elapsed query ms; never include secret
+ 	const socket = await Socket(options, host, port);
+ 	try {
+ 		await negotiate(socket, options);
+ 	} catch (error) {
++		// XXX(astra): log warn "cancel request failed during TLS negotiation" with parent connection/query id, backend pid, host:port, TLS mode, elapsed ms, error code; original query may still be running
+ 		socket.destroy();
+ 		throw error;
+ 	}
+ 	return new Promise((resolve) => {
++		// XXX(astra): log debug "cancellation connection closed" with parent connection id, query id, backend pid, elapsed ms, socket error if any; socket closure does not confirm cancellation
+ 		socket.onclose = () => resolve();
++		// XXX(astra): log debug "cancel request sent" with parent connection id, query id, backend pid, host:port, actual TLS state; confirm query outcome separately
+ 		socket.end(p.Cancel(pid, secret));
+ 	});
+ }
+@@ -293,12 +371,18 @@ function Auth({ user, pass, binding = "prefer", socket }) {
+ 	return respond;
+ 
+ 	async function respond(x) {
++		// XXX(astra): log debug "server authentication method requested" on the initial request or method change, with attempt id, method (cleartext/MD5/SCRAM/trust), numeric type, actual TLS state, channel_binding
+ 		const type = x.readInt32BE(5);
++		// XXX(claude): log debug "server requested authentication: <ok|cleartext|md5|SASL|...>" with
++		//   host:port, user; log warn once "server requested a cleartext password" if type === 3
++		//   (say whether TLS is on); log info once "server uses md5 password authentication
++		//   (deprecated)" if type === 5
+ 		if ((type === 3 || type === 5) && binding === "require")
+ 			throw unbound(
+ 				"the server asked for " + (type === 3 ? "a cleartext" : "an MD5") + " password",
+ 			);
+ 
++		// XXX(astra): log warn "cleartext password requested over plaintext transport" if type === 3 and TLS is off, with attempt id, host:port, user; never log the password
+ 		return type === 0
+ 			? ok()
+ 			: type === 3
+@@ -319,6 +403,9 @@ function Auth({ user, pass, binding = "prefer", socket }) {
+ 								: unsupported(type);
+ 	}
+ 
++	// XXX(claude): log debug "SCRAM mechanism chosen" with plus (channel binding on/off) and, when binding
++	//   is prefer but not bound, why (no TLS certificate / server did not offer
++	//   SCRAM-SHA-256-PLUS)
+ 	function start(x) {
+ 		const offered = x.toString("utf8", 9).split("\0"),
+ 			certificate = binding !== "disable" && socket && socket.certificate && socket.certificate(),
+@@ -338,8 +425,10 @@ function Auth({ user, pass, binding = "prefer", socket }) {
+ 				"The server offered no supported SASL mechanism",
+ 			);
+ 
++		// XXX(astra): log debug "SCRAM mechanism selected" with attempt id, selected mechanism, channel_binding policy, binding enabled, certificate hash availability; exclude all SCRAM material
+ 		header = plus ? "p=tls-server-end-point,," : hash ? "y,," : "n,,";
+ 		bound = plus ? hash : false;
++		// XXX(astra): do not log passwords, nonces, salts, proofs, signatures, derived keys or SCRAM cache keys because they are authentication material
+ 		nonce = crypto.randomBytes(18).toString("base64");
+ 		verified = false;
+ 		return p.SASL(plus ? "SCRAM-SHA-256-PLUS" : "SCRAM-SHA-256", header + "n=*,r=" + nonce);
+@@ -352,12 +441,17 @@ function Auth({ user, pass, binding = "prefer", socket }) {
+ 				.reduce((acc, x) => ((acc[x[0]] = x.slice(2)), acc), {}),
+ 			key = sha256(pass + "\0" + res.s + "\0" + res.i).toString("base64");
+ 
++		// XXX(claude): log error "SCRAM server nonce mismatch" with host:port — possible man-in-the-middle
++		//   or a broken proxy
+ 		if (!res.r.startsWith(nonce))
+ 			throw Errors.generic(
+ 				"SASL_NONCE_MISMATCH",
+ 				"The server nonce does not start with the client nonce",
+ 			);
+ 
++		// XXX(claude): log debug "SCRAM pbkdf2 took <ms>ms" with iterations if it took more than ~100ms —
++		//   high iteration counts make reconnect storms slow; never log the key or the salted
++		//   password
+ 		if (!salted.has(key)) {
+ 			salted.size >= 64 && salted.delete(salted.keys().next().value);
+ 			salted.set(key, crypto.pbkdf2Sync(pass, Buffer.from(res.s, "base64"), +res.i, 32, "sha256"));
+@@ -394,6 +488,8 @@ function Auth({ user, pass, binding = "prefer", socket }) {
+ 	}
+ 
+ 	function finish(x) {
++		// XXX(claude): log error "SCRAM server signature mismatch" with host:port — the server does not
++		//   know the password (MITM, or a proxy terminating auth)
+ 		if (!signature || x.toString("utf8", 9).split("\0", 1)[0].slice(2) !== signature)
+ 			throw Errors.generic(
+ 				"SASL_SIGNATURE_MISMATCH",
+@@ -413,11 +509,15 @@ function Auth({ user, pass, binding = "prefer", socket }) {
+ 
+ 		if (binding === "require" && !bound) throw unbound("the server authenticated without it");
+ 
++		// XXX(astra): log debug "authentication accepted" with attempt id, method, elapsed auth ms, channel binding enabled
+ 		respond.authenticated = true;
+ 		return null;
+ 	}
+ 
++	// XXX(claude): log error "unsupported authentication type <type>" with host:port (7 GSS, 9 SSPI, 8
++	//   krb5)
+ 	function unsupported(type) {
++		// XXX(astra): log error "unsupported authentication method" with attempt id, numeric method, AUTH_TYPE_NOT_IMPLEMENTED; use the authentication-failure event
+ 		throw Errors.generic(
+ 			"AUTH_TYPE_NOT_IMPLEMENTED",
+ 			"Authentication type " + type + " is not supported",
+@@ -425,11 +525,13 @@ function Auth({ user, pass, binding = "prefer", socket }) {
+ 	}
+ 
+ 	function password() {
++		// XXX(astra): log error "password provider failed" if the provider throws or rejects, with attempt id, provider kind, elapsed ms, sanitized error code; never log the returned value
+ 		return Promise.resolve(typeof pass === "function" ? pass() : pass);
+ 	}
+ }
+ 
+ function unbound(reason) {
++	// XXX(astra): log error "required channel binding unavailable" with attempt id, reason, actual TLS state, auth method; use the authentication-failure event
+ 	return Errors.generic("CHANNEL_BINDING_REQUIRED", "channel_binding is require, but " + reason);
+ }
+ 
+@@ -461,8 +563,10 @@ function endpoint(certificate) {
+ 	try {
+ 		const x = Buffer.from(certificate),
+ 			algorithm = signature(x);
++		// XXX(astra): log debug "certificate signature algorithm cannot supply channel binding" if algorithm is unknown, with attempt id, channel_binding policy; omit certificate bytes
+ 		return algorithm ? crypto.createHash(algorithm).update(x).digest() : null;
+ 	} catch (_) {
++		// XXX(astra): log debug "certificate parsing failed; channel binding unavailable" with attempt id, sanitized error type, channel_binding policy; require mode will fail authentication
+ 		return null;
+ 	}
+ }
+@@ -527,17 +631,26 @@ function pgpass(file, host, port, database, user) {
+ 	let text;
+ 	try {
+ 		const stat = fs.statSync(file);
++		// XXX(claude): log warn "password file <file> ignored: group or world readable (mode <octal>)" as
++		//   libpq does; log debug "no password given and no matching line in <file>" for
++		//   host/port/database/user when the search misses — otherwise the connect fails with
++		//   28P01 and nobody can tell why
++		// XXX(astra): log warn "password file ignored" if not a regular file or permissions allow group/other access, with passfile path, reason, permission bits; never file contents
+ 		if (!stat.isFile() || (process.platform !== "win32" && stat.mode & 0o077)) return null;
+ 		text = fs.readFileSync(file, "utf8");
++	// XXX(claude): log debug "password file <file> could not be read" with the error code, unless ENOENT
+ 	} catch (_) {
++		// XXX(astra): log debug "password file unavailable" with passfile path, error code, explicit versus default path; promote permission/read failures on an explicit file to warn
+ 		return null;
+ 	}
+ 	const wanted = [host, String(port), database, user];
+ 	for (const line of text.split(/\r?\n/)) {
+ 		const fields = line && line[0] !== "#" ? split(line) : [];
+ 		if (fields.length === 5 && wanted.every((x, i) => fields[i] === "*" || fields[i] === x))
++			// XXX(astra): log debug "password file entry selected" with passfile path, host:port, database, user; never matching line or password
+ 			return fields[4];
+ 	}
++	// XXX(astra): log debug "no password file entry matched" with passfile path, host:port, database, user
+ 	return null;
+ }
+ 
+diff --git a/src/subscribe.ts b/src/subscribe.ts
+index e47eba1..a9aef56 100644
+--- a/src/subscribe.ts
++++ b/src/subscribe.ts
+@@ -31,6 +31,9 @@ export default function Subscribe(postgres, options) {
+ 			replication: "database",
+ 		},
+ 		onclose: () => {
++			// XXX(claude): log warn "replication connection closed; restarting" with slot, backend pid,
++			//   acked LSN, retries, if !ended; log info "replication connection closed" if ended
++			// XXX(astra): log warn "replication connection lost" if !ended, with replication pool/connection id, backend pid, slot, persistent flag, last received/acknowledged LSN, subscriber count, reconnect planned
+ 			current && current.stop();
+ 			current = null;
+ 			state.pid = state.secret = undefined;
+@@ -43,6 +46,7 @@ export default function Subscribe(postgres, options) {
+ 		close = sql.close;
+ 
+ 	sql.end = async () => {
++		// XXX(astra): log info "replication shutdown requested" with connection id, slot, persistent flag, pending callbacks, last received/acknowledged LSN; persistent slot remains on server
+ 		ended = true;
+ 		current && (await current.finish());
+ 		return end();
+@@ -56,6 +60,7 @@ export default function Subscribe(postgres, options) {
+ 	return subscribe;
+ 
+ 	async function subscribe(event, fn, onsubscribe = noop, onerror) {
++		// XXX(astra): log debug "replication subscriber registered" with slot, subscriber id, command, schema/table, key-filter-present flag, subscriber count; never raw event strings containing row keys
+ 		event = parseEvent(event);
+ 
+ 		connection || (connection = init());
+@@ -67,11 +72,13 @@ export default function Subscribe(postgres, options) {
+ 
+ 		const unsubscribe = () => {
+ 			fns.delete(subscriber);
++			// XXX(astra): log debug "replication subscriber removed" with slot, subscriber id, remaining subscriber count; log info when the last is removed because the stream continues consuming and acknowledging
+ 			fns.size === 0 && subscribers.delete(event);
+ 		};
+ 
+ 		return connection.then(
+ 			() => {
++				// XXX(astra): log warn "onsubscribe callback failed" if it throws or rejects, with slot, subscriber id, sanitized error; subscription initialization and callback failure are distinct outcomes
+ 				onsubscribe();
+ 				return { unsubscribe, state, sql };
+ 			},
+@@ -84,42 +91,63 @@ export default function Subscribe(postgres, options) {
+ 	}
+ 
+ 	function restart() {
++		// XXX(astra): log warn "replication reconnect scheduled" with slot, persistent flag, retry count, actual delay ms (first retry is immediate), last acknowledged LSN, outage duration ms; rate-limit
+ 		const delay = Math.min(100 * 2 ** retries++, 10000);
++		// XXX(claude): log info "restarting logical replication in <delay>ms" with slot, retries
+ 		connection = new Promise((r) => timers.setTimeout(r, retries === 1 ? 0 : delay))
+ 			.then(() => ended || init())
+ 			.then(
+ 				(x) => {
++					// XXX(claude): log info "logical replication resumed" with slot, retries it took,
++					//   seconds down
++					// XXX(astra): log info "replication subscription restored" with slot, new connection id/backend pid, retry count before reset, outage duration ms, persistent replay versus temporary-slot gap
+ 					retries = 0;
+ 					ended ||
++						// XXX(astra): log warn "onsubscribe callback failed after reconnect" if it throws or rejects, with slot, subscriber id, sanitized error; this must not be mistaken for a transport failure
+ 						subscribers.forEach((event) => event.forEach(({ onsubscribe }) => onsubscribe()));
+ 					return x;
+ 				},
+ 				(error) => {
++					// XXX(claude): log error "restarting logical replication failed" with slot, error
++					//   code/message, next delay — report() only reaches onerror handlers, or
++					//   console.error when there are none
+ 					report(error);
+ 					ended || restart();
+ 				},
+ 			);
++		// XXX(astra): log error "replication restart task rejected outside normal reporting" if rejection was not already reported, with slot, retry count, phase, sanitized error; this detached task currently suppresses it
+ 		connection.catch(noop);
+ 	}
+ 
+ 	async function init() {
++		// XXX(astra): log error "logical replication requires publication names" if missing, with replication pool id, slot, option name publications
+ 		if (!options.publications) throw new Error("Missing publication names");
+ 
++		// XXX(claude): log info "creating replication slot <slot>" with temporary/persistent, publications
++		// XXX(astra): log info "creating logical replication slot" with replication pool id, slot name, temporary/persistent mode, output plugin pgoutput, publication names; record creation success and elapsed ms
+ 		await sql
+ 			.unsafe(
+ 				`CREATE_REPLICATION_SLOT ${slot}${persistent ? "" : " TEMPORARY"} LOGICAL pgoutput NOEXPORT_SNAPSHOT`,
+ 			)
+ 			.catch((error) => {
++				// XXX(claude): log debug "replication slot <slot> already exists; reusing it" if 42710
++				// XXX(astra): log info "reusing existing persistent replication slot" if persistent and sqlstate 42710, with slot, publication names; other slot-creation failures need sqlstate and sanitized message
+ 				if (!persistent || error.code !== "42710") throw error;
+ 			});
+ 
++		// XXX(claude): log info "starting replication" with slot, publications, proto_version
++		// XXX(astra): log info "starting logical replication" with slot, publication names, requested LSN 0/0, pgoutput protocol version 1, persistent flag; this code selects publications but does not create them
+ 		const query = sql.unsafe(
+ 			`START_REPLICATION SLOT ${slot} LOGICAL 0/0 (proto_version '1', publication_names '${options.publications}')`,
+ 		);
++		// XXX(astra): do not log this rejection twice because query.writable() awaits the same startup query; after stream creation, report failures through stream events
+ 		query.catch(noop);
+ 		const stream = await query.writable();
++		// XXX(astra): log info "logical replication stream started" with replication connection id, backend pid, slot, publication names, persistent flag, startup elapsed ms
+ 		current = Stream(stream);
++		// XXX(claude): log debug "replication stream started" with backend pid
+ 		state.pid = query.state && query.state.pid;
++		// XXX(astra): do not log replication state objects because they carry the backend cancellation secret; select backend pid explicitly
+ 		state.secret = query.state && query.state.secret;
+ 		return current;
+ 	}
+@@ -136,10 +164,16 @@ export default function Subscribe(postgres, options) {
+ 			soon = null;
+ 
+ 		stream.on("data", data);
++		// XXX(claude): log error "replication stream error" with slot, error, received/acked LSN (report()
++		//   also calls onerror handlers)
++		// XXX(astra): log error "replication stream failed" if not already reporting a subscriber failure, with slot, backend pid, last received/acknowledged LSN, error code/sqlstate, sanitized message
+ 		stream.on("error", (error) => failed || report(error));
++		// XXX(claude): log warn "replication stream closed unexpectedly" with slot, received/acked LSN, if
++		//   !stopped
+ 		stream.on("close", () => {
+ 			const unexpected = !stopped;
+ 			stop();
++			// XXX(astra): log warn "replication stream closed unexpectedly; recycling connection" if unexpected, with slot, received/acknowledged LSN, pending callback count, stream duration ms; observe the detached close promise
+ 			unexpected && close();
+ 		});
+ 
+@@ -148,15 +182,23 @@ export default function Subscribe(postgres, options) {
+ 		function data(x) {
+ 			if (x[0] === 0x77) {
+ 				received = max(received, x.readBigUInt64BE(9));
++				// XXX(astra): log error "replication payload parsing failed" if parser/transform throws, with slot, message tag, payload length, relation id, received/acknowledged LSN, sanitized error type; never raw WAL or row values
+ 				parse(x.subarray(25), relations, sql.options.parsers, message, options.transform);
+ 			} else if (x[0] === 0x6b) {
+ 				received = max(received, x.readBigUInt64BE(1));
+ 				idle() && (acked = max(acked, received));
++				// XXX(claude): log trace "keepalive" with wal end LSN, reply requested; log warn
++				//   "replication lag" if received - acked exceeds a threshold or a transaction
++				//   has been pending for > N s — a slow subscriber holds back acks and keeps WAL
++				//   on the server
++				// XXX(astra): log trace "replication keepalive received" with slot, server WAL end, acknowledged LSN, reply-requested flag; sample and omit packet bytes
+ 				x[17] && status();
+ 			}
+ 		}
+ 
+ 		function message(kind, x, info) {
++			// XXX(claude): log trace "transaction begin/commit" with xid, lsn
++			// XXX(astra): log trace "replicated transaction began" if kind is begin, with slot, xid, start LSN, server commit timestamp; no row data
+ 			if (kind === "begin")
+ 				return (transaction = { lsn: x.lsn, end: null, time: x.time, xid: x.xid });
+ 
+@@ -185,6 +227,7 @@ export default function Subscribe(postgres, options) {
+ 			const result = fn();
+ 			if (result && typeof result.then === "function") {
+ 				queue = result;
++				// XXX(astra): log trace "replication paused for subscriber callbacks" with slot, xid, received/acknowledged LSN, pending callback count; measure pause duration and warn when configurable duration/lag limit is crossed
+ 				stream.pause();
+ 				drain();
+ 			}
+@@ -196,16 +239,21 @@ export default function Subscribe(postgres, options) {
+ 				if (queue !== at) return queue && drain();
+ 
+ 				queue = null;
++				// XXX(astra): log trace "replication resumed after callbacks" if neither stopped nor failed, with slot, callback wait ms, received/acknowledged LSN
+ 				stopped || failed || stream.resume();
++			// XXX(astra): log error "replication callback queue rejected unexpectedly" if not already failed/reported, with slot, xid, acknowledged LSN, sanitized error; this handler currently discards the rejection and can leave reading paused
+ 			}, noop);
+ 		}
+ 
+ 		function commit(done) {
++			// XXX(claude): log trace "acknowledged" with acked LSN
++			// XXX(astra): log trace "replicated transaction delivered; acknowledgement advanced" with slot, xid, end LSN, prior/new acknowledged LSN, callback duration ms; prefer throughput/lag metrics
+ 			acked = max(acked, done.end);
+ 			persistent && !soon && (soon = timers.setImmediate(() => ((soon = null), status())));
+ 		}
+ 
+ 		function handle(row, info) {
++			// XXX(astra): do not log replication rows, old rows, primary-key filters or full event strings because they contain application data; metadata may include command, relation id/schema/table, xid and LSN
+ 			const path = info.relation.schema + "." + info.relation.table,
+ 				key =
+ 					row && info.relation.keys.length ? "=" + info.relation.keys.map((x) => row[x.name]) : "",
+@@ -227,6 +275,9 @@ export default function Subscribe(postgres, options) {
+ 					try {
+ 						result = subscriber.fn(row, info, event);
+ 					} catch (error) {
++						// XXX(claude): log error "subscriber for <event> threw" with the error, xid, lsn,
++						//   relation — fail() reports it; with a persistent slot the stream is
++						//   destroyed and the transaction redelivered, say so
+ 						return fail(error, subscriber);
+ 					}
+ 					result &&
+@@ -236,12 +287,16 @@ export default function Subscribe(postgres, options) {
+ 		}
+ 
+ 		function fail(error, subscriber) {
++			// XXX(astra): log error "replication subscriber failed" with slot, subscriber id, xid, persistent flag, received/acknowledged LSN, sanitized error, replay action; temporary-slot failures do not trigger this replay path
+ 			report(error, subscriber);
+ 			if (!persistent || failed) return;
+ 
+ 			failed = true;
+ 			queue = null;
+ 			stop();
++			// XXX(claude): log warn "destroying the replication stream so the transaction is delivered
++			//   again" with slot, xid, lsn
++			// XXX(astra): log warn "restarting persistent replication to replay unacknowledged transaction" with slot, xid, acknowledged LSN, received LSN, retry count; already successful callbacks may receive duplicates
+ 			stream.destroy(new Error("A subscriber failed, so the transaction is delivered again"));
+ 			close();
+ 		}
+@@ -261,28 +316,36 @@ export default function Subscribe(postgres, options) {
+ 		function status() {
+ 			if (stopped || stream.destroyed || !stream.writable) return;
+ 
++			// XXX(claude): log trace "standby status update" with acked LSN
++			// XXX(astra): log warn "replication acknowledgements stalled" if configured lag or callback-wait threshold is exceeded, with slot, received/acknowledged LSN, WAL byte gap, time since acknowledgement progress, pending callbacks; rate-limit and log recovery
+ 			const x = Buffer.alloc(34);
+ 			x[0] = 0x72;
+ 			x.writeBigUInt64BE(acked, 1);
+ 			x.writeBigUInt64BE(acked, 9);
+ 			x.writeBigUInt64BE(acked, 17);
+ 			x.writeBigInt64BE(BigInt(Date.now()) * 1000n - epoch, 25);
++			// XXX(astra): log trace "replication acknowledgement sent" with slot, acknowledged LSN, received LSN, reason (keepalive/timer/commit/shutdown), write-backpressure flag; never packet bytes
+ 			stream.write(x);
+ 		}
+ 
+ 		async function finish() {
++			// XXX(claude): log debug "finishing replication stream" with slot, acked LSN, whether a
++			//   subscriber promise is still pending
++			// XXX(astra): log warn "replication shutdown ignored a callback queue failure" if rejection was not already reported, with slot, received/acknowledged LSN, sanitized error; preserve the reason callbacks did not drain
+ 			queue && (await queue.catch(noop));
+ 			if (!failed) {
+ 				idle() && (acked = max(acked, received));
+ 				status();
+ 			}
+ 			stop();
++			// XXX(astra): log debug "waiting for replication stream shutdown" with slot, pending callbacks, received/acknowledged LSN, elapsed ms; report completion and slow shutdown separately
+ 			stream.destroyed || (await new Promise((r) => (stream.once("close", r), stream.end())));
+ 		}
+ 
+ 		function stop() {
+ 			if (stopped) return;
+ 
++			// XXX(astra): log info "replication stream stopped" with slot, reason (shutdown/disconnect/subscriber failure), stream duration ms, last received/acknowledged LSN, failed flag
+ 			stopped = true;
+ 			timer && timers.clearTimeout(timer);
+ 			soon && timers.clearImmediate(soon);
+@@ -296,8 +359,13 @@ export default function Subscribe(postgres, options) {
+ 			: [...subscribers.values()].flatMap((x) => [...x].map((x) => x.onerror));
+ 
+ 		const listeners = handlers.filter(Boolean);
++		// XXX(claude): replace console.error: log error "logical replication error" with slot, error
++		//   code/message when there are no onerror handlers; log debug when handlers exist (they
++		//   may swallow it)
+ 		listeners.length
++			// XXX(astra): log error "replication onerror handler failed" if it throws or rejects, with slot, handler id, original error code and handler error code; do not silently lose remaining handlers
+ 			? listeners.forEach((fn) => fn(error))
++			// XXX(astra): log error "logical replication error without onerror handler" (replace console.error) with slot, persistent flag, subscriber count, phase, sqlstate/code, sanitized message/cause; never dump the full error object
+ 			: console.error("postgres.js: logical replication error", error);
+ 	}
+ }
+@@ -311,8 +379,13 @@ function Time(x) {
+ }
+ 
+ function parse(x, relations, parsers, message, transform) {
++	// XXX(claude): log trace "unknown pgoutput message type <type>" for types not handled here (O origin, Y
++	//   type, M message) — a silent no-op today
++	// XXX(astra): log debug "replication message type ignored" if no supported branch matches, once per tag per stream, with slot, message tag, payload length, protocol version; do not dump payload
+ 	const type = x[0];
+ 	if (type === 82) {
++		// XXX(claude): log trace "relation registered" with schema.table, column count, key columns
++		// XXX(astra): log debug "replication relation metadata received or changed" with slot, relation id, schema/table, column/key counts, type OIDs; omit tuple values
+ 		let i = 1;
+ 		const r = (relations[x.readUInt32BE(i)] = {
+ 			schema: x.toString("utf8", (i += 4), (i = x.indexOf(0, i))) || "pg_catalog",
+@@ -348,6 +421,9 @@ function parse(x, relations, parsers, message, transform) {
+ 	} else if (type === 67) {
+ 		message("commit", { lsn: x.readBigUInt64BE(2), end: x.readBigUInt64BE(10) });
+ 	} else if (type === 73) {
++		// XXX(claude): log error "change for unknown relation id <id>" if relation is undefined (also for
++		//   delete/update/truncate below) — otherwise the TypeError thrown inside the stream
++		//   data handler surfaces as an uncaught exception
+ 		const relation = relations[x.readUInt32BE(1)];
+ 		message("change", tuples(x, relation.columns, 8, transform).row, {
+ 			command: "insert",
+@@ -393,6 +469,7 @@ function tuples(x, columns, xi, transform) {
+ 
+ 	const row = {};
+ 	for (let i = 0; i < columns.length; i++) {
++		// XXX(astra): do not log replication tuple contents on decode errors because they expose row values; use relation id, column index/type OID, tuple tag and byte offset
+ 		type = x[xi++];
+ 		column = columns[i];
+ 		value =
+diff --git a/src/types.ts b/src/types.ts
+index 6c11933..13ed47a 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -198,6 +198,7 @@ export function Types(options = {}) {
+ 			return (parsers[oid] = (x) => parseArray(x, parse === identity ? null : parse, delimiter));
+ 		}
+ 
++		// XXX(astra): log debug "no parser registered; returning text" once per unseen OID per client, with type OID, fetch_types state; do not log field values
+ 		return identity;
+ 	}
+ 
+@@ -215,9 +216,12 @@ export function Types(options = {}) {
+ 					: serialize(xs));
+ 		}
+ 
++		// XXX(astra): log trace "using generic parameter serializer" once per nonzero OID per client, with type OID, fetch_types state; never parameter values
+ 		return string;
+ 	}
+ 
++	// XXX(claude): log debug "types fetched" with the number of domain/array types registered and elapsed
++	//   ms
+ 	function load(run) {
+ 		return Promise.all([fetched(run), named.length && names(run)]);
+ 	}
+@@ -245,7 +249,11 @@ export function Types(options = {}) {
+ 					row.array && !(row.array in elements) && (elements[row.array] = [row.oid, row.delimiter]))
+ 				: missing.push(x);
+ 		});
++		// XXX(astra): log error "configured PostgreSQL types were not found" if missing.length > 0, with pool id, missing type names/count, database, fetch_types state, TYPE_NOT_FOUND; cap name list
+ 		if (missing.length) {
++			// XXX(claude): log error "custom type(s) <missing> not found in pg_catalog" with the schema
++			//   searched — pool.loadTypes retries a second later on the next query, so this
++			//   would otherwise repeat silently
+ 			throw Errors.generic(
+ 				"TYPE_NOT_FOUND",
+ 				missing.length > 1
+@@ -253,6 +261,7 @@ export function Types(options = {}) {
+ 					: "The type " + missing[0] + " does not exist",
+ 			);
+ 		}
++		// XXX(astra): log debug "named custom types resolved" with pool id, requested/resolved counts, type name/OID mappings, lookup duration ms; cap mappings
+ 		register(
+ 			named.map((x) => ({ ...x, to: resolve(x.to), from: [].concat(x.from || []).map(resolve) })),
+ 		);
+@@ -263,6 +272,7 @@ export function Types(options = {}) {
+ 			"select oid::int, typelem::int as element, typdelim as delimiter, typbasetype::int as base, typtype as kind " +
+ 				"from pg_catalog.pg_type where typtype = 'd' or (typcategory = 'A' and oid >= 16384)",
+ 		).then((rows) =>
++			// XXX(astra): log debug "type catalog mappings received" with pool id, domain/array counts, lookup duration ms; aggregate rather than logging every catalog row
+ 			rows.forEach(({ oid, element, delimiter, base, kind }) => {
+ 				if (oid in parsers || oid in serializers) return;
+ 				kind === "d"
+@@ -300,6 +310,7 @@ export function infer(x) {
+ }
+ 
+ export function parseArray(x, parse, delimiter = ",") {
++	// XXX(astra): do not log array/date/JSON parsing inputs because they are result data; decoding failures need type OID, column index, byte length and sanitized error type only
+ 	let i = x[0] === "[" ? x.indexOf("=") + 1 : 0;
+ 	return level();
+ 
+@@ -336,6 +347,7 @@ export function serializeArray(xs, serialize = string, delimiter = ",", undefine
+ 				typed && (x = x.value);
+ 				x === undefined && (x = undefinedValue);
+ 				if (x === undefined)
++					// XXX(astra): log warn "undefined array element rejected" with query id, parameter index, array index/depth, UNDEFINED_VALUE; final query failure owns emission and excludes array contents
+ 					throw Errors.generic("UNDEFINED_VALUE", "Undefined values are not allowed");
+ 				return Array.isArray(x) && !typed
+ 					? serializeArray(x, serialize, delimiter, undefinedValue)
