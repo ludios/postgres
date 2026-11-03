@@ -8,7 +8,7 @@ const { port } = await start_pg_tmp();
 replace_pg_vars(pg_vars(port));
 bootstrap(process.env);
 
-const seconds = +process.argv[2] || +process.env.SOAK_SECONDS || 60,
+const seconds = +process.argv[2] || Number(process.env.SOAK_SECONDS) || 60,
 	started = Date.now(),
 	deadline = started + seconds * 1000,
 	app = "soak-" + process.pid,
@@ -111,7 +111,7 @@ function operation() {
 		.then(
 			() => (counts[name] = (counts[name] || 0) + 1),
 			(error: { code?: string; message: string }) =>
-				expected.has(error.code) ||
+				expected.has(error.code ?? "") ||
 				failures.push(name + ": " + (error.code || "") + " " + error.message),
 		)
 		.finally(() => pending.delete(id));

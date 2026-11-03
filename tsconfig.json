@@ -15,17 +15,7 @@
 		"allowImportingTsExtensions": true,
 		"erasableSyntaxOnly": true,
 		"verbatimModuleSyntax": true,
-		// The parts of `strict` that the code satisfies so far.
-		"alwaysStrict": true,
-		"noImplicitAny": true,
-		"noImplicitThis": true,
-		"strictBindCallApply": true,
-		"strictBuiltinIteratorReturn": true,
-		"strictFunctionTypes": true,
-		"useUnknownInCatchVariables": true,
-		// Still loose: strictNullChecks, and strictPropertyInitialization, which
-		// needs it. The code does not satisfy them yet.
-		"strict": false
+		"strict": true
 	},
 	"include": ["src", "tests", "vitest.config.ts"]
 }

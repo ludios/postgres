@@ -16,7 +16,7 @@ test("subscribe", async () => {
 	const result: unknown[][] = [];
 
 	const { unsubscribe } = await sql.subscribe("*", (row, { command, old }) => {
-		result.push([command, row.name, row.id, old && old.name, old && old.id]);
+		result.push([command, row!.name, row!.id, old && old.name, old && old.id]);
 	});
 
 	await sql`
@@ -70,7 +70,7 @@ test("subscribe with transform", async () => {
 	const result: unknown[][] = [];
 
 	const { unsubscribe } = await sql.subscribe("*", (row, { command, old }) =>
-		result.push([command, row.nameInCamel || row.id, old && old.nameInCamel]),
+		result.push([command, row!.nameInCamel || row!.id, old && old.nameInCamel]),
 	);
 
 	await sql`
@@ -120,7 +120,7 @@ test("subscribe reconnects and calls onsubscribe", async () => {
 
 	const { unsubscribe, sql: subscribe_sql } = await sql.subscribe(
 		"*",
-		(row, { command, old }) => result.push([command, row.name || row.id, old && old.name]),
+		(row, { command, old }) => result.push([command, row!.name || row!.id, old && old.name]),
 		() => onsubscribes++,
 		(error: Error & { code?: string }) => errors.push(error.code || error.message),
 	);
@@ -194,7 +194,7 @@ test("subscribe with a persistent slot resumes where it left off", async () => {
 		seen: unknown[] = [];
 
 	await using first = replica();
-	await first.subscribe("insert:test", (row) => seen.push(row.name));
+	await first.subscribe("insert:test", (row) => seen.push(row!.name));
 	await sql`insert into test (name) values ('a')`;
 	await until(() => seen.length === 1);
 	await first.end();
@@ -203,7 +203,7 @@ test("subscribe with a persistent slot resumes where it left off", async () => {
 	await sql`insert into test (name) values ('c')`;
 
 	await using second = replica();
-	await second.subscribe("insert:test", (row) => seen.push(row.name));
+	await second.subscribe("insert:test", (row) => seen.push(row!.name));
 	await until(() => seen.length === 3);
 	await delay(50);
 	await second.end();
@@ -221,7 +221,7 @@ test("subscribe with a persistent slot runs async handlers in commit order", asy
 
 	await sub.subscribe("insert:test", async (row) => {
 		await delay(Math.random() * 20);
-		seen.push(row.id);
+		seen.push(row!.id);
 	});
 	for (let i = 0; i < 10; i++) {
 		await sql`insert into test (name) values (${"x" + i})`;
@@ -241,8 +241,8 @@ test("subscribe with a persistent slot delivers a failed transaction again", asy
 	await sub.subscribe(
 		"insert:test",
 		async (row) => {
-			seen.push(row.name);
-			if (row.name === "a" && fails-- > 0) {
+			seen.push(row!.name);
+			if (row!.name === "a" && fails-- > 0) {
 				throw new Error("not yet");
 			}
 		},
@@ -323,7 +323,7 @@ test("subscribe with a persistent slot reconnects after the server ends it, with
 
 	await sub.subscribe(
 		"insert:test",
-		(row) => seen.push(row.name),
+		(row) => seen.push(row!.name),
 		() => subscribed++,
 		() => {},
 	);
@@ -365,7 +365,7 @@ test("subscribe does not pile up listeners across reconnects (#1087)", async () 
 
 	const { unsubscribe, sql: subscribe_sql } = await sql.subscribe(
 		"insert:test",
-		(row) => result.push(row.name),
+		(row) => result.push(row!.name),
 		() => seen.subscribes++,
 		() => {},
 	);
@@ -426,8 +426,8 @@ test("subscribe calls every handler of an event, until each unsubscribes", async
 		seen: unknown[] = [];
 	await using sub = postgres({ database: options.db, publications: "alltables" });
 
-	const a = await sub.subscribe("insert:test", (row) => seen.push("a" + row.id));
-	await sub.subscribe("insert:test", (row) => seen.push("b" + row.id));
+	const a = await sub.subscribe("insert:test", (row) => seen.push("a" + row!.id));
+	await sub.subscribe("insert:test", (row) => seen.push("b" + row!.id));
 	await sql`insert into test (name) values ('x')`;
 	await until(() => seen.length === 2);
 	a.unsubscribe();
@@ -470,9 +470,9 @@ async function failing(onerror: boolean) {
 
 	const { sql: replication } = await sub.subscribe(
 		"insert:test",
-		(row) => seen.push(row.name),
+		(row) => seen.push(row!.name),
 		() => subscribes++,
-		onerror && ((error) => errors.push(error.message)),
+		onerror ? (error) => errors.push(error.message) : undefined,
 	);
 	fail = true;
 	await replication.close();
@@ -514,7 +514,7 @@ test("subscribe confirms its position to the server on an interval", async () =>
 	let commit_lsn!: string;
 
 	const { state } = await sub.subscribe("insert:test", (row, info) => {
-		seen.push(row.name);
+		seen.push(row!.name);
 		commit_lsn = info.lsn;
 	});
 	await sql`insert into test (name) values ('a')`;
@@ -524,7 +524,7 @@ test("subscribe confirms its position to the server on an interval", async () =>
 	// start of the commit record is at or past the end of the commit record
 	const [{ confirmed }] = await sql`
     select confirmed_flush_lsn > ${commit_lsn}::pg_lsn as confirmed from pg_replication_slots
-    where active_pid = ${state.pid}
+    where active_pid = ${state.pid ?? -1}
   `;
 	expect([seen, confirmed]).toEqual([["a"], true]);
 });
@@ -545,7 +545,7 @@ test("subscribe gives unchanged TOAST values as undefined, transforms values and
 	});
 
 	await sql`alter table test add column big text`;
-	await sub.subscribe("update:test", (row) => seen.push([row.name, typeof row.big]));
+	await sub.subscribe("update:test", (row) => seen.push([row!.name, typeof row!.big]));
 	await sub.subscribe(
 		"update:test",
 		() => {
@@ -574,7 +574,7 @@ test("subscribe gives a column named __proto__ as an own property of the row", a
 	await using sub = postgres({ database: options.db, publications: "alltables" });
 
 	await sql`alter table test add column "__proto__" json`;
-	await sub.subscribe("insert:test", (row) => seen.push(row));
+	await sub.subscribe("insert:test", (row) => seen.push(row!));
 	await sql`insert into test (name, "__proto__") values ('a', '{"isAdmin": true}')`;
 	await until(() => seen.length);
 	const [row] = seen,
@@ -582,6 +582,6 @@ test("subscribe gives a column named __proto__ as an own property of the row", a
 	expect([
 		typeof row.isAdmin,
 		Object.getPrototypeOf(row) === Object.prototype,
-		own.value.isAdmin,
+		own!.value.isAdmin,
 	]).toEqual(["undefined", true, true]);
 });

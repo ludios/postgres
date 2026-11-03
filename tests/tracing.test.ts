@@ -90,7 +90,7 @@ test("Tracing: a failing query publishes error with the error, then asyncStart a
 	stop();
 	expect([
 		events.map((x) => x.event),
-		events.find((x) => x.event === "error").context.error.code,
+		events.find((x) => x.event === "error")!.context.error.code,
 	]).toEqual([["start", "end", "error", "asyncStart", "asyncEnd"], "42703"]);
 });
 
@@ -159,8 +159,8 @@ test("Tracing: connect publishes per attempt, with the backend pid or the error"
 	await using bad = postgres({ ...options, port: 5434, max: 1, connect_timeout: 1 });
 	await bad`select 1`.catch(() => {});
 	stop();
-	const ok = events.find((x) => x.event === "asyncEnd" && !x.context.error),
-		failed = events.find((x) => x.event === "error");
+	const ok = events.find((x) => x.event === "asyncEnd" && !x.context.error)!,
+		failed = events.find((x) => x.event === "error")!;
 	expect([
 		typeof ok.context.result.pid,
 		ok.context.port,

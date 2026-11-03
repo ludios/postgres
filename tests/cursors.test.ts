@@ -160,7 +160,7 @@ test("Async Iterator Cursor custom with less results than batch size", async () 
 test("forEach has result as second argument", async () => {
 	let x: { columns: { name: string }[] } | undefined;
 	await sql`select 1 as x`.forEach((_, result) => (x = result));
-	expect(x.columns[0].name).toBe("x");
+	expect(x!.columns[0].name).toBe("x");
 });
 
 test("The last batch of a cursor on an unnamed statement has the parameter types in its statement", async () => {
@@ -215,7 +215,7 @@ test("Async iterator cursor surfaces an error arriving between batches", async (
 			() => "no error",
 			(e) => e.code,
 		);
-	await iterator.return();
+	await iterator.return!();
 	expect(code).toBe("22012");
 });
 

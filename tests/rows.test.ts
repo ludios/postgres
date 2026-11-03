@@ -87,7 +87,7 @@ test("A column named __proto__ is an own property and does not become the protot
 			typeof row.isAdmin,
 			Object.getPrototypeOf(row) === Object.prototype,
 			Object.keys(row),
-			own.value.isAdmin,
+			own!.value.isAdmin,
 		]);
 	}
 	expect(results).toEqual(

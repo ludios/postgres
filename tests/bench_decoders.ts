@@ -95,7 +95,7 @@ function text_case(name: string, oid: number, text: (i: number) => string): Case
 		oid,
 		texts,
 		bytes: texts.map((x) => Buffer.from(x, "latin1")),
-		decode: types.decoder(oid, types.parser(oid)),
+		decode: types.decoder(oid, types.parser(oid))!,
 	};
 }
 
@@ -151,7 +151,7 @@ function array_case<T>(
 				"{" + xs.map((x) => (typeof x === "boolean" ? (x ? "t" : "f") : String(x))).join(",") + "}",
 		),
 		bytes: arrays.map((xs) => binary_array(xs, element, write)),
-		decode: oid === 1016 ? int8_array : types.binary(oid, types.parser(oid)),
+		decode: oid === 1016 ? int8_array : types.binary(oid, types.parser(oid))!,
 	};
 }
 
@@ -183,7 +183,7 @@ function cases(): Case[] {
 			oid: 17,
 			texts: bytea.map((x) => "\\x" + x.toString("hex")),
 			bytes: bytea,
-			decode: types.binary(17, types.parser(17)),
+			decode: types.binary(17, types.parser(17))!,
 		},
 		array_case(
 			"int2[10]",

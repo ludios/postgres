@@ -10,8 +10,8 @@ import { replace_pg_vars } from "./pg_env.ts";
 replace_pg_vars({});
 
 const single = process.env.SEED !== undefined,
-	first = single ? +process.env.SEED : 1,
-	runs = single ? 1 : +process.env.RUNS || 2000,
+	first = single ? Number(process.env.SEED) : 1,
+	runs = single ? 1 : Number(process.env.RUNS) || 2000,
 	modulePath = process.env.MODULE || "../src/index.ts",
 	globals = !!process.env.GLOBALS;
 
@@ -48,7 +48,7 @@ for (let seed = first; seed < first + runs; seed++) {
 		if (single) {
 			console.log("\n" + result.trace.join("\n"));
 		}
-		if (failed >= (+process.env.MAXFAIL || 10) && !single) {
+		if (failed >= (Number(process.env.MAXFAIL) || 10) && !single) {
 			break;
 		}
 	} else if (single) {
@@ -85,7 +85,7 @@ async function simulate(seed: number) {
 			ops: random.int(5, 60),
 			max_pipeline: random.pick([0, 1, 2, 100]),
 		},
-		wire = single && process.env.WIRE && ((x: string) => log("wire " + x)),
+		wire = single && process.env.WIRE ? (x: string) => log("wire " + x) : undefined,
 		server = Server({ clock, random, delay: config.delay, split: config.split, log: wire }),
 		stray = (x: any) => violations.push("unhandled: " + ((x && x.stack) || x)),
 		restore = globals && fakeGlobals(clock);

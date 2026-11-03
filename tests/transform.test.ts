@@ -3,14 +3,14 @@ import { postgres, options, camel_case, snake_case } from "./setup.ts";
 
 test("Transform undefined", async () => {
 	const sql = postgres({ ...options, transform: { undefined: null } });
-	expect((await sql`select ${undefined} as x`)[0].x).toBe(null);
+	expect((await sql`select ${undefined as any} as x`)[0].x).toBe(null);
 });
 
 test("Transform undefined in array", async () => {
 	const sql = postgres({ ...options, transform: { undefined: null } });
-	expect((await sql`select * from (values ${sql([undefined, undefined])}) as x(x, y)`)[0].y).toBe(
-		null,
-	);
+	expect(
+		(await sql`select * from (values ${sql([undefined, undefined] as any[])}) as x(x, y)`)[0].y,
+	).toBe(null);
 });
 
 test("transform column", async () => {

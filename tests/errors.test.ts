@@ -21,7 +21,7 @@ test("Undefined values throws", async () => {
 	let error;
 
 	await sql`
-    select ${undefined} as x
+    select ${undefined as any} as x
   `.catch((x) => (error = x.code));
 
 	expect(error).toBe("UNDEFINED_VALUE");
@@ -151,7 +151,7 @@ test("Debug", async () => {
 test("Async stack trace", async () => {
 	const sql = postgres({ ...options, debug: false });
 	// The query must be on the line right after the line with `new Error()`
-	const line = parseInt(new Error().stack.split("\n")[1].match(":([0-9]+):")[1]);
+	const line = parseInt(new Error().stack!.split("\n")[1].match(":([0-9]+):")![1]);
 	const error = await sql`error`.catch((x) => x);
 	const expected = line + 1;
 	expect(parseInt(error.stack.split("\n").pop().match(":([0-9]+):")[1])).toBe(expected);

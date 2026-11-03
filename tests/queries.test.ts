@@ -203,12 +203,15 @@ test("Undefined value in a pipelined query rejects only that query", async () =>
 	await using sql = postgres(options);
 	await sql`select 1`;
 	const results = await Promise.all(
-		[sql`select pg_sleep(0.1), 1 as x`, sql`select ${undefined} as x`, sql`select 3 as x`].map(
-			(x) =>
-				x.then(
-					([row]) => row.x,
-					(e) => e.code,
-				),
+		[
+			sql`select pg_sleep(0.1), 1 as x`,
+			sql`select ${undefined as any} as x`,
+			sql`select 3 as x`,
+		].map((x) =>
+			x.then(
+				([row]) => row.x,
+				(e) => e.code,
+			),
 		),
 	);
 	const after = (await sql`select 4 as x`)[0].x;
@@ -221,7 +224,7 @@ test("Undefined value in a pipelined cursor rejects only that query", async () =
 	const results = await Promise.all(
 		[
 			sql`select pg_sleep(0.1), 1 as x`,
-			sql`select ${undefined} as x`.cursor(() => {}),
+			sql`select ${undefined as any} as x`.cursor(() => {}),
 			sql`select 3 as x`,
 		].map((x) =>
 			x.then(
@@ -452,7 +455,7 @@ test("debug gets the values as sent and the parameter types, also on first use",
 test("Inspecting a query with debug shows why it can not be built", async () => {
 	const util = await import("util");
 	await using sql = postgres({ ...options, debug: true });
-	expect(util.inspect(sql`select ${undefined}`)).toBe(
+	expect(util.inspect(sql`select ${undefined as any}`)).toBe(
 		"Query { UNDEFINED_VALUE: Undefined values are not allowed }",
 	);
 });

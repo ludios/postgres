@@ -36,12 +36,12 @@ const server = (fn: (socket: net.Socket) => void) =>
 
 test("Startup reaches ReadyForQuery", async () => {
 	const { status, backend, parameters, rest } = await session();
-	expect([status, backend.pid > 0, parameters.client_encoding, rest.length]).toEqual([
-		"I",
-		true,
-		"UTF8",
-		0,
-	]);
+	expect([
+		status,
+		backend !== null && backend.pid > 0,
+		parameters.client_encoding,
+		rest.length,
+	]).toEqual(["I", true, "UTF8", 0]);
 });
 
 test("Startup with md5", async () => {
@@ -305,13 +305,13 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 			socket.write(message("R", int32(3)));
 		}
 		if (type === "p") {
-			sent.push(body.toString("utf8", 0, body.length - 1));
+			sent.push(body!.subarray(0, -1).toString("utf8"));
 			socket.write(Buffer.concat([message("R", int32(0)), ready]));
 		}
 	});
 	await using _close = defer(() => x.close());
 	const port = port_of(x),
-		log_in = (passfile: string | null) =>
+		log_in = (passfile: string | undefined) =>
 			session({
 				host: ["localhost"],
 				port: [port],
@@ -333,7 +333,7 @@ test("Startup reads the password file as libpq does, and ignores what it can not
 	await log_in(file);
 	await log_in(dir);
 	await log_in(path.join(dir, "missing"));
-	await log_in(null);
+	await log_in(undefined);
 	expect(sent).toEqual(["a:b\\c:d", "", "", ""]);
 });
 

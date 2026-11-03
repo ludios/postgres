@@ -1278,7 +1278,7 @@ function lyingServer(final: boolean) {
 				body = buf.subarray(5, buf.readInt32BE(1) + 1);
 			buf = buf.subarray(buf.readInt32BE(1) + 1);
 			if (type === "p" && !nonce) {
-				nonce = /r=([^,\0]+)/.exec(body.toString())[1];
+				nonce = /r=([^,\0]+)/.exec(body.toString())![1];
 				s.write(
 					msg(
 						"R",
@@ -1368,7 +1368,7 @@ test("A cancel request on a TLS connection is sent over TLS", async () => {
 		(e) => e.code,
 	);
 	// Both connections, the pool's and the cancel request's, began with an SSLRequest
-	const firsts = proxy.connections.map((c) => c.first.readInt32BE(4));
+	const firsts = proxy.connections.map((c) => c.first!.readInt32BE(4));
 	expect([code, firsts]).toEqual(["57014", [80877103, 80877103]]);
 });
 

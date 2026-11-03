@@ -227,7 +227,7 @@ export function Server({
 				if (busy || gone || !queue.length) {
 					break;
 				}
-				handle(queue.shift());
+				handle(queue.shift()!);
 			}
 		}
 
@@ -354,8 +354,7 @@ export function Server({
 
 		function execute(portal: Portal, limit: number, simple: boolean) {
 			const { ast } = portal.p,
-				value = (v: string | null) =>
-					v === null ? null : v[0] === "$" ? +portal.values[+v.slice(1) - 1] : +v,
+				value = (v: string) => (v[0] === "$" ? Number(portal.values[+v.slice(1) - 1]) : +v),
 				done = () => {
 					if (simple) {
 						discard = false;
@@ -484,7 +483,8 @@ export function Server({
 				return;
 			}
 
-			if (latest.get(scope) > id) {
+			const latest_id = latest.get(scope);
+			if (latest_id !== undefined && latest_id > id) {
 				violation(
 					"query " +
 						id +
@@ -583,7 +583,7 @@ export function Server({
 					.filter((v): v is string => !!v && v[0] === "$")
 					.map((v) => +v.slice(1)),
 			);
-			return { select: true, params, id, scope, rows, fail: failure, sleep };
+			return { select: true, params, id: id!, scope: scope!, rows, fail: failure, sleep };
 		}
 	}
 }

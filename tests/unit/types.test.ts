@@ -340,7 +340,7 @@ const utc_types = Types({ infer: false });
  */
 function decoded(oid: number, text: string) {
 	const { x, start, end } = embedded(text);
-	return utc_types.decoder(oid, utc_types.parser(oid))(x, start, end);
+	return utc_types.decoder(oid, utc_types.parser(oid))!(x, start, end);
 }
 
 const instants = fc.date({
@@ -391,8 +391,8 @@ test("Decode the timestamps of the years 1000 to 9999 without their text", async
 					};
 				}
 				expect([
-					utc_types.decoder(1184, utc_types.parser(1184))(zoned.x, zoned.start, zoned.end),
-					utc_types.decoder(1114, utc_types.parser(1114))(plain.x, plain.start, plain.end),
+					utc_types.decoder(1184, utc_types.parser(1184))!(zoned.x, zoned.start, zoned.end),
+					utc_types.decoder(1114, utc_types.parser(1114))!(plain.x, plain.start, plain.end),
 				]).toEqual([t, t]);
 			},
 		),
@@ -576,7 +576,7 @@ function custom_types(oid: number) {
  * @returns the decoder of the binary format that a column of type `oid` gets, or null
  */
 function binary_decoder(pool_types: ReturnType<typeof Types>, oid: number) {
-	return pool_types.binary(oid, pool_types.parser(oid));
+	return pool_types.binary(oid, pool_types.parser(oid))!;
 }
 
 test("Read as text the types without a binary decoder, and those whose parser or elements' parser is not the built-in one", async () => {

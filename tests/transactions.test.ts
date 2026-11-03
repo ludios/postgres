@@ -430,7 +430,7 @@ test("Undefined value in a transaction returning an array of queries rejects", a
 	await using sql = postgres(options);
 	await sql`create table test (x int)`;
 	const error = await sql
-		.begin((tx) => [tx`insert into test values (1)`, tx`select ${undefined} as x`])
+		.begin((tx) => [tx`insert into test values (1)`, tx`select ${undefined as any} as x`])
 		.catch((e) => e.code);
 	const count = (await sql`select count(*)::int from test`)[0].count;
 	expect([error, count]).toEqual(["UNDEFINED_VALUE", 0]);
@@ -444,7 +444,7 @@ test("Undefined value aborts a pipelined transaction on a reserved connection", 
 		[
 			reserved`begin`,
 			reserved`insert into test values (1)`,
-			reserved`select ${undefined} as x`,
+			reserved`select ${undefined as any} as x`,
 			reserved`insert into test values (2)`,
 			reserved`commit`,
 		].map((x) =>
@@ -797,7 +797,7 @@ test("A caught query that cannot be built aborts a transaction opened by hand on
 	using reserved = await sql.reserve();
 	await reserved`begin`;
 	await reserved`insert into test values (1)`;
-	const bad = await reserved`select ${undefined} as x`.catch((e) => e.code);
+	const bad = await reserved`select ${undefined as any} as x`.catch((e) => e.code);
 	const commit = await reserved`commit`;
 	reserved.release();
 	const [{ n }] = await sql`select count(*)::int as n from test`;
@@ -807,7 +807,7 @@ test("A caught query that cannot be built aborts a transaction opened by hand on
 test("A query that cannot be built on a reserved connection outside a transaction leaves the connection usable", async () => {
 	await using sql = postgres(options);
 	using reserved = await sql.reserve();
-	const bad = await reserved`select ${undefined} as x`.catch((e) => e.code);
+	const bad = await reserved`select ${undefined as any} as x`.catch((e) => e.code);
 	const [{ x }] = await reserved`select 1 as x`;
 	expect([bad, x]).toEqual(["UNDEFINED_VALUE", 1]);
 });

@@ -84,7 +84,7 @@ test("A percent-encoded password is decoded (#735)", async () => {
 });
 
 test("Hosts with ports in the host option, as in v3", async () => {
-	expect(parsed(undefined, { host: "a:1,b:2", user: "u", database: "db" })).toEqual([
+	expect(parsed(undefined as any, { host: "a:1,b:2", user: "u", database: "db" })).toEqual([
 		["a", "b"],
 		[1, 2],
 		"u",

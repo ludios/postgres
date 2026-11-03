@@ -291,24 +291,29 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 		 * nested begin() is the caller, and `above` whether an outer savepoint was rolled back
 		 */
 		async function scope(body: Body, name?: string | null, inside?: boolean, above = () => false) {
-			let uncaught: unknown,
-				result: unknown,
-				rolled: Promise<void> | null = null,
-				after: Failure | null = null;
+			// What the callback does through `scoped`, which its callbacks record: the rollback that
+			// sql.rollback() sent; the error of a query of the callback's that failed; the error that the
+			// queries after the rollback are rejected with
+			const did: { rolled: Promise<void> | null; uncaught: unknown; after: Failure | null } = {
+				rolled: null,
+				uncaught: null,
+				after: null,
+			};
+			let result: unknown;
 
 			if (above()) {
 				throw rolledBack();
 			}
 
-			const stopped = () => !!rolled || above(),
+			const stopped = () => !!did.rolled || above(),
 				scoped = Sql(
 					Object.assign(
 						(q: Query) => {
 							if (stopped()) {
-								q.reject(after || (after = rolledBack()));
+								q.reject(did.after || (did.after = rolledBack()));
 								return;
 							}
-							q.catch((e) => uncaught || (uncaught = e));
+							q.catch((e) => did.uncaught || (did.uncaught = e));
 							lease.send(q);
 						},
 						{ cancel: pool.cancel },
@@ -318,8 +323,8 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 			scoped.savepoint = savepoint;
 			scoped.begin = nested;
 			scoped.rollback = () =>
-				rolled ||
-				(rolled = control(lease, name ? "rollback to " + identifier(name) : "rollback").then(
+				did.rolled ||
+				(did.rolled = control(lease, name ? "rollback to " + identifier(name) : "rollback").then(
 					() => {},
 				));
 			scoped.prepare = (x: string) => {
@@ -340,8 +345,8 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 					const x = body(scoped);
 					Promise.resolve(Array.isArray(x) ? Promise.all(x) : x).then(resolve, reject);
 				});
-				if (uncaught && !stopped()) {
-					throw uncaught;
+				if (did.uncaught && !stopped()) {
+					throw did.uncaught;
 				}
 				if (lease.connection.closed) {
 					throw lease.error || lease.connection.closed;
@@ -351,24 +356,25 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 					context.outcome = "rollback";
 				}
 				if (stopped()) {
-					// Waits for the rollback that sql.rollback() sent, if any, however it ended
-					await Promise.allSettled([rolled]);
+					if (did.rolled) {
+						await did.rolled.catch(() => {});
+					}
 				} else if (!lease.connection.closed) {
 					await control(lease, name ? "rollback to " + identifier(name) : "rollback");
 				}
-				throw (error instanceof PostgresError && error.code === "25P02" && uncaught) || error;
+				throw (error instanceof PostgresError && error.code === "25P02" && did.uncaught) || error;
 			}
 
 			if (stopped()) {
-				if (rolled) {
-					await rolled;
+				if (did.rolled) {
+					await did.rolled;
 				}
 				if (context && !name) {
 					context.outcome = "rollback";
 				}
 
-				if (after) {
-					throw after;
+				if (did.after) {
+					throw did.after;
 				}
 
 				return result;
