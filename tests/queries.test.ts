@@ -345,6 +345,21 @@ test("A cancel request that times out closes its connection, so that it can't ca
 	expect([outcome, other === pid, sockets]).toEqual(["CONNECT_TIMEOUT", false, 3]);
 });
 
+test("A cancel request whose connection fails rejects with the connection's error", async () => {
+	let sockets = 0;
+	await using sql = postgres({
+		...options,
+		max: 1,
+		// The second socket, the cancel request's, goes to a port where nothing listens
+		socket: () => net.connect(++sockets === 2 ? 33333 : pg_port, "localhost"),
+	});
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`,
+		sleeping = sql`select pg_sleep(0.2)`.execute();
+	await until_sleeping(pid);
+	expect(await sleeping.cancel().catch((e) => e.code)).toBe("ECONNREFUSED");
+	await sleeping;
+});
+
 test("A cancel of a pipelined query holds its connection for as long as the query ahead of it runs", async () => {
 	await using sql = postgres({ ...options, max: 1, idle_timeout: null, connect_timeout: 1 });
 	const [{ pid }] = await sql`select pg_backend_pid() as pid`,

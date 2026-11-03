@@ -476,8 +476,16 @@ function cancel(options: Options, host: string | null, port: number, { pid, secr
 				socket.destroy();
 				return;
 			}
-			await new Promise<void>((closed) => {
-				socket.onclose = () => closed();
+			// A socket from options.socket may still be connecting, so an error here can also mean
+			// that the CancelRequest never left
+			await new Promise<void>((closed, failed) => {
+				socket.onclose = (error) => {
+					if (error) {
+						failed(error);
+					} else {
+						closed();
+					}
+				};
 				socket.end(p.Cancel(pid, secret));
 			});
 		}
