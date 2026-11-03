@@ -1988,7 +1988,8 @@ function guard<A extends unknown[]>(fn: (...xs: A) => void, ...xs: A) {
 }
 
 function key(name: string) {
-	const x = JSON.stringify(name);
+	// oxlint-disable-next-line no-unnecessary-type-conversion -- a transform.column.from of the user's may give a non-string, which a property key makes a string of
+	const x = JSON.stringify(String(name));
 	return name === "__proto__" ? "[" + x + "]" : x;
 }
 
