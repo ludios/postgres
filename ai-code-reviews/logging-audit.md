@@ -2,7 +2,9 @@
 
 Auditors: Claude Mythos 5.1 and GPT-6 Astra (through `codex exec`, reasoning effort xhigh), each reading all of `src/` independently, on 2026-11-02, at commit `33aa4bd` on `prime`.
 
-Today the library has no logging. Its only output is four bare `console.*` calls: the default `onnotice` in `src/connection.ts` and in `src/startup.ts`, the logical-replication error fallback in `src/subscribe.ts` (used when no subscriber has an `onerror` handler), and the `timeout` deprecation message in `src/index.ts`. Both auditors were asked to mark, as comments in a scratch copy of the tree, every place where an on-call operator running an application on this library would want a log line, with the level and the context fields, and also to mark the places that must not be logged.
+Status: on 2026-11-03, the library got its log lines, through LogTape (`src/log.ts` and its callers; the README's section "Logging"). Their wording was drafted from this audit and reviewed as [logging-wording.md](logging-wording.md) records. The rest of this document describes the tree before that.
+
+When this audit was made, the library had no logging. Its only output was four bare `console.*` calls: the default `onnotice` in `src/connection.ts` and in `src/startup.ts`, the logical-replication error fallback in `src/subscribe.ts` (used when no subscriber has an `onerror` handler), and the `timeout` deprecation message in `src/index.ts`. Both auditors were asked to mark, as comments in a scratch copy of the tree, every place where an on-call operator running an application on this library would want a log line, with the level and the context fields, and also to mark the places that must not be logged.
 
 ## What is here
 
