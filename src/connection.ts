@@ -315,7 +315,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		portals = 0,
 		traced = 0,
 		epoch = 0,
-		headSince = 0;
+		head_since = 0;
 
 	const connection = {
 		id: ids++,
@@ -418,12 +418,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function queue(x: Exchange) {
 		if (closed) {
-			settleError(x, copy_error(closed));
+			settle_error(x, copy_error(closed));
 			return;
 		}
 
 		if (blocker && blocker.streaming && blocker.open) {
-			settleError(x, Errors.generic("COPY_IN_PROGRESS", "You cannot execute queries during copy"));
+			settle_error(x, Errors.generic("COPY_IN_PROGRESS", "You cannot execute queries during copy"));
 			return;
 		}
 
@@ -508,7 +508,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 		x.epoch = epoch;
 		if (options.scheduler && sent.length === 0) {
-			headSince = timers.now();
+			head_since = timers.now();
 		}
 		sent.push(x);
 		if (holds(x)) {
@@ -647,7 +647,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		const t = timers.now();
 
 		if (x.cost !== undefined && x.query && x.query.cost) {
-			const sample = t - headSince,
+			const sample = t - head_since,
 				c = x.query.cost;
 			c.est = c.est === undefined || sample > c.est ? sample : c.est + (sample - c.est) * 0.1;
 			if (events.ontimed) {
@@ -655,7 +655,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			}
 		}
 
-		headSince = t;
+		head_since = t;
 	}
 
 	function backlog(t: number) {
@@ -663,7 +663,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		for (let i = 0; i < sent.length; i++) {
 			const e = sent[i].cost || 0;
 			if (i === 0) {
-				const elapsed = t - headSince;
+				const elapsed = t - head_since;
 				w += elapsed < e ? e - elapsed : elapsed;
 			} else {
 				w += e;
@@ -717,7 +717,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 		if (current && current !== x.previous && usable(current, statement)) {
 			// raw() gets the bytes of the text
-			const binary = query.isRaw === true ? null : current.binary;
+			const binary = query.is_raw === true ? null : current.binary;
 			x.entry = current;
 			x.columns = binary ? binary.columns : current.columns;
 			x.formats = binary ? binary.formats : null;
@@ -1011,7 +1011,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			if (x === fence) {
 				fence = null;
 			}
-			settleError(x, Errors.canceled());
+			settle_error(x, Errors.canceled());
 			release();
 			return Promise.resolve();
 		}
@@ -1153,8 +1153,8 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			// copy of `closed` shares
 			const reason = x === head && x.error && x.error.severity === "FATAL" ? x.error : ended,
 				copied = copy_error(reason);
-			// settleError adds x's query to `copied`
-			settleError(x, copied);
+			// settle_error adds x's query to `copied`
+			settle_error(x, copied);
 			// Otherwise the lease rejects with the head's error, the head being the lease's own query.
 			// Not with a FATAL error for a statement that ends a transaction (such as COMMIT), which
 			// the server may have committed: then the lease rejects with `closed`, whose cause it is.
@@ -1166,7 +1166,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 				lease_error = copied;
 			}
 		});
-		pending.splice(0).forEach((x) => (x.own ? settle(x) : settleError(x, copy_error(ended))));
+		pending.splice(0).forEach((x) => (x.own ? settle(x) : settle_error(x, copy_error(ended))));
 		running.forEach((query) => query.settled || query.reject(decorate(query, copy_error(ended))));
 		running.clear();
 		open.clear();
@@ -1180,7 +1180,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		return queryError(error, query, options.debug);
 	}
 
-	function settleError(x: Exchange, error: Error) {
+	function settle_error(x: Exchange, error: Error) {
 		if (x.kind === "describe") {
 			x.reject(error);
 		} else if (x.query && !x.query.settled) {
@@ -1429,7 +1429,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	function DataRow(x: Buffer, start: number) {
 		const item = answered("DataRow", "query", "simple", "step"),
 			{ query, columns } = item,
-			raw = query.isRaw,
+			raw = query.is_raw,
 			from = raw !== true ? transform.value.from : null;
 		if (columns === null) {
 			throw Errors.generic("UNEXPECTED_MESSAGE", "A DataRow came before the RowDescription");
@@ -1479,8 +1479,8 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 
 		const transformed = transform.row.from ? transform.row.from(row) : row;
-		if (query.forEachFn) {
-			query.forEachFn(transformed, result);
+		if (query.for_each_fn) {
+			query.for_each_fn(transformed, result);
 		} else {
 			result[result.length] = transformed;
 		}
@@ -1716,7 +1716,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	/** Fails exchange `x` with `error`, the server's; or runs a query again, for an error that a stale cache entry caused */
 	function failed(x: UserExchange | LocalExchange, error: Failure) {
 		if (x.kind !== "query") {
-			settleError(x, error);
+			settle_error(x, error);
 			return;
 		}
 		const { entry } = x,
@@ -1733,13 +1733,13 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 
 		if (!entry) {
-			settleError(x, error);
+			settle_error(x, error);
 			return;
 		}
 
 		if (entry.owner === x && entry.state === "parsing") {
 			drop(entry);
-			settleError(x, error);
+			settle_error(x, error);
 			return;
 		}
 
@@ -1750,7 +1750,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 
 		if (x.bound) {
-			settleError(x, error);
+			settle_error(x, error);
 			return;
 		}
 
@@ -1760,7 +1760,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 
 		stale(entry);
-		settleError(x, error);
+		settle_error(x, error);
 	}
 
 	/** Runs `x` again if it can be run again (see `retryable`), and otherwise fails it with `error` */
@@ -1768,7 +1768,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		if (retryable(x)) {
 			again(x, null);
 		} else {
-			settleError(x, error);
+			settle_error(x, error);
 		}
 	}
 
@@ -1977,7 +1977,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		schedule(true);
 	}
 
-	function writeData(chunk: Buffer | string, callback: () => void) {
+	function write_data(chunk: Buffer | string, callback: () => void) {
 		p.copy_data(out, chunk);
 		if (flush()) {
 			callback();
@@ -1990,7 +1990,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		return {
 			autoDestroy: true,
 			write(chunk, encoding, callback) {
-				writeData(chunk, callback);
+				write_data(chunk, callback);
 			},
 			destroy(error, callback) {
 				callback(error);
@@ -2148,11 +2148,11 @@ function user(x: Exchange): x is UserExchange | LocalExchange {
  *   async iterator of .cursor() gives the query a new callback for each batch
  */
 function cursor_callback(query: Query) {
-	const { cursorFn } = query;
-	if (cursorFn === null) {
+	const { cursor_fn } = query;
+	if (cursor_fn === null) {
 		throw new Error("Bug: the query of a cursor has no callback");
 	}
-	return cursorFn;
+	return cursor_fn;
 }
 
 /** @returns whether `x` is a query made with .cursor() */
@@ -2285,7 +2285,7 @@ function QueryExchange(query: Query, lease: Lease | null, statement: Statement):
 		...copying(),
 		kind: "query",
 		statement,
-		cursor: query.cursorFn ? { rows: query.cursorRows, portal: "" } : null,
+		cursor: query.cursor_fn ? { rows: query.cursor_rows, portal: "" } : null,
 		columns: null,
 		reader: null,
 		entry: null,

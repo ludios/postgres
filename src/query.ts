@@ -55,14 +55,14 @@ export class Query extends Promise<any> {
 	declare trace: postgres.QueryTrace | null;
 	/** Removes the abort listener that `signal()` added. */
 	declare aborts: (() => void) | null;
-	declare originError: Error | null;
+	declare origin_error: Error | null;
 	declare streaming: boolean;
-	declare cursorRows: number;
-	declare cursorFn: CursorFn | null;
-	declare onlyDescribe: boolean;
-	declare forEachFn: (row: any, result: any) => unknown;
+	declare cursor_rows: number;
+	declare cursor_fn: CursorFn | null;
+	declare only_describe: boolean;
+	declare for_each_fn: (row: any, result: any) => unknown;
 	/** `true` for `.raw()`, `"values"` for `.values()`. */
-	declare isRaw: boolean | "values";
+	declare is_raw: boolean | "values";
 	/** Whether the query must have its connection to itself: its statement opens a transaction block */
 	declare alone: boolean | undefined;
 	/** Called once the query has been written on its lease's connection; the lease's send() sets it */
@@ -113,10 +113,10 @@ export class Query extends Promise<any> {
 		this.trace = null;
 		this.aborts = null;
 		this.streaming = false;
-		this.cursorFn = null;
-		this.cursorRows = 0;
+		this.cursor_fn = null;
+		this.cursor_rows = 0;
 
-		this.originError = handler.debug ? new Error() : null;
+		this.origin_error = handler.debug ? new Error() : null;
 		if (this.tagged && !handler.debug && !origins.has(strings)) {
 			origins.set(strings, located());
 		}
@@ -155,8 +155,8 @@ export class Query extends Promise<any> {
 	}
 
 	get origin() {
-		return this.originError
-			? this.originError.stack
+		return this.origin_error
+			? this.origin_error.stack
 			: (this.tagged && origins.get(this.strings)) || "";
 	}
 
@@ -262,10 +262,10 @@ export class Query extends Promise<any> {
 			rows = 1;
 		}
 
-		this.cursorRows = rows;
+		this.cursor_rows = rows;
 
 		if (typeof fn === "function") {
-			this.cursorFn = fn;
+			this.cursor_fn = fn;
 			return this;
 		}
 
@@ -281,7 +281,7 @@ export class Query extends Promise<any> {
 						prev();
 					}
 					const promise = new Promise((resolve, reject) => {
-						this.cursorFn = (value) => {
+						this.cursor_fn = (value) => {
 							resolve({ value, done: false });
 							return new Promise((r) => (prev = r));
 						};
@@ -313,7 +313,7 @@ export class Query extends Promise<any> {
 
 	describe() {
 		this.options.simple = false;
-		this.onlyDescribe = this.options.prepare = true;
+		this.only_describe = this.options.prepare = true;
 		return this;
 	}
 
@@ -322,18 +322,18 @@ export class Query extends Promise<any> {
 	}
 
 	forEach(fn: (row: any, result: any) => unknown) {
-		this.forEachFn = fn;
+		this.for_each_fn = fn;
 		this.handle();
 		return this;
 	}
 
 	raw() {
-		this.isRaw = true;
+		this.is_raw = true;
 		return this;
 	}
 
 	values() {
-		this.isRaw = "values";
+		this.is_raw = "values";
 		return this;
 	}
 

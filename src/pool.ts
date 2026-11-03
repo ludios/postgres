@@ -40,11 +40,11 @@ type Pooled = Connection & {
 	 */
 	loading: boolean;
 	/** When the connection last became idle; 0 if never. */
-	idleSince: number;
+	idle_since: number;
 	/** Closes the connection after `idle_timeout`. */
-	idleTimer: Timer | null;
+	idle_timer: Timer | null;
 	/** Retires the connection after `max_lifetime`. */
-	lifeTimer: Timer | null;
+	life_timer: Timer | null;
 	/** Whether the lease was released while queries were still in flight. */
 	releasing: boolean;
 	/** Whether the connection closes as soon as it has no lease and nothing in flight. */
@@ -190,17 +190,17 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		// Resolves `ending`, once the pool has finished ending.
 		resolve_ending: (() => void) | null = null,
 		used = false,
-		endTimer: Timer | null = null,
+		end_timer: Timer | null = null,
 		retries = 0,
-		failingSince: number | null = null,
-		nextAttempt = 0,
-		retryTimer: Timer | null = null,
-		typesLoaded = options.fetch_types === false,
-		typesError: Failure | null = null,
-		typesFailed = 0,
+		failing_since: number | null = null,
+		next_attempt = 0,
+		retry_timer: Timer | null = null,
+		types_loaded = options.fetch_types === false,
+		types_error: Failure | null = null,
+		types_failed = 0,
 		// The error of the connection attempts that fail fast, while they do
 		failure: { error: Failure } | null = null,
-		typesLoading = false;
+		types_loading = false;
 
 	const pool = {
 		query,
@@ -263,8 +263,8 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			return;
 		}
 
-		if (q.onlyDescribe) {
-			describeOnly(q, built, lease);
+		if (q.only_describe) {
+			describe_only(q, built, lease);
 			return;
 		}
 
@@ -280,14 +280,14 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 				q,
 				simple: null,
 				statement,
-				exclusive: !!q.cursorFn || q.streaming || q.alone,
+				exclusive: !!q.cursor_fn || q.streaming || q.alone,
 				timer: null,
 			},
 			lease,
 		);
 	}
 
-	function describeOnly(q: Query, built: Built, lease?: Lease) {
+	function describe_only(q: Query, built: Built, lease?: Lease) {
 		const start = (c: Pooled) => {
 			q.connection = c;
 			c.describe(built.text, built.oids).then(
@@ -349,7 +349,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			return;
 		}
 
-		const failing = failingFast();
+		const failing = failing_fast();
 		if (failing) {
 			reject(job, copy_error(failing.error));
 			return;
@@ -488,7 +488,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			return best;
 		}
 
-		if (connections.size + opening < options.max && !failingSince) {
+		if (connections.size + opening < options.max && !failing_since) {
 			return null;
 		}
 
@@ -595,14 +595,14 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			return;
 		}
 
-		if (failingSince !== null) {
-			if (opening || !waiting.length || retryTimer || [...connections].some((x) => x.loading)) {
+		if (failing_since !== null) {
+			if (opening || !waiting.length || retry_timer || [...connections].some((x) => x.loading)) {
 				return;
 			}
-			const remaining = nextAttempt - now();
+			const remaining = next_attempt - now();
 			if (remaining > 0) {
-				retryTimer = setTimeout(() => {
-					retryTimer = null;
+				retry_timer = setTimeout(() => {
+					retry_timer = null;
 					grow();
 				}, remaining);
 			} else {
@@ -630,9 +630,9 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 
 	function connect() {
 		opening++;
-		if (retryTimer) {
-			clearTimeout(retryTimer);
-			retryTimer = null;
+		if (retry_timer) {
+			clearTimeout(retry_timer);
+			retry_timer = null;
 		}
 		(options.open || startup)(options, signal, replacing.length ? replacing.shift() : 0).then(
 			opened,
@@ -645,8 +645,8 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	 *   failing, none is in progress, the next is not due yet, and no connection could take a job;
 	 *   else null
 	 */
-	function failingFast() {
-		return failure && retries > 1 && opening === 0 && now() < nextAttempt && stuck()
+	function failing_fast() {
+		return failure && retries > 1 && opening === 0 && now() < next_attempt && stuck()
 			? failure
 			: null;
 	}
@@ -672,9 +672,9 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		const c: Pooled = Object.assign(Connection(ready, options, events), {
 			index: ready.index || 0,
 			loading: false,
-			idleSince: 0,
-			idleTimer: null,
-			lifeTimer: null,
+			idle_since: 0,
+			idle_timer: null,
+			life_timer: null,
 			releasing: false,
 			retiring: false,
 			retired: [],
@@ -682,10 +682,10 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		connections.add(c);
 		lifetime(c);
 		event("open", c);
-		if (typesLoaded || typesLoading) {
-			c.loading = !typesLoaded;
+		if (types_loaded || types_loading) {
+			c.loading = !types_loaded;
 		} else {
-			loadTypes(c);
+			load_types(c);
 		}
 		if (!c.loading) {
 			recovered();
@@ -696,24 +696,24 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 
 	function recovered() {
 		retries = 0;
-		failingSince = null;
+		failing_since = null;
 		failure = null;
 	}
 
 	function retype() {
-		if (!typesError) {
+		if (!types_error) {
 			return null;
 		}
 
-		if (now() - typesFailed < 1000) {
-			return copy_error(typesError);
+		if (now() - types_failed < 1000) {
+			return copy_error(types_error);
 		}
 
-		typesError = null;
+		types_error = null;
 		connections.forEach((x) => (x.loading = true));
 		const first_open = [...connections].find((x) => !x.closed);
 		if (first_open) {
-			loadTypes(first_open);
+			load_types(first_open);
 		}
 		return null;
 	}
@@ -725,9 +725,9 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	 * is ending.
 	 * @param c - an open connection
 	 */
-	function loadTypes(c: Pooled) {
+	function load_types(c: Pooled) {
 		hold(c);
-		typesLoading = true;
+		types_loading = true;
 		c.loading = true;
 		void types
 			.load(
@@ -746,34 +746,34 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			)
 			.then(
 				() => {
-					typesLoaded = true;
+					types_loaded = true;
 				},
 				(error: Failure) => {
 					if (error instanceof PostgresError) {
 						// The server answered a lookup with an error: the pool goes on as if loaded
-						typesLoaded = true;
+						types_loaded = true;
 					} else if (error && error.code === "TYPE_NOT_FOUND") {
-						typesError = error;
-						typesFailed = now();
+						types_error = error;
+						types_failed = now();
 					}
 					// Otherwise the load did not finish (`c` closed, say): another connection tries below
 				},
 			)
 			.then(() => {
-				typesLoading = false;
+				types_loading = false;
 				const waited = [...connections].filter((x) => x.loading);
-				connections.forEach((x) => (x.loading = !typesLoaded && !typesError));
-				if (typesLoaded || typesError) {
+				connections.forEach((x) => (x.loading = !types_loaded && !types_error));
+				if (types_loaded || types_error) {
 					recovered();
 				}
-				if (typesError) {
+				if (types_error) {
 					for (const job of waiting.take()) {
-						reject(job, copy_error(typesError));
+						reject(job, copy_error(types_error));
 					}
-				} else if (!typesLoaded) {
+				} else if (!types_loaded) {
 					const other = [...connections].find((x) => !x.closed);
 					if (other) {
-						loadTypes(other);
+						load_types(other);
 					}
 				}
 				drain();
@@ -801,14 +801,14 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	}
 
 	function attempted(error: Failure) {
-		if (failingSince === null) {
-			failingSince = now();
+		if (failing_since === null) {
+			failing_since = now();
 		}
 		retries++;
-		nextAttempt = now() + 1000 * backoff_seconds(options.backoff, retries);
+		next_attempt = now() + 1000 * backoff_seconds(options.backoff, retries);
 
 		const transient = !!error && (error.code === "CONNECTION_CLOSED" || error.code === "53300"),
-			expired = options.connect_timeout && now() - failingSince >= options.connect_timeout * 1000;
+			expired = options.connect_timeout && now() - failing_since >= options.connect_timeout * 1000;
 
 		failure = !transient || expired ? { error } : null;
 		if (stuck() && opening === 0 && (failure || ending)) {
@@ -839,7 +839,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			return;
 		}
 
-		c.lifeTimer = unref(
+		c.life_timer = unref(
 			setTimeout(() => {
 				c.retiring = true;
 				if (c.inflight === 0 && !c.lease) {
@@ -899,9 +899,9 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			return;
 		}
 
-		c.idleSince = now();
-		if (!c.idleTimer) {
-			c.idleTimer = unref(setTimeout(() => idled(c, timeout), timeout * 1000));
+		c.idle_since = now();
+		if (!c.idle_timer) {
+			c.idle_timer = unref(setTimeout(() => idled(c, timeout), timeout * 1000));
 		}
 	}
 
@@ -927,7 +927,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	 * @param timeout - `idle_timeout`, in seconds
 	 */
 	function idled(c: Pooled, timeout: number) {
-		c.idleTimer = null;
+		c.idle_timer = null;
 		if (c.inflight || c.lease || c.closed || c.loading) {
 			return;
 		}
@@ -936,9 +936,9 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			return;
 		}
 
-		const left = timeout * 1000 - (now() - c.idleSince);
+		const left = timeout * 1000 - (now() - c.idle_since);
 		if (left >= 1) {
-			c.idleTimer = unref(setTimeout(() => idled(c, timeout), left));
+			c.idle_timer = unref(setTimeout(() => idled(c, timeout), left));
 		} else {
 			void c.close();
 		}
@@ -1000,11 +1000,11 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			replacing.shift();
 		}
 		c.retired.forEach((r) => r());
-		if (c.idleTimer) {
-			clearTimeout(c.idleTimer);
+		if (c.idle_timer) {
+			clearTimeout(c.idle_timer);
 		}
-		if (c.lifeTimer) {
-			clearTimeout(c.lifeTimer);
+		if (c.life_timer) {
+			clearTimeout(c.life_timer);
 		}
 		if (c.lease && c.lease.onclose) {
 			let lost = lease_error || error;
@@ -1050,7 +1050,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			throw Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]);
 		}
 
-		const failing = failingFast();
+		const failing = failing_fast();
 		if (failing) {
 			throw copy_error(failing.error);
 		}
@@ -1082,9 +1082,9 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	function grant(c: Pooled, job: Waiting & LeaseJob) {
 		started(job);
 		hold(c);
-		if (c.idleTimer) {
-			clearTimeout(c.idleTimer);
-			c.idleTimer = null;
+		if (c.idle_timer) {
+			clearTimeout(c.idle_timer);
+			c.idle_timer = null;
 		}
 		let chain = Promise.resolve(),
 			released = false,
@@ -1186,11 +1186,11 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		ending = new Promise<void>((resolve) => {
 			resolve_ending = resolve;
 			if (timeout !== null) {
-				endTimer = setTimeout(destroy, timeout * 1000);
+				end_timer = setTimeout(destroy, timeout * 1000);
 			}
-			if (retryTimer) {
-				clearTimeout(retryTimer);
-				retryTimer = null;
+			if (retry_timer) {
+				clearTimeout(retry_timer);
+				retry_timer = null;
 			}
 			queueMicrotask(finishing);
 		});
@@ -1217,11 +1217,11 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		}
 
 		if (connections.size === 0 && (opening === 0 || signal.aborted) && waiting.length === 0) {
-			if (endTimer) {
-				clearTimeout(endTimer);
+			if (end_timer) {
+				clearTimeout(end_timer);
 			}
-			if (retryTimer) {
-				clearTimeout(retryTimer);
+			if (retry_timer) {
+				clearTimeout(retry_timer);
 			}
 			const resolve = resolve_ending;
 			resolve_ending = null;
@@ -1230,7 +1230,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	}
 
 	function destroy() {
-		endTimer = null;
+		end_timer = null;
 		signal.aborted = true;
 		signal.sockets.forEach((x) => x.destroy());
 		for (const job of waiting.take()) {
