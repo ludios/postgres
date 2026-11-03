@@ -54,8 +54,8 @@ async function create_file_database(): Promise<string> {
 const db = await create_file_database();
 
 /**
- * The `options` of tests/common.ts, but connecting to the database of the test file that imports
- * this module, which no other test file uses
+ * The `options` of tests/common.ts, but connecting to a database that only the test file importing
+ * this module uses
  */
 export const options = { ...common_options, db };
 
