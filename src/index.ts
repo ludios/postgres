@@ -1194,9 +1194,12 @@ function parseTransform(x: NonNullable<postgres.Options["transform"]>) {
 	return { undefined: x.undefined, column: pair(x.column), value: pair(x.value), row: pair(x.row) };
 }
 
-/** @returns the `from` and `to` of transform `x`, which a user gives as an object, or as a function: its `from` */
-function pair(x: ((...args: any[]) => any) | Pair | undefined): Pair {
-	return typeof x === "function" ? { from: x } : { from: x && x.from, to: x && x.to };
+/**
+ * @returns the `from` and `to` of transform `x`, which a user gives as an object, or as a function:
+ *   its `from`, and its `to` property, if it has one, as the `to`
+ */
+function pair(x: (((...args: any[]) => any) & { to?: Pair["to"] }) | Pair | undefined): Pair {
+	return typeof x === "function" ? { from: x, to: x.to } : { from: x && x.from, to: x && x.to };
 }
 
 function parseUrl(url: unknown) {
