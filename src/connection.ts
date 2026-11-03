@@ -736,10 +736,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 	}
 
-	function describe(statement: { text: string }, oids: number[]) {
+	function describe(statement_text: string, oids: number[]) {
 		return new Promise<Description>((resolve, reject) => {
 			const x = Exchange("describe", null, connection.lease, (item) => {
-				p.parse(out, "", statement.text, oids);
+				p.parse(out, "", statement_text, oids);
 				p.describe(out, "S", "");
 				sync(item);
 			});

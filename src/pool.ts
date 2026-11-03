@@ -4,7 +4,6 @@ import { Connection } from "./connection.ts";
 import { Query } from "./query.ts";
 import { Errors, PostgresError, copy_error, queryError } from "./errors.ts";
 import { channels, listened } from "./diagnostics.ts";
-import type { Column } from "./protocol.ts";
 import type { Options, Timer } from "./index.ts";
 import type { Ready } from "./startup.ts";
 import type { Built } from "./build.ts";
@@ -241,23 +240,17 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	}
 
 	function describeOnly(q: Query, built: Built, lease?: Lease) {
-		const statement = {
-				name: "",
-				text: built.text,
-				oids: built.oids,
-				columns: null as Column[] | null,
-			},
-			start = (c: Pooled) => {
-				q.connection = c;
-				c.describe(statement, built.oids).then(
-					({ params, columns }) =>
-						q.resolve({ string: built.text, types: params, name: "", columns }),
-					(error: Error) => q.reject(queryError(error, q, options.debug)),
-				);
-				if (q.onwrite) {
-					q.onwrite();
-				}
-			};
+		const start = (c: Pooled) => {
+			q.connection = c;
+			c.describe(built.text, built.oids).then(
+				({ params, columns }) =>
+					q.resolve({ string: built.text, types: params, name: "", columns }),
+				(error: Error) => q.reject(queryError(error, q, options.debug)),
+			);
+			if (q.onwrite) {
+				q.onwrite();
+			}
+		};
 		place(
 			{ run: start, q, reject: (error: Error) => q.reject(queryError(error, q, options.debug)) },
 			lease,
