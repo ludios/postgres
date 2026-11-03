@@ -1,7 +1,9 @@
 import v8 from "v8";
 import vm from "vm";
 import { expect, test } from "vitest";
+import * as fc from "fast-check";
 import { Queue } from "../../src/pool.ts";
+import { thrown } from "../helpers.ts";
 
 /** @returns Node's gc(), which --expose-gc makes */
 function exposed_gc() {
@@ -70,4 +72,92 @@ test("Queue stays small when items cycle through it without it ever draining (#7
 	}
 	gc();
 	expect([q.length, process.memoryUsage().heapUsed - before < 1024 * 1024]).toEqual([3, true]);
+});
+
+/** An operation on a queue of numbers; remove() takes out the first item equal to its number */
+type Operation =
+	| { op: "push"; x: number }
+	| { op: "shift" }
+	| { op: "peek" }
+	| { op: "remove"; x: number }
+	| { op: "take" };
+
+const operation: fc.Arbitrary<Operation> = fc.oneof(
+	fc.record({ op: fc.constant("push" as const), x: fc.nat({ max: 20 }) }),
+	fc.record({ op: fc.constant("shift" as const) }),
+	fc.record({ op: fc.constant("peek" as const) }),
+	fc.record({ op: fc.constant("remove" as const), x: fc.nat({ max: 20 }) }),
+	fc.record({ op: fc.constant("take" as const) }),
+);
+
+/**
+ * @param ops - operations, run in order on a Queue and on a plain array
+ * @returns what each operation gave on the Queue, then what each gave on the array: shift() and
+ *   peek() the item (or "empty" for a shift() of an empty queue, which throws), remove() whether it
+ *   removed, take() the items, push() the length after it
+ */
+function compared(ops: Operation[]) {
+	const queue = Queue<number>(),
+		model: number[] = [],
+		got: unknown[] = [],
+		want: unknown[] = [];
+	for (const o of ops) {
+		switch (o.op) {
+			case "push": {
+				queue.push(o.x);
+				model.push(o.x);
+				got.push(queue.length);
+				want.push(model.length);
+				break;
+			}
+			case "shift": {
+				got.push(model.length === 0 ? thrown(() => queue.shift()).message : queue.shift());
+				want.push(model.length === 0 ? "Bug: shift() of an empty Queue" : model.shift());
+				break;
+			}
+			case "peek": {
+				got.push(queue.peek());
+				want.push(model[0]);
+				break;
+			}
+			case "remove": {
+				const i = model.indexOf(o.x);
+				got.push(queue.remove((x) => x === o.x));
+				want.push(i !== -1);
+				if (i !== -1) {
+					model.splice(i, 1);
+				}
+				break;
+			}
+			case "take": {
+				got.push(queue.take());
+				want.push(model.splice(0));
+				break;
+			}
+		}
+	}
+	return [got, want];
+}
+
+test("Queue gives what a plain array gives, for any pushes, shifts, peeks, removes and takes", async () => {
+	fc.assert(
+		fc.property(fc.array(operation, { maxLength: 200 }), (ops) => {
+			const [got, want] = compared(ops);
+			expect(got).toEqual(want);
+		}),
+		{ numRuns: 1000 },
+	);
+});
+
+test("Queue gives what a plain array gives past the 1024 shifts after which it compacts", async () => {
+	// Fill past the compaction point, then operate at random
+	const fill = Array.from({ length: 1100 }, (_, i) => ({ op: "push" as const, x: i % 21 })),
+		drain = Array.from({ length: 1050 }, () => ({ op: "shift" as const }));
+	fc.assert(
+		fc.property(fc.array(operation, { maxLength: 100 }), (ops) => {
+			const [got, want] = compared([...fill, ...drain, ...ops]);
+			expect(got).toEqual(want);
+		}),
+		{ numRuns: 200 },
+	);
 });
