@@ -544,6 +544,9 @@ function Listen(options: Options) {
 			max: 1,
 			idle_timeout: null,
 			max_lifetime: null,
+			// LISTEN and UNLISTEN need no custom types, and a custom type given by name would need
+			// fetch_types
+			types: {},
 			fetch_types: false,
 			no_subscribe: true,
 			role: "LISTEN",

@@ -84,6 +84,17 @@ test.each(["hello", "wat-;.ø.§", "withUpperChar"])(
 	},
 );
 
+test("listen and notify with a custom type given by name", async () => {
+	await using sql = postgres({
+		...options,
+		types: { int: { to: "int4", from: ["int4"], serialize: String, parse: Number } },
+	});
+	const { promise, resolve } = Promise.withResolvers();
+	await sql.listen("named", resolve);
+	await sql.notify("named", "works");
+	expect(await promise).toBe("works");
+});
+
 test("double listen", async () => {
 	const sql = postgres(options),
 		channel = "hello";
