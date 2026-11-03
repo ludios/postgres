@@ -1,6 +1,6 @@
 # Fable 5.1 re-review of the commits that only Opus reviewed
 
-Triaged on 2026-11-03. Line numbers are at `f7ad955` on `prime`.
+Triaged on 2026-11-03. Line numbers are at `e5e2356` on `prime`.
 
 ## Why
 
@@ -42,7 +42,7 @@ Not covered: the 18 commits from `a99af30` to `1ee62b0`, which have no saved rev
 
 ## Outcome
 
-Of the 192 findings, about 137 had already been raised by an Opus or Codex review of the same commits; most of those were fixed later, and the rest were left alone on purpose. Of the 55 that no earlier review raised, most were fixed later anyway, are obsolete, or are not bugs. 38 are new and still applied at `1c11dce`: 9 are fixed below, 14 need a decision, and 15 are not worth a change.
+Of the 192 findings, about 137 had already been raised by an Opus or Codex review of the same commits; most of those were fixed later, and the rest were left alone on purpose. Of the 55 that no earlier review raised, most were fixed later anyway, are obsolete, or are not bugs. 38 are new and still applied at `1c11dce`: 9 were fixed at once, 14 needed a decision (7 of them are done since, 6 are open, and 1 was not worth it), and 15 are not worth a change.
 
 ## Fixed
 
@@ -69,36 +69,41 @@ Of the 192 findings, about 137 had already been raised by an Opus or Codex revie
 
 Left alone from those reviews: with connect_timeout off, nothing bounds a cancel request whose connection never connects, and the pool's `end()` does not destroy it; a socket from an `options.socket` factory is not destroyed at the timeout, in `cancel()` as in `attempt()`; `attempt()` and `cancel()` both keep the same "socket or raw socket" state, which a cancellable `Socket()` could replace; a CONNECT_TIMEOUT before the TCP connection is up means that the CancelRequest was not sent, yet `hold()` still abandons the connection; and `cancel()` resolves when its connection closes with an error after the CancelRequest was written.
 
-## Decisions for you
+## Done after the triage
 
-These change public behaviour, public types or the workflow.
+On 2026-11-03, after reading the triage, you asked for the tooling and docs findings, the small optional ones, and the two seen while triaging:
 
-1. **A url with both `ssl=` and `sslmode=` silently drops `sslmode`** ([src/index.ts:1122](../src/index.ts#L1122), `read_option`). For example, `?ssl=prefer&sslmode=verify-full` connects with `prefer`, which checks no certificate. libpq reads `ssl=true` as `sslmode=require`, and refuses any other value of `ssl` as an invalid parameter. Fix: throw when the url has both. (`07bee56..62b07fb`)
-2. **The `PGSSL` check throws even where `PGSSL` was never read** ([src/index.ts:1206](../src/index.ts#L1206)). With a leftover `PGSSL=1`, `postgres(url, { ssl: { ca } })` throws, and the advice in the error message, "set PGSSLMODE", would not help, because the option outranks `PGSSLMODE`. Fix: throw only when `options.ssl` would otherwise come from the environment. (`b19f553..78492df`)
-3. **`min` greater than `max` is accepted, and the pool uses `max` instead** ([src/index.ts:1067](../src/index.ts#L1067), [src/pool.ts:679](../src/pool.ts#L679)). Throwing could break a setup where `PGMAX` comes from the environment and is lower than a `min` set in code. Either throw, or say in the README that `min` is capped at `max`. (`63cd67b..e0a73e5`)
-4. **The options object takes `'true'`, `'false'` and `'disable'` as text for an option that is on or off**, so `{ prepare: 'false' }` turns prepare off ([src/index.ts:874](../src/index.ts#L874)). [CHANGELOG.md:34](../CHANGELOG.md#L34) gives the text forms only for the url and the environment, so it reads as if this throws. v3 took any text in the options object as on. Either document it, or throw for text in the options object. (`7d93138..7b630db`)
-5. **`tx.CLOSE` and `tx.END` are undefined.** Only the pool's `sql` has them ([src/index.ts:124](../src/index.ts#L124), [types/index.d.ts:854](../types/index.d.ts#L854)), so a JavaScript cursor callback inside a transaction that returns `tx.CLOSE` keeps fetching. No test closes a cursor that runs in a transaction, through CLOSE or `break`. Adding CLOSE and END to the transaction's and the reserved connection's `sql` adds to a public type. (`e74c077..be63c0a`)
-6. **`PostgresType` requires `from`, `serialize` and `parse`** ([types/index.d.ts:123](../types/index.d.ts#L123)), but src treats them as optional, and four tests cast to `any` to leave one out. Making them optional is a change to a public type. (`e74c077..be63c0a`)
-7. **Nothing runs oxfmt:** neither "Before committing" in AGENTS.md nor CI. HEAD passes `oxfmt --check .`, but drift has needed fix-up commits before (`5e28a77`). (`6ab6b0c..2aa20f6`)
-8. **When `sql.end({ timeout })` destroys a connection in a transaction, the lease's `CONNECTION_CLOSED` drops the in-flight query's `query`, `parameters`, `args` and the caller's stack** ([src/pool.ts:1327](../src/pool.ts#L1327)). It affects only diagnostics, during a forced shutdown. (`81ba8c0..fdf3f06`)
+| Commit | Finding |
+|---|---|
+| `760fd66` | `.oxfmtrc.json` ignored `*.yml` but not `*.yaml`. (`687d347..33aa4bd`) |
+| `d27d188` | Nothing ran oxfmt: now `pnpm format:check` does, before committing and in CI, with oxfmt as a devDependency. (`6ab6b0c..2aa20f6`) |
+| `300605e` | `.oxlintrc.json` turned off `typescript/no-useless-default-assignment` and `typescript/no-unnecessary-boolean-literal-compare` because of `strict: false`, but `strict` has been `true` since `46b97db`; they are on, and their 6 errors fixed. (seen while triaging) |
+| `9856ec2` | The v4.0.0 "Testing" section of CHANGELOG.md described upstream's runners: Node 20, `tests/cf/run.sh`, Bun and Deno in CI, `COVERAGE_MIN`. (`687d347..33aa4bd`, and earlier reviews) |
+| `c3067fa` | `with_env()` now throws if its function returns a promise, which would run on after the variables are restored. (`7b630db..c07989a`) |
+| `ed5d427` | The three listen-and-notify tests that differed only in the channel's name are one `test.each`. (`46fa394..7f7c8a1`) |
+| `1ccb0cd` | The `.oxlintrc.json` comment "what does from now on is an error" is gone. (`46fa394..7f7c8a1`) |
+| `cb10f9f` | A query's `cancel()` resolves without a cancel request once the connection closes, for a query not yet at the head; the comment said only "settled", and the public docstring said only when it rejects. (`63cd67b..e0a73e5`) |
+| `e5e2356` | A test that `idle_timeout` closes a connection that a cancel request holds for good, the case that `2fff2f3` was for. It fails if no idle timer starts during the hold. (`41cf3d4..0b98c6f`) |
 
-## Small and optional
+## Open
 
-Each is a few lines; none fixes a bug.
+Deferred: on 2026-11-03 you chose to keep these here for now. Each changes how options are read.
 
-- `cancel()` resolves for a query that a close fails before it reached the head; the comment says only "settled", and [types/index.d.ts:624](../types/index.d.ts#L624) mentions only rejecting. (`63cd67b..e0a73e5`)
-- No test that `idle_timeout` closes a connection that a cancel request holds forever, the case that `2fff2f3` was for. About 25 lines. (`41cf3d4..0b98c6f`)
-- [.oxfmtrc.json:2](../.oxfmtrc.json#L2) ignores `*.yml` but not `*.yaml`, so oxfmt would reformat a future `pnpm-workspace.yaml`. (`687d347..33aa4bd`)
-- [tests/helpers.ts:73](../tests/helpers.ts#L73): `with_env()` could assert that `f` returned no promise; every current caller is synchronous. (`7b630db..c07989a`)
-- [tests/listen.test.ts:73](../tests/listen.test.ts#L73), 129 and 141: three listen-and-notify tests differ only in the channel name (`test.each`). (`46fa394..7f7c8a1`)
-- [.oxlintrc.json:21](../.oxlintrc.json#L21): "what does from now on is an error" is history and can be read more than one way. (`46fa394..7f7c8a1`)
+- **A url with both `ssl=` and `sslmode=` silently drops `sslmode`** ([src/index.ts:1122](../src/index.ts#L1122), `read_option`). For example, `?ssl=prefer&sslmode=verify-full` connects with `prefer`, which checks no certificate. libpq reads `ssl=true` as `sslmode=require`, and refuses any other value of `ssl` as an invalid parameter. Fix: throw when the url has both. (`07bee56..62b07fb`)
+- **The `PGSSL` check throws even where `PGSSL` was never read** ([src/index.ts:1206](../src/index.ts#L1206)). With a leftover `PGSSL=1`, `postgres(url, { ssl: { ca } })` throws, and the advice in the error message, "set PGSSLMODE", would not help, because the option outranks `PGSSLMODE`. Fix: throw only when `options.ssl` would otherwise come from the environment. (`b19f553..78492df`)
+- **`min` greater than `max` is accepted, and the pool uses `max` instead** ([src/index.ts:1067](../src/index.ts#L1067), [src/pool.ts:679](../src/pool.ts#L679)). Throwing could break a setup where `PGMAX` comes from the environment and is lower than a `min` set in code. Either throw, or say in the README that `min` is capped at `max`. (`63cd67b..e0a73e5`)
+- **The options object takes `'true'`, `'false'` and `'disable'` as text for an option that is on or off**, so `{ prepare: 'false' }` turns prepare off ([src/index.ts:874](../src/index.ts#L874)). [CHANGELOG.md:34](../CHANGELOG.md#L34) gives the text forms only for the url and the environment, so it reads as if this throws. v3 took any text in the options object as on. Either document it, or throw for text in the options object. (`7d93138..7b630db`)
+
+Explained to you on 2026-11-03, awaiting a decision. Each changes a public type.
+
+- **`tx.CLOSE` and `tx.END` are undefined.** Only the pool's `sql` has them ([src/index.ts:124](../src/index.ts#L124), [types/index.d.ts:854](../types/index.d.ts#L854)), so a JavaScript cursor callback inside a transaction that returns `tx.CLOSE` keeps fetching. No test closes a cursor that runs in a transaction, through CLOSE or `break`. Adding CLOSE and END to the transaction's and the reserved connection's `sql` adds to a public type. (`e74c077..be63c0a`)
+- **`PostgresType` requires `from`, `serialize` and `parse`** ([types/index.d.ts:123](../types/index.d.ts#L123)), but src treats them as optional, and four tests cast to `any` to leave one out. Making them optional is a change to a public type. (`e74c077..be63c0a`)
+
+Not put to you, as it affects only diagnostics during a forced shutdown:
+
+- **When `sql.end({ timeout })` destroys a connection in a transaction, the lease's `CONNECTION_CLOSED` drops the in-flight query's `query`, `parameters`, `args` and the caller's stack** ([src/pool.ts:1327](../src/pool.ts#L1327)). It affects only diagnostics, during a forced shutdown. (`81ba8c0..fdf3f06`)
 
 ## Checked and left alone
 
 - **`sql("a", ["b", "c"])` throws `x.replace is not a function`.** Fable and the triage called this a regression from `61f6025`, which turned `[first].concat(rest)` into `[first, ...rest]`. It is not one: `concat` spreads only `rest` itself, not the array inside it, and the call throws the same way at `61f6025^`. TypeScript rejects the call: with a string first, the type of the rest is `readonly string[]`. (`e74c077..be63c0a`)
 - Not worth a change: the `string | null` types of `host`, `database` and `user`, which match what the code does; `Queue.take()`'s filter, which never drops anything; the helpers that `util.inspect` shows as `value`; `configurable: true` on the getters that throw CASING_TRANSFORM_REMOVED; `await` inside `expect()`; a lease's error with a cursor paused in its callback; the comment "settle_error adds x's query"; `helper_pool` never being ended; `orderly` with a FATAL after Terminate; a first chunk shorter than 8 bytes in the tracing proxy; `exclusive` repeating `cancelling > 0`; `x.error === fatal` when both are null; the test encoders that resemble those in `tests/bench_decoders.ts`; the pools of the `connect_timeout` tests that are never ended; and a missing "run `pnpm install` first" in AGENTS.md.
-
-## Seen while triaging, not from Fable
-
-- [.oxlintrc.json:111](../.oxlintrc.json#L111): `typescript/no-useless-default-assignment` and `typescript/no-unnecessary-boolean-literal-compare` are off because "`strict: false` in tsconfig.json" turns off strictNullChecks, but `strict` has been `true` since `46b97db`. Turned on, they report 6 errors (src/socket.ts, src/pool.ts, src/startup.ts, src/index.ts, and 2 in src/build.ts).
-- [CHANGELOG.md:132](../CHANGELOG.md#L132): the v4.0.0 "Testing" section still describes upstream's runners (Node 20, `tests/cf/run.sh`, Bun and Deno in CI, `COVERAGE_MIN`). Earlier reviews raised this several times, and it is a known open item from the vitest conversion.
