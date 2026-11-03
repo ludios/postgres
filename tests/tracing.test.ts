@@ -144,6 +144,14 @@ test("Tracing: cursors and copy streams finish their trace", async () => {
 	expect([done, started]).toEqual([3, 3]);
 });
 
+test("Tracing: an empty query of the simple protocol is traced, with its empty text", async () => {
+	await using sql = postgres({ ...options, max: 1 });
+	const { events, stop } = record("postgres:query");
+	await sql.unsafe("");
+	stop();
+	expect(events.filter((x) => x.event === "asyncEnd").map((x) => x.context.query)).toEqual([""]);
+});
+
 test("Tracing: connect publishes per attempt, with the backend pid or the error", async () => {
 	const { events, stop } = record("postgres:connect");
 	await using sql = postgres({ ...options, max: 1 });

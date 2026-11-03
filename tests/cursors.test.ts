@@ -163,6 +163,18 @@ test("forEach has result as second argument", async () => {
 	expect(x.columns[0].name).toBe("x");
 });
 
+test("The last batch of a cursor on an unnamed statement has the parameter types in its statement", async () => {
+	await using sql = postgres({ ...options, prepare: false, max: 1 });
+	// Only the batch that completes the cursor has a statement; after the first batch, that is a step's
+	let last!: { types: number[] };
+	await sql.begin(async (tx) => {
+		await tx`select ${1}::int as a, generate_series(1, 3) as x`.cursor(2, (rows) => {
+			last = (rows as any).statement;
+		});
+	});
+	expect(last.types).toEqual([23]);
+});
+
 test("concurrent cursors", async () => {
 	const xs: number[] = [];
 
