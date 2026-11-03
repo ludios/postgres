@@ -96,7 +96,7 @@ test("Socket reads plain TCP through a shared buffer unless onread is false", as
 		server = net.createServer((x) => x.end());
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 	const port = port_of(server),
-		shared = await Socket(opts({ ssl: false }), "127.0.0.1", port),
+		shared = await Socket(opts({ ssl: false, onread: true }), "127.0.0.1", port),
 		stream = await Socket(opts({ ssl: false, onread: false }), "127.0.0.1", port);
 	shared.destroy();
 	stream.destroy();

@@ -107,10 +107,6 @@
 		"vitest/valid-expect": ["error", { "maxArgs": 2 }],
 		// https://typescript-eslint.io/rules/no-unsafe-type-assertion/
 		// We cast deliberately at I/O boundaries.
-		"typescript/no-unsafe-type-assertion": "off",
-		// These need `strictNullChecks`, which `strict: false` in tsconfig.json
-		// turns off; without it, each only reports, once per file, that it needs it.
-		"typescript/no-useless-default-assignment": "off",
-		"typescript/no-unnecessary-boolean-literal-compare": "off"
+		"typescript/no-unsafe-type-assertion": "off"
 	}
 }

@@ -510,7 +510,7 @@ const salted = new Map<string, Buffer>();
 function Auth({
 	user,
 	pass,
-	binding = "prefer",
+	binding,
 	socket,
 }: {
 	user: string;

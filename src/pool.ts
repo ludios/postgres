@@ -229,7 +229,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		failing_since: number | null = null,
 		next_attempt = 0,
 		retry_timer: Timer | null = null,
-		types_loaded = options.fetch_types === false,
+		types_loaded = !options.fetch_types,
 		types_error: Failure | null = null,
 		types_failed = 0,
 		// The error of the connection attempts that fail fast, while they do

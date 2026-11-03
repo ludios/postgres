@@ -99,7 +99,7 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 			: Subscribe(Postgres, { ...options, shared_types: types }),
 		listener = Listen(options);
 
-	if (types.named && options.fetch_types === false) {
+	if (types.named && !options.fetch_types) {
 		throw Errors.generic(
 			"TYPE_NOT_FOUND",
 			"Custom types given by name need fetch_types to look them up",

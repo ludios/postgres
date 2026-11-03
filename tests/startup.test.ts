@@ -21,6 +21,7 @@ const base: Partial<Options> = {
 	connect_timeout: 3,
 	timers: { setTimeout, clearTimeout, setImmediate, clearImmediate, now: () => performance.now() },
 	shared: { once: new Set() },
+	onread: true,
 	...login,
 };
 

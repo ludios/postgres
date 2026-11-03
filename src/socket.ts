@@ -98,7 +98,7 @@ function connect(
 			plain = !secured(options),
 			reads: net.OnReadOpts | false = (plain || tls_now) &&
 				onread_safe &&
-				options.onread !== false && {
+				options.onread && {
 					buffer: Buffer.allocUnsafe(65536),
 					// `b` is `buffer`, the Buffer above; true keeps the socket reading (false would pause it)
 					callback: (n, b) => {

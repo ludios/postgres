@@ -79,7 +79,7 @@ export function build(query: Query, options: Options) {
 		oids: number[] = [],
 		o: Context = {
 			transform: options.transform,
-			infer: options.infer !== false,
+			infer: options.infer,
 			resolve: options.resolve,
 			values,
 			oids,
@@ -163,7 +163,7 @@ function spaced(a: string, b: string) {
 }
 
 function is_fragment(x: unknown): x is Query {
-	return !!x && (x as Query)[is_query] === true;
+	return typeof x === "object" && x !== null && is_query in x;
 }
 
 function fragment(q: Query, o: Context) {
