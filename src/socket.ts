@@ -21,13 +21,14 @@ export type RawSocket = net.Socket & {
 	/** Whether `onread` reads into one buffer that is reused, so that a chunk kept must be copied */
 	shared?: boolean;
 	/**
-	 * Whether the socket carries TLS: the sockets of socket.ts and cf.ts say; a socket of the
-	 * application's that negotiated TLS itself may say so with `negotiated` only
+	 * Whether the socket carries TLS. The sockets of socket.ts and cf.ts set it; a socket of the
+	 * application's leaves it unset, and says that it negotiated TLS itself with `negotiated`.
 	 */
 	secure?: boolean;
 	/**
-	 * Whether the socket negotiated TLS itself, or is not to negotiate it at all (cf.ts sets it
-	 * either way), so that startup sends no SSLRequest
+	 * Whether startup is to send no SSLRequest: a socket of the application's negotiated TLS
+	 * itself (types/index.d.ts documents this), or cf.ts did (or the server refused it: `secure`
+	 * says which)
 	 */
 	negotiated?: boolean;
 	/** Called with each chunk that `onread` reads */
@@ -161,15 +162,10 @@ function wrap(socket: RawSocket, host: string | null) {
 		},
 		/**
 		 * Whether the socket carries TLS: since upgrade(), as `secure` says, or (a socket of the
-		 * application's, which says nothing in `secure`) as `negotiated` says, or as a TLSSocket
+		 * application's, which says nothing in `secure`) as `negotiated` says
 		 */
 		get encrypted() {
-			return (
-				upgraded ||
-				(socket.secure !== undefined
-					? socket.secure
-					: socket.negotiated === true || (socket as { encrypted?: boolean }).encrypted === true)
-			);
+			return upgraded || (socket.secure !== undefined ? socket.secure : socket.negotiated === true);
 		},
 		/** Whether upgrade() put the TLS on the socket, so the TLS options say how the certificate was checked */
 		get upgraded() {

@@ -26,6 +26,7 @@ type Line = (template: string, properties?: Properties) => void;
 /**
  * A logger of the library: LogTape's, except that a call never throws, so that the library's
  * state does not depend on the application's LogTape configuration (a filter of it may throw).
+ * The cost: a source location that LogTape captures names the wrapper in log.ts.
  */
 export type Log = {
 	trace: Line;
@@ -33,7 +34,8 @@ export type Log = {
 	info: Line;
 	warn: Line;
 	error: Line;
-	isEnabledFor(level: LogLevel): boolean;
+	/** Whether a line at `level` would be logged, so that a caller can skip making its properties */
+	enabled(level: LogLevel): boolean;
 };
 
 /**
@@ -165,18 +167,37 @@ function level_of(severity: string | undefined): LogLevel {
 	return "info";
 }
 
-/** @returns `fn` as a Line that swallows what it throws */
+/** LogTape's own logger, which an application may keep a sink on, for a line that was lost */
+const meta = getLogger(["logtape", "meta"]);
+
+/**
+ * Reports that a line of the library was lost, through LogTape's own logger (so that a bug in a
+ * function that makes a line's properties shows somewhere), and swallows what that throws.
+ * @param thrown - what the line's logging threw: LogTape's filter, or the properties function
+ */
+function lost(thrown: unknown) {
+	try {
+		meta.error("a log line of postgres.js was lost, as logging it threw: {reason}", {
+			reason: reason(thrown),
+			error: thrown,
+		});
+	} catch {
+		// Nothing more can be done for the line; the library goes on
+	}
+}
+
+/** @returns `fn` as a Line that swallows what it throws, after lost() reports it */
 function swallowing(fn: Line): Line {
 	return (template, properties) => {
 		try {
 			fn(template, properties);
-		} catch {
-			// A filter of the application's LogTape configuration threw: the line is lost, nothing else
+		} catch (error) {
+			lost(error);
 		}
 	};
 }
 
-/** @returns `logger` as a Log: each level's method, with what it throws swallowed */
+/** @returns `logger` as a Log: each method with what it throws swallowed */
 function safe(logger: Logger): Log {
 	return {
 		trace: swallowing((t, p) => logger.trace(t, p)),
@@ -184,16 +205,24 @@ function safe(logger: Logger): Log {
 		info: swallowing((t, p) => logger.info(t, p)),
 		warn: swallowing((t, p) => logger.warn(t, p)),
 		error: swallowing((t, p) => logger.error(t, p)),
-		isEnabledFor: (level) => logger.isEnabledFor(level),
+		enabled(level) {
+			try {
+				return logger.isEnabledFor(level);
+			} catch (error) {
+				lost(error);
+				return false;
+			}
+		},
 	};
 }
 
 /**
- * Counts events of one kind, so that a line about them goes out at most once per
- * `logged_every_ms`, and the events between two lines are counted in the second.
+ * Counts events of one kind, so that the lines about them do not flood: an event's line goes out
+ * at once, then the events of the next `logged_every_ms` are only counted, and the count goes out
+ * with the next event's line, or with a flush() (a watchdog's) once that time has passed.
  */
 export class Throttle {
-	/** When the last line of an event's own went out, by the caller's clock; null before the first */
+	/** When the last line that an event itself caused went out, by the caller's clock; null before the first */
 	private at: number | null = null;
 	/** The events since the last line */
 	private count = 0;
@@ -221,8 +250,9 @@ export class Throttle {
 
 	/**
 	 * Reports the events counted since the last line, once `logged_every_ms` has passed since it,
-	 * so that a burst is reported even if no event follows it; a watchdog calls this. The line
-	 * does not count as an event's own: the next event goes out at once.
+	 * so that a burst is reported even if no event follows it; a watchdog calls this. The line is
+	 * not one that an event caused: the next event's line still goes out at once, which may be
+	 * soon after this one.
 	 * @param t - now
 	 * @returns as hit() does; null if no line goes out yet
 	 */
@@ -230,6 +260,16 @@ export class Throttle {
 		return this.count !== 0 && this.at !== null && t - this.at >= logged_every_ms
 			? this.take(t)
 			: null;
+	}
+
+	/**
+	 * Reports the events counted since the last line, however recent that line: for the end of
+	 * what the throttle is about (the pool), after which no flush() would come.
+	 * @param t - now
+	 * @returns as hit() does; null if no event is counted
+	 */
+	drain(t: number) {
+		return this.count !== 0 ? this.take(t) : null;
 	}
 
 	private take(t: number) {
@@ -284,9 +324,15 @@ export function log_at(
 		case "warning":
 			logger.warn(template, properties);
 			break;
-		default:
+		case "error":
 			logger.error(template, properties);
 			break;
+		case "fatal":
+			// A Log has no fatal: nothing in the library is, and a notice's severity goes up to PANIC
+			logger.error(template, properties);
+			break;
+		default:
+			throw new Error("Bug: no such log level: " + String(level));
 	}
 }
 

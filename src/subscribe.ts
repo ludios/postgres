@@ -73,7 +73,7 @@ export default function Subscribe(
 		// failed (see fail()); the backoff of the restarts counts these too, so that a subscriber that
 		// fails the same transaction every time does not restart the stream at once, forever
 		replays = 0,
-		// The LSN of the transaction that a subscriber failed last, until it is handled; the replays
+		// The LSN of the latest transaction that a subscriber failed, until it is handled; the replays
 		// end then, not when an earlier transaction, delivered again before it, is handled
 		poison: bigint | null = null;
 
@@ -301,7 +301,7 @@ export default function Subscribe(
 			if (began("a Commit")) {
 				transaction = null;
 				run(() => {
-					if (poison !== null && x.lsn >= poison) {
+					if (poison === null || x.lsn >= poison) {
 						replays = 0;
 						poison = null;
 					}
@@ -444,7 +444,7 @@ export default function Subscribe(
 
 			failed = true;
 			replays++;
-			if (transaction !== null) {
+			if (transaction !== null && (poison === null || transaction.lsn > poison)) {
 				poison = transaction.lsn;
 			}
 			queue = null;

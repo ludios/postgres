@@ -169,8 +169,9 @@ declare namespace postgres {
 		on(event: "error", fn: (error: Error) => void): unknown;
 		off(event: string, fn: (...args: any[]) => void): unknown;
 		setKeepAlive?(enable: boolean, delay: number): unknown;
-		/** Set when the socket did the TLS negotiation itself, so it is not done again */
+		/** Set when the socket did the TLS negotiation itself, so it is not done again, and the connection counts as encrypted */
 		negotiated?: boolean;
+		/** Set by the library's own sockets; leave it unset, and say with `negotiated` whether the socket did TLS */
 		secure?: boolean;
 	}
 

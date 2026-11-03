@@ -101,10 +101,10 @@ type Base = {
 	own: Failure | null;
 	/** The scheduler's estimate of the exchange's time, in ms, or undefined without an estimate */
 	cost: number | undefined;
-	/** When the exchange became the head of `sent`, by `timers.now()`, so that the server works on it; 0 until then */
-	headed: number;
-	/** When the watchdog last logged the exchange as not finished (see unanswered()); 0 if never */
-	reported: number;
+	/** When the exchange became the head of `sent`, by `timers.now()`, so that the server works on it; null until then */
+	headed: number | null;
+	/** When the watchdog last logged the exchange as not finished (see unanswered()); null if never */
+	reported: number | null;
 };
 
 /** What the exchanges of a user's query have */
@@ -569,12 +569,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		if (sent.length === 0) {
 			headed(x, timers.now());
 		}
+		sent.push(x);
 		if (x.query && x.query.written === null) {
-			x.query.written = x.headed || timers.now();
+			x.query.written = x.headed ?? timers.now();
 		} else if (x.kind === "describe" && x.onwrite !== null) {
 			x.onwrite();
 		}
-		sent.push(x);
 		if (holds(x)) {
 			blocker = x;
 		}
@@ -2177,8 +2177,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			x.kind === "step" ||
 			x.streaming ||
 			is_cursor(x) ||
+			x.headed === null ||
 			t - x.headed < unanswered_ms ||
-			(x.reported !== 0 && t - x.reported < unanswered_again_ms)
+			(x.reported !== null && t - x.reported < unanswered_again_ms)
 		) {
 			return;
 		}
@@ -2568,8 +2569,8 @@ function base(lease: Lease | null, query: Query | null): Base {
 		error: null,
 		own: null,
 		cost: undefined,
-		headed: 0,
-		reported: 0,
+		headed: null,
+		reported: null,
 	};
 }
 

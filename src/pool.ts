@@ -478,10 +478,13 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 				break;
 			}
 
-			waiting.shift();
 			if (!c) {
+				waiting.remove((x) => x === job);
 				reject(job, Errors.generic("COPY_IN_PROGRESS", "You cannot execute queries during copy"));
-			} else if (job.kind === "lease") {
+				continue;
+			}
+			waiting.shift();
+			if (job.kind === "lease") {
 				grant(c, job);
 			} else {
 				run(c, job);
@@ -1035,17 +1038,21 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	}
 
 	/**
-	 * Ends the congestion, if any, as the queue has emptied (the queue calls this): logs it if it
-	 * was logged, and the requests were served; if they were rejected or timed out, the lines
-	 * about that say so.
+	 * Ends the congestion, if any, as the queue has emptied (the queue calls this), and logs that
+	 * if the congestion was logged: with how the queue emptied, as only "served" means that the
+	 * pool kept up again.
 	 * @param how - how the queue emptied
 	 */
 	function queue_emptied(how: Emptied) {
-		if (how === "served" && congestion !== null && congestion.logged !== null) {
-			log.pool.info("queue for a connection to {target} empty again after {secs} s", {
-				target: where,
-				secs: tenths(now() - congestion.since),
-			});
+		if (congestion !== null && congestion.logged !== null) {
+			log.pool.info(
+				how === "served"
+					? "queue for a connection to {target} empty again after {secs} s"
+					: how === "taken"
+						? "queue for a connection to {target} empty after {secs} s, its requests rejected"
+						: "queue for a connection to {target} empty after {secs} s, its last request timed out or cancelled",
+				{ target: where, secs: tenths(now() - congestion.since) },
+			);
 		}
 		congestion = null;
 	}
@@ -1066,14 +1073,19 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	/**
 	 * Logs waits for a connection that timed out.
 	 * @param x - what the throttle reports: how many, in the last how many seconds
-	 * @param kind - what the one request was, if `x.count` is 1 and that is known: `a query`,
-	 *   `sql.begin()` or `sql.reserve()`; else `a request`
+	 * @param kind - for the line of one request's own: what it was (`a query`, `sql.begin()` or
+	 *   `sql.reserve()`); undefined for a flush, whose requests may be seconds old
 	 */
-	function log_timeouts(x: { count: number; since: number }, kind = "a request") {
-		if (x.count === 1) {
+	function log_timeouts(x: { count: number; since: number }, kind?: string) {
+		if (kind !== undefined) {
 			log.pool.warn(
 				"{kind} waited {queue_timeout} s for a connection to {target} and was rejected with QUEUE_TIMEOUT",
 				{ kind, queue_timeout: options.queue_timeout, target: where },
+			);
+		} else if (x.count === 1) {
+			log.pool.warn(
+				"one more request for a connection to {target} timed out in the last {since} s (queue_timeout {queue_timeout} s) and was rejected with QUEUE_TIMEOUT",
+				{ since: x.since, queue_timeout: options.queue_timeout, target: where },
 			);
 		} else {
 			log.pool.warn(
@@ -1104,19 +1116,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		congested();
 		const t = now();
 		connections.forEach((c) => c.unanswered(t));
-		const timeouts = queue_timeouts.flush(t);
-		if (timeouts !== null) {
-			log_timeouts(timeouts);
-		}
-		const trouble = events.trouble.flush(t);
-		if (trouble !== null) {
-			log.connection.error(
-				trouble.count === 1
-					? "one more server error about the server's own trouble (SQLSTATE class 53, 58 or XX) came from {target} in the last {since} s"
-					: "{count} more server errors about the server's own trouble (SQLSTATE classes 53, 58 and XX) came from {target} in the last {since} s",
-				{ count: trouble.count, target: where, since: trouble.since },
-			);
-		}
+		report_counts(t, false);
 		if (ending && resolve_ending && t - ending_logged >= logged_every_ms) {
 			ending_logged = t;
 			log.pool.warn(
@@ -1139,6 +1139,28 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			events.trouble.pending
 		) {
 			watch();
+		}
+	}
+
+	/**
+	 * Logs the throttled counts that are due (see Throttle.flush()), or, at the pool's end, all of
+	 * them (Throttle.drain()), as no line would come for them after it.
+	 * @param t - now
+	 * @param final - whether the pool ends
+	 */
+	function report_counts(t: number, final: boolean) {
+		const timeouts = final ? queue_timeouts.drain(t) : queue_timeouts.flush(t);
+		if (timeouts !== null) {
+			log_timeouts(timeouts);
+		}
+		const trouble = final ? events.trouble.drain(t) : events.trouble.flush(t);
+		if (trouble !== null) {
+			log.connection.error(
+				trouble.count === 1
+					? "one more server error about the server's own trouble (SQLSTATE class 53, 58 or XX) came from {target} in the last {since} s"
+					: "{count} more server errors about the server's own trouble (SQLSTATE classes 53, 58 and XX) came from {target} in the last {since} s",
+				{ count: trouble.count, target: where, since: trouble.since },
+			);
 		}
 	}
 
@@ -1592,6 +1614,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			}
 			const resolve = resolve_ending;
 			resolve_ending = null;
+			report_counts(now(), true);
 			unwatch();
 			log.pool.debug("pool for {target} ended", { target: where });
 			resolve();
@@ -1666,12 +1689,12 @@ function ended(lease: Lease) {
 	return Errors.generic("UNSAFE_TRANSACTION", "The " + lease.kind + " has ended");
 }
 
-/** How a Queue emptied: an element was shifted, every element was taken, or one was removed */
+/** How a Queue emptied: by shift() (an element was handed out), by take(), or by remove() */
 export type Emptied = "served" | "taken" | "removed";
 
 /**
  * A FIFO queue of T, whose shift() is O(1)
- * @param onempty - called whenever shift(), take() or remove() empties the queue, with which did
+ * @param onempty - called whenever shift(), take() or remove() empties the queue, with which of them did
  */
 export function Queue<T>(onempty: (how: Emptied) => void = () => {}) {
 	// Shifted slots are cleared, so that the queue does not keep what it gave out

@@ -122,7 +122,7 @@ test("guarded calls the handler, and logs what it throws at error without throwi
 			error(template, properties) {
 				lines.push([template, properties as Record<string, unknown>]);
 			},
-			isEnabledFor: () => true,
+			enabled: () => true,
 		};
 	guarded(logger, "{handler} threw", { handler: "onnotify" }, (x: number) => seen.push(x), 1);
 	guarded(logger, "{handler} threw", { handler: "onnotify" }, () => {

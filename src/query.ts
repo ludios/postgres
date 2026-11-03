@@ -443,7 +443,7 @@ function logged(q: Query, error: unknown, result: unknown) {
 		from = q.headed ?? q.written,
 		ms = t - (from ?? q.started),
 		slow = q.headed !== null && ms >= slow_query_ms && !q.cursor_fn && !q.streaming;
-	if (!slow && !log.query.isEnabledFor("debug")) {
+	if (!slow && !log.query.enabled("debug")) {
 		return;
 	}
 

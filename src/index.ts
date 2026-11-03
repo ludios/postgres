@@ -660,11 +660,13 @@ function Listen(options: Options) {
 						relisten(channel, name);
 					}
 				}, delay * 1000);
-				// At warning only if the server refused the LISTEN itself (an ERROR); a FATAL error
-				// failed the LISTEN connection's own attempt to connect, which the pool's line reports
+				// At warning only if the server refused the LISTEN itself (an ERROR); a FATAL or PANIC
+				// error failed the LISTEN connection's own attempt to connect, which the pool's line reports
 				log_at(
 					log.listen,
-					error instanceof PostgresError && error.severity !== "FATAL" ? "warning" : "debug",
+					error instanceof PostgresError && error.severity !== "FATAL" && error.severity !== "PANIC"
+						? "warning"
+						: "debug",
 					"LISTEN {channel} at {target} failed ({retries} in a row); next attempt in {delay} ms: {reason}",
 					{
 						channel: name,
