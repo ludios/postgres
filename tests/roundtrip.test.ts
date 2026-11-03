@@ -2,10 +2,10 @@
 // and what it sends back, the parsers and decoders read back to the value that went in.
 import { expect, test } from "vitest";
 import * as fc from "fast-check";
-import { sql } from "./setup.ts";
+import { options, postgres, sql } from "./setup.ts";
 
-/** Text that a text column can hold: well-formed (it goes through utf8), and without NUL */
-const text = fc.string({ unit: "binary" }).filter((x) => x.isWellFormed() && !x.includes("\0"));
+/** Text that a text column can hold: any but NUL */
+const text = fc.string({ unit: "binary" }).filter((x) => !x.includes("\0"));
 
 /** How many values each property sends through the server */
 const runs = { numRuns: 100 };
@@ -75,11 +75,14 @@ const instants = fc.date({
 });
 
 test("Any instant of the years 1 to 9999 comes back from the server in a timestamptz as it went, and in a date as its UTC day", async () => {
+	// With `infer`, a Date goes as a timestamptz, whose ::date is its day in the session's time zone;
+	// without, as text, whose ::date is its UTC day. In UTC, both are the UTC day.
+	await using utc = postgres({ ...options, connection: { TimeZone: "UTC" } });
 	await fc.assert(
 		fc.asyncProperty(instants, async (d) => {
 			const midnight = new Date(d);
 			midnight.setUTCHours(0, 0, 0, 0);
-			const [row] = await sql`select ${d}::timestamptz as t, ${d}::date as d`;
+			const [row] = await utc`select ${d}::timestamptz as t, ${d}::date as d`;
 			expect([row.t, row.d]).toEqual([d, midnight]);
 		}),
 		runs,
@@ -100,8 +103,11 @@ test("Any finite double and any int4 come back from the server as they went", as
 	);
 });
 
-test("Any JSON value comes back from the server in a json as its text round trips", async () => {
-	const values = fc.jsonValue().filter((x) => !JSON.stringify(x).includes("\\u0000"));
+test("Any JSON value, with any text in it, comes back from the server in a json as its text round trips", async () => {
+	// The server rejects a NUL in JSON text (22P05), which JSON.stringify() writes as \u0000
+	const values = fc
+		.jsonValue({ stringUnit: "binary" })
+		.filter((x) => !JSON.stringify(x).includes("\\u0000"));
 	await fc.assert(
 		fc.asyncProperty(values, async (x) => {
 			const [row] = await sql`select ${sql.json(x)}::json as x`;
