@@ -597,3 +597,11 @@ test("A cursor in a transaction whose callback rejects with no value rejects too
 		);
 	expect(outcome).toBe("undefined");
 });
+
+test("A cursor gets the rows of a command whose tag has no row count", async () => {
+	const batches: unknown[][] = [];
+	await sql`show server_version`.cursor(10, (rows) => {
+		batches.push(rows);
+	});
+	expect(batches.length).toBe(1);
+});

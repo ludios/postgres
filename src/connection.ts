@@ -1522,7 +1522,8 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			if (unnamed_cursor(item)) {
 				sync(item);
 			}
-			if (result.count) {
+			// Not the tag's count: a command such as SHOW has rows, but no count in its tag
+			if (result.length) {
 				(item.last = new Promise((r) => r(cursor_callback(item.query)(result)))).catch(noop);
 			}
 		}
