@@ -525,15 +525,25 @@ test("The default setTimeout waits at most 2^31 - 1 ms, passes on its arguments,
 	expect([faked, fired, passed]).toEqual([0, false, "x"]);
 });
 
-/** Text that encodeURIComponent() can encode: no lone surrogates */
-const text = fc.string({ unit: "binary" }).filter((x) => x.isWellFormed());
+/** Any text; fast-check's binary unit makes any code point but a lone surrogate, which encodeURIComponent() rejects */
+const text = fc.string({ unit: "binary" });
 
-/** A host of a url: a name, or an IPv6 address, which the url holds in brackets */
+/** A group of an IPv6 address: 1 to 4 hex digits */
+const hex_group = fc.stringMatching(/^[0-9a-f]{1,4}$/);
+
+/**
+ * A host of a url: a name, or an IPv6 address (2 to 8 hex groups, maybe with a "::" at the start,
+ * in the middle or at the end), which the url holds in brackets
+ */
 const host = fc.oneof(
 	fc.stringMatching(/^[a-z0-9][a-z0-9.-]{0,15}$/),
 	fc
-		.array(fc.stringMatching(/^[0-9a-f]{1,4}$/), { minLength: 2, maxLength: 8 })
-		.map((xs) => xs.join(":")),
+		.tuple(fc.array(hex_group, { minLength: 2, maxLength: 8 }), fc.option(fc.nat({ max: 8 })))
+		.map(([groups, at]) =>
+			at === null
+				? groups.join(":")
+				: groups.slice(0, at).join(":") + "::" + groups.slice(at).join(":"),
+		),
 );
 
 /** A host of a url and its port, if the url gives one */
