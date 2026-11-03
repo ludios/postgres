@@ -444,8 +444,9 @@ function cancel(options: Options, host: string | null, port: number, { pid, secr
 	const { setTimeout, clearTimeout } = options.timers;
 
 	return new Promise<void>((resolve, reject) => {
-		// The socket, once connected
+		// The socket, once connected; the raw socket while it connects
 		let opened: Connected | null = null,
+			raw: RawSocket | null = null,
 			settled = false;
 		const timer =
 			options.connect_timeout &&
@@ -460,7 +461,7 @@ function cancel(options: Options, host: string | null, port: number, { pid, secr
 		);
 
 		async function send() {
-			const socket = await Socket(options, host, port);
+			const socket = await Socket(options, host, port, (x) => (raw = x));
 			opened = socket;
 			if (!settled) {
 				await negotiate(socket, options);
@@ -490,6 +491,8 @@ function cancel(options: Options, host: string | null, port: number, { pid, secr
 			}
 			if (opened) {
 				opened.destroy();
+			} else if (raw) {
+				raw.destroy();
 			}
 			reject(error);
 		}

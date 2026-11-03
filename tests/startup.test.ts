@@ -121,6 +121,28 @@ test("Cancel reaches the backend", async () => {
 	expect(types).toEqual(["T", "E", "Z"]);
 });
 
+test("Cancel destroys a TCP connection still in progress when connect_timeout passes", async () => {
+	const o = { ...base } as Options,
+		ready = await open(o);
+	await using _end = defer(() => ready.socket.end());
+	const connect = net.connect,
+		sockets: net.Socket[] = [];
+	// Sends the cancel request's connection to an address that never answers
+	net.connect = (...xs: [any, any?, any?]) => {
+		const socket = connect({ ...xs[0], host: "10.255.255.1" });
+		sockets.push(socket);
+		return socket;
+	};
+	// Unlike a finally block, this runs even if the test times out while the request is pending
+	onTestFinished(() => {
+		net.connect = connect;
+	});
+	// The cancel request reads connect_timeout from the session's options when it starts
+	o.connect_timeout = 0.2;
+	const code = await ready.cancel().catch((e) => e.code);
+	expect([code, sockets.map((x) => x.destroyed)]).toEqual(["CONNECT_TIMEOUT", [true]]);
+});
+
 const message = (type: string, body: Buffer) => {
 	const head = Buffer.alloc(5);
 	head[0] = type.charCodeAt(0);
