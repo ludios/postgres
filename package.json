@@ -31,6 +31,7 @@
     "prepare": "rm -rf dist && node node_modules/typescript/bin/tsc -p tsconfig.build.json",
     "typecheck": "node node_modules/typescript/bin/tsc && node node_modules/typescript/bin/tsc -p types && node node_modules/typescript5/bin/tsc -p types",
     "lint": "oxlint --deny-warnings",
+    "format": "oxfmt .",
     "format:check": "oxfmt --check ."
   },
   "files": [
