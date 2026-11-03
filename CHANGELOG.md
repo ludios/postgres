@@ -131,12 +131,13 @@ The open issues and pull requests were triaged into 33 correctness bugs, each wi
 
 ### Testing
 
-- Unit tests for the protocol, types, query building and errors (`node tests/unit`).
-- A simulation that runs the real client against a fake server on a fake clock, with faults, checking that every query settles with its own answer (`node tests/simulate.js`).
-- The integration suite in one file per area; CI runs it on PostgreSQL 14 to 18 and Node.js 20, 22 and 24.
-- A test worker for Cloudflare Workers (`sh tests/cf/run.sh`) and a TypeScript test for the types (`cd types && npm test`).
-- CI runs the unit, integration and simulation tests on Bun and Deno as well as Node.
-- `npm run coverage` (`node tests/coverage.js`, `--lines` for the lines not run) runs the tests with Node's own V8 coverage and reports it per file in `src`, with no dependency; CI fails below `COVERAGE_MIN`.
+- `pnpm test` runs, with vitest, the unit tests in `tests/unit/`, which need no server, and the integration tests, one file per area in `tests/`, and then the simulation. The integration tests start two PostgreSQL servers of their own with `pg_tmp` (from ephemeralpg), and give each test file a database of its own.
+- Property tests, with fast-check, try many generated values, such as the texts, arrays, bytes and instants that `tests/roundtrip.test.ts` sends through PostgreSQL and back.
+- A simulation runs the real client against a fake server on a fake clock, with faults, and checks that every query settles with its own answer (`node tests/simulate.ts`).
+- A soak test (`node tests/soak.ts`, for 60 seconds unless given another number) runs a mix of queries against a server of its own while it terminates the pool's connections, and reports how the heap grows.
+- `pnpm typecheck` also checks the public types in `types/` with TypeScript 7 and with TypeScript 5.
+- `pnpm coverage` runs the tests with V8 coverage and prints the coverage of each file in `src/`.
+- CI runs `pnpm test` on PostgreSQL 13 to 18 with Node.js 22, 24 and 26, and, in a job of its own, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, and the simulation against the built `dist/`.
 
 ## v3.2.4 - 25 May 2022
 - Allow setting keep_alive: false  bee62f3
