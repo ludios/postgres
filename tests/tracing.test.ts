@@ -2,7 +2,15 @@ import dc from "diagnostics_channel";
 import net from "net";
 import { AsyncLocalStorage } from "async_hooks";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { postgres, options, delay, pg_port, until_sleeping, proxy_to_server } from "./setup.ts";
+import {
+	postgres,
+	options,
+	delay,
+	pg_port,
+	until_sleeping,
+	proxy_to_server,
+	is_cancel_request,
+} from "./setup.ts";
 
 function record(name: string) {
 	const events: { event: string; context: any; snapshot: any }[] = [],
@@ -252,9 +260,7 @@ test("Tracing: the pool publishes idle for a cancelled query's connection once i
 	const releasable = Promise.withResolvers<() => void>();
 	await using proxy = await proxy_to_server({
 		server_closed: (c) => {
-			// A CancelRequest has the code 80877102 after its length, where a StartupMessage has
-			// the protocol version
-			if (c.first?.readInt32BE(4) !== 80877102) {
+			if (!is_cancel_request(c)) {
 				return false;
 			}
 			releasable.resolve(() => c.client.destroy());
@@ -285,35 +291,6 @@ test("Tracing: the pool publishes idle for a cancelled query's connection once i
 	await cancelled;
 	stop();
 	expect([code, while_held, idles() - before]).toEqual(["57014", 0, 1]);
-});
-
-test("idle_timeout closes a connection that a cancel request holds for good", async () => {
-	// The proxy never passes on the server's close of the cancel request's connection, and without
-	// connect_timeout nothing else ends the request, so that only idle_timeout can end the hold
-	await using proxy = await proxy_to_server({
-		server_closed: (c) => c.first?.readInt32BE(4) === 80877102,
-	});
-	const closed: number[] = [];
-	await using sql = postgres({
-		...options,
-		host: proxy.host,
-		port: proxy.port,
-		max: 1,
-		idle_timeout: 0.2,
-		connect_timeout: null,
-		onclose: (id) => closed.push(id),
-	});
-	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
-	const query = sql`select pg_sleep(2)`.execute(),
-		failed = query.catch((x) => x.code);
-	await until_sleeping(pid);
-	// The idle timer that the first query's end started runs out while this query runs, so that
-	// only a timer started during the hold can close the connection
-	await delay(300);
-	void query.cancel();
-	expect(await failed).toBe("57014");
-	await vi.waitUntil(() => closed.length === 1, { timeout: 3000 });
-	expect(sql.stats.connections).toBe(0);
 });
 
 test("Tracing: the pool's close event has an error only if the connection did not close in an orderly way", async () => {

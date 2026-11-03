@@ -160,6 +160,15 @@ export type ProxyHooks = {
 };
 
 /**
+ * @param c - a connection through the proxy of proxy_to_server()
+ * @returns whether the client opened `c` to send a CancelRequest, whose first 8 bytes are its length
+ *   and the code 80877102, where a StartupMessage has the protocol version
+ */
+export function is_cancel_request(c: Proxied) {
+	return c.first !== undefined && c.first.length >= 8 && c.first.readInt32BE(4) === 80877102;
+}
+
+/**
  * Starts a TCP proxy to the server at `pg_port`, for a test that meddles with what a client and the
  * server send each other, or with when a connection closes. A side's close reaches the other side
  * only through the proxy, after whatever that side wrote before it, so a client that closes right

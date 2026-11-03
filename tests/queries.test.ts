@@ -1,7 +1,7 @@
 import fs from "fs";
 import crypto from "crypto";
 import { pipeline } from "stream/promises";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import net from "net";
 import {
 	postgres,
@@ -13,6 +13,8 @@ import {
 	terminate,
 	until_sleeping,
 	pg_port,
+	proxy_to_server,
+	is_cancel_request,
 } from "./setup.ts";
 import { log_lines, log_records } from "./helpers.ts";
 
@@ -380,6 +382,35 @@ test("A failed cancel request for a query queued behind another is reported once
 	expect(log_lines(records, "connection").filter((x) => x.includes("cancel request"))).toEqual([
 		expect.stringMatching(/^warning cancel request for connection \d+ to \S+ failed;/),
 	]);
+});
+
+test("idle_timeout closes a connection that a cancel request holds for good", async () => {
+	// The proxy never passes on the server's close of the cancel request's connection, and without
+	// connect_timeout nothing else ends the request, so that only idle_timeout can end the hold
+	await using proxy = await proxy_to_server({
+		server_closed: is_cancel_request,
+	});
+	const closed: number[] = [];
+	await using sql = postgres({
+		...options,
+		host: proxy.host,
+		port: proxy.port,
+		max: 1,
+		idle_timeout: 0.2,
+		connect_timeout: null,
+		onclose: (id) => closed.push(id),
+	});
+	const [{ pid }] = await sql`select pg_backend_pid() as pid`;
+	const query = sql`select pg_sleep(10)`.execute(),
+		failed = query.catch((x) => x.code);
+	await until_sleeping(pid);
+	// The idle timer that the first query's end started runs out while this query runs, so that
+	// only a timer started during the hold can close the connection
+	await delay(300);
+	void query.cancel();
+	expect(await failed).toBe("57014");
+	await vi.waitUntil(() => closed.length === 1, { timeout: 3000 });
+	expect(sql.stats.connections).toBe(0);
 });
 
 test("A cancel of a pipelined query holds its connection for as long as the query ahead of it runs", async () => {
