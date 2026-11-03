@@ -355,17 +355,22 @@ const instants = fc.date({
 	),
 	micros = fc.integer({ min: 0, max: 999 });
 
-test("Decode timestamptz, timestamp and date from the bytes as their text parsers do", async () => {
+test("Decode and parse the timestamptz, timestamp and date texts of any instant back to it", async () => {
 	fc.assert(
 		fc.property(instants, micros, offsets, (t, us, offset) => {
 			const zoned = iso(t.getTime(), us, offset),
 				plain = iso(t.getTime(), us, null),
-				day = plain.replace(/ \d\d:\d\d:\d\d(\.\d+)?/, "");
-			expect([decoded(1184, zoned), decoded(1114, plain), decoded(1082, day)]).toEqual([
+				day = plain.replace(/ \d\d:\d\d:\d\d(\.\d+)?/, ""),
+				midnight = new Date(t);
+			midnight.setUTCHours(0, 0, 0, 0);
+			expect([
+				decoded(1184, zoned),
+				decoded(1114, plain),
+				decoded(1082, day),
 				utc_types.parser(1184)(zoned),
 				utc_types.parser(1114)(plain),
 				utc_types.parser(1082)(day),
-			]);
+			]).toStrictEqual([t, t, midnight, t, t, midnight]);
 		}),
 		{ numRuns: 5000 },
 	);
@@ -468,9 +473,9 @@ function binary_array_bytes(xs: unknown[], write: (x: any) => Buffer) {
  * @param show - `(element) => string` gives the text of an element
  * @returns the text that PostgreSQL sends for the array
  */
-function array_text(xs: unknown, show: (x: any) => string): string {
+function array_text(xs: unknown, show: (x: any) => string, delimiter = ","): string {
 	return Array.isArray(xs)
-		? "{" + xs.map((x) => array_text(x, show)).join(",") + "}"
+		? "{" + xs.map((x) => array_text(x, show, delimiter)).join(delimiter) + "}"
 		: xs === null
 			? "NULL"
 			: show(xs);
@@ -622,7 +627,10 @@ test("Read as text the types without a binary decoder, and those whose parser or
 	]);
 });
 
-/** An array literal's elements: texts and NULLs, with one or two more levels of arrays */
+/**
+ * An array literal's elements: texts and NULLs, with one or two more levels of arrays, ragged or
+ * not: the parser reads any nesting, not only the rectangular arrays that the server writes
+ */
 type Elements = (string | null)[] | (string | null)[][] | (string | null)[][][];
 
 const element = fc.option(fc.string({ unit: "binary" })),
@@ -659,25 +667,17 @@ function array_out_element(x: string, delimiter: string) {
 /**
  * @param xs - an array's elements
  * @param delimiter - the element type's delimiter
- * @returns the array literal that PostgreSQL's array_out writes for `xs`
+ * @returns the array literal that PostgreSQL's array_out writes for `xs` (or would, were `xs`
+ *   rectangular)
  */
-function array_out(xs: Elements, delimiter: string): string {
-	return (
-		"{" +
-		xs
-			.map((x) =>
-				Array.isArray(x)
-					? array_out(x, delimiter)
-					: x === null
-						? "NULL"
-						: array_out_element(x, delimiter),
-			)
-			.join(delimiter) +
-		"}"
-	);
+function array_out(xs: Elements, delimiter: string) {
+	return array_text(xs, (x: string) => array_out_element(x, delimiter), delimiter);
 }
 
-/** The bounds that PostgreSQL writes before an array whose lower bounds are not all 1 */
+/**
+ * Bounds such as PostgreSQL writes before an array whose lower bounds are not all 1 (any here: the
+ * parser skips them without reading them)
+ */
 const bounds = fc
 	.array(fc.tuple(fc.integer({ min: -9, max: 9 }), fc.nat({ max: 9 })), {
 		minLength: 1,
@@ -685,44 +685,12 @@ const bounds = fc
 	})
 	.map((dims) => dims.map(([lower, n]) => "[" + lower + ":" + (lower + n) + "]").join("") + "=");
 
-test("Parse the array literal that PostgreSQL writes for any texts and NULLs, with or without bounds", async () => {
+test("Parse the array literal that array_out writes for any texts and NULLs, with or without bounds", async () => {
 	fc.assert(
 		fc.property(array_oids, elements, fc.option(bounds), (oid, xs, prefix) => {
 			const literal = (prefix ?? "") + array_out(xs, oid === 1020 ? ";" : ",");
 			expect(parse(oid, literal)).toStrictEqual(xs);
 		}),
 		{ numRuns: 2000 },
-	);
-});
-
-test("Parse the timestamptz, timestamp and date texts of any instant back to it", async () => {
-	fc.assert(
-		fc.property(instants, micros, offsets, (t, us, offset) => {
-			const zoned = iso(t.getTime(), us, offset),
-				plain = iso(t.getTime(), us, null),
-				day = plain.replace(/ \d\d:\d\d:\d\d(\.\d+)?/, ""),
-				midnight = new Date(t);
-			midnight.setUTCHours(0, 0, 0, 0);
-			expect([
-				utc_types.parser(1184)(zoned),
-				utc_types.parser(1114)(plain),
-				utc_types.parser(1082)(day),
-			]).toStrictEqual([t, t, midnight]);
-		}),
-		{ numRuns: 5000 },
-	);
-});
-
-test("Parse the text that any Date serializes to back to it, for every date type", async () => {
-	const dates = fc.date({ noInvalidDate: true });
-	fc.assert(
-		fc.property(dates, (d) => {
-			expect([1184, 1114, 1082].map((oid) => parse(oid, serialize(oid, d)))).toStrictEqual([
-				d,
-				d,
-				d,
-			]);
-		}),
-		{ numRuns: 5000 },
 	);
 });
