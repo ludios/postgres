@@ -109,6 +109,8 @@ test("throws correct error when authentication fails", async () => {
 test("notice", async () => {
 	const records = await log_records();
 	await using sql = postgres(options);
+	// A rerun in watch mode keeps the file's database, where `users` would make two notices
+	await using _drop = defer(() => sql`drop table users`);
 
 	await sql`create table if not exists users()`;
 	await sql`create table if not exists users()`;
@@ -122,10 +124,11 @@ test("notice", async () => {
 
 test("notice hook", async () => {
 	let notice!: Notice;
-	const sql = postgres({
+	await using sql = postgres({
 		...options,
 		onnotice: (x) => (notice = x),
 	});
+	await using _drop = defer(() => sql`drop table users`);
 
 	await sql`create table if not exists users()`;
 	await sql`create table if not exists users()`;
