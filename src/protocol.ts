@@ -24,7 +24,7 @@ export function Writer(size = 16384) {
 			b.writeInt32BE(i - at - 1, at + 1);
 			return w;
 		},
-		endUntyped() {
+		end_untyped() {
 			b.writeInt32BE(i - at, at);
 			return w;
 		},
@@ -130,13 +130,13 @@ const S = 83,
 export const sync = (w: Writer) => w.type(S).end();
 export const flush = (w: Writer) => w.type(H).end();
 export const terminate = (w: Writer) => w.type(X).end();
-export const copyDone = (w: Writer) => w.type(c).end();
-export const sslRequest = (w: Writer) => w.untyped().i32(80877103).endUntyped();
+export const copy_done = (w: Writer) => w.type(c).end();
+export const ssl_request = (w: Writer) => w.untyped().i32(80877103).end_untyped();
 export const query = (w: Writer, text: string) => w.type(Q).str(text).end();
 export const password = (w: Writer, x: string) => w.type(p).str(x).end();
-export const saslResponse = (w: Writer, x: string | Uint8Array) => w.type(p).bytes(x).end();
-export const copyData = (w: Writer, x: string | Uint8Array) => w.type(d).bytes(x).end();
-export const copyFail = (w: Writer, x: string) => w.type(f).str(x).end();
+export const sasl_response = (w: Writer, x: string | Uint8Array) => w.type(p).bytes(x).end();
+export const copy_data = (w: Writer, x: string | Uint8Array) => w.type(d).bytes(x).end();
+export const copy_fail = (w: Writer, x: string) => w.type(f).str(x).end();
 export const describe = (w: Writer, kind: string, name: string) =>
 	w.type(D).u8(kind.charCodeAt(0)).str(name).end();
 export const close = (w: Writer, kind: string, name: string) =>
@@ -144,18 +144,18 @@ export const close = (w: Writer, kind: string, name: string) =>
 export const execute = (w: Writer, portal: string, rows = 0) =>
 	w.type(E).str(portal).i32(rows).end();
 export const cancel = (w: Writer, pid: number, secret: number) =>
-	w.untyped().i32(80877102).i32(pid).i32(secret).endUntyped();
+	w.untyped().i32(80877102).i32(pid).i32(secret).end_untyped();
 
 export const Sync = one(sync);
 export const Flush = one(flush);
 export const Terminate = one(terminate);
-export const CopyDone = one(copyDone);
-export const SSLRequest = one(sslRequest);
+export const CopyDone = one(copy_done);
+export const SSLRequest = one(ssl_request);
 export const Query = one(query);
 export const Password = one(password);
-export const SASLResponse = one(saslResponse);
-export const CopyData = one(copyData);
-export const CopyFail = one(copyFail);
+export const SASLResponse = one(sasl_response);
+export const CopyData = one(copy_data);
+export const CopyFail = one(copy_fail);
 export const Describe = one(describe);
 export const Close = one(close);
 export const Execute = one(execute);
@@ -190,7 +190,7 @@ export function startup(
 		}
 	}
 
-	return w.u8(0).endUntyped();
+	return w.u8(0).end_untyped();
 }
 
 function unbroken(k: string, x: string) {
@@ -222,7 +222,7 @@ export function bind(
 	name: string,
 	values: Value[] = [],
 	formats: number[] = [],
-	resultFormats: number[] = [],
+	result_formats: number[] = [],
 ) {
 	w.type(B).str(portal).str(name).i16(formats.length);
 	for (let j = 0; j < formats.length; j++) {
@@ -234,9 +234,9 @@ export function bind(
 		w.value(values[j]);
 	}
 
-	w.i16(resultFormats.length);
-	for (let j = 0; j < resultFormats.length; j++) {
-		w.i16(resultFormats[j]);
+	w.i16(result_formats.length);
+	for (let j = 0; j < result_formats.length; j++) {
+		w.i16(result_formats[j]);
 	}
 
 	return w.end();
@@ -461,7 +461,7 @@ export function Frames(
 	}
 }
 
-const errorFields: Record<number, string> = {
+const error_fields: Record<number, string> = {
 	83: "severity_local",
 	86: "severity",
 	67: "code",
@@ -486,7 +486,7 @@ export function error(x: Buffer, start: number, end: number) {
 	const fields: Record<string, string> = {};
 	for (let i = start + 5; i < end - 1;) {
 		const zero = x.indexOf(0, i + 1);
-		fields[errorFields[x[i]] || String.fromCharCode(x[i])] = x.toString("utf8", i + 1, zero);
+		fields[error_fields[x[i]] || String.fromCharCode(x[i])] = x.toString("utf8", i + 1, zero);
 		i = zero + 1;
 	}
 	// The V field (the severity, not localized) is optional: PostgreSQL sends it since 9.6, and a
@@ -530,7 +530,7 @@ export type Column = {
 	decode?: ((x: Buffer, start: number, end: number) => unknown) | null;
 };
 
-export function rowDescription(x: Buffer, start: number, end: number, make = field) {
+export function row_description(x: Buffer, start: number, end: number, make = field) {
 	const columns = new Array((x[start + 5] << 8) | x[start + 6]);
 	for (let i = start + 7, j = 0; j < columns.length; j++) {
 		let zero = i;
@@ -543,7 +543,7 @@ export function rowDescription(x: Buffer, start: number, end: number, make = fie
 	return columns;
 }
 
-export function parameterDescription(x: Buffer, start: number) {
+export function parameter_description(x: Buffer, start: number) {
 	const oids = new Array(x.readUInt16BE(start + 5));
 	for (let j = 0; j < oids.length; j++) {
 		oids[j] = x.readUInt32BE(start + 7 + j * 4);
@@ -552,7 +552,7 @@ export function parameterDescription(x: Buffer, start: number) {
 	return oids;
 }
 
-export function commandComplete(x: Buffer, start: number, end: number) {
+export function command_complete(x: Buffer, start: number, end: number) {
 	const first = start + 5;
 
 	let e = end - 1,
@@ -575,7 +575,7 @@ export function commandComplete(x: Buffer, start: number, end: number) {
 	return { command: text(x, first, e), count };
 }
 
-export function readyForQuery(x: Buffer, start: number) {
+export function ready_for_query(x: Buffer, start: number) {
 	return String.fromCharCode(x[start + 5]);
 }
 
@@ -588,7 +588,7 @@ export function notification(x: Buffer, start: number) {
 	};
 }
 
-export function parameterStatus(x: Buffer, start: number) {
+export function parameter_status(x: Buffer, start: number) {
 	const zero = x.indexOf(0, start + 5);
 	return [
 		x.toString("utf8", start + 5, zero),
@@ -599,6 +599,6 @@ export function parameterStatus(x: Buffer, start: number) {
 /** The backend's process id and the secret key of its cancel requests, from BackendKeyData */
 export type Backend = { pid: number; secret: number };
 
-export function backendKeyData(x: Buffer, start: number): Backend {
+export function backend_key_data(x: Buffer, start: number): Backend {
 	return { pid: x.readInt32BE(start + 5), secret: x.readInt32BE(start + 9) };
 }

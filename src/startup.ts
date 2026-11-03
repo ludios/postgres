@@ -243,10 +243,10 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 						if (type === R) {
 							authenticate(Buffer.from(x.subarray(start, end)));
 						} else if (type === S) {
-							const [k, v] = p.parameterStatus(x, start);
+							const [k, v] = p.parameter_status(x, start);
 							parameters[k] = v;
 						} else if (type === K) {
-							backend = p.backendKeyData(x, start);
+							backend = p.backend_key_data(x, start);
 						} else if (type === E) {
 							refuse(Errors.postgres(p.error(x, start, end)));
 						} else if (type === N) {
@@ -254,7 +254,7 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 						} else if (type === D) {
 							rows.push(x.toString("utf8", start + 11, start + 11 + x.readInt32BE(start + 7)));
 						} else if (type === Z) {
-							once_authenticated(p.readyForQuery(x, start), Buffer.from(x.subarray(end)));
+							once_authenticated(p.ready_for_query(x, start), Buffer.from(x.subarray(end)));
 						}
 					} catch (error) {
 						refuse(error);

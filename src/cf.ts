@@ -39,7 +39,7 @@ export async function socket(options: Options, host: string, port: number): Prom
 	if (tls) {
 		const writer = raw.writable.getWriter(),
 			reader = raw.readable.getReader();
-		await writer.write(sslRequest);
+		await writer.write(ssl_request);
 		const { value, done } = await reader.read();
 		writer.releaseLock();
 		reader.releaseLock();
@@ -62,7 +62,7 @@ export async function socket(options: Options, host: string, port: number): Prom
 	return Stream(raw, secure, host, port) as unknown as RawSocket;
 }
 
-const sslRequest = Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]),
+const ssl_request = Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]),
 	chunk = 16384;
 
 function Stream(raw: Socket, secure: boolean, host: string, port: number) {

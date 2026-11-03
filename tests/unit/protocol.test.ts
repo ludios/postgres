@@ -307,7 +307,7 @@ test("Decode ErrorResponse without either severity field and without a severity"
 
 test("Decode RowDescription", async () => {
 	const columns = decode(
-		p.rowDescription,
+		p.row_description,
 		msg(
 			"T",
 			i16(2),
@@ -334,7 +334,7 @@ test("Decode RowDescription", async () => {
 });
 
 test("Decode ParameterDescription", async () => {
-	expect(decode(p.parameterDescription, msg("t", i16(3), i32(23), i32(25), i32(0)))).toEqual([
+	expect(decode(p.parameter_description, msg("t", i16(3), i32(23), i32(25), i32(0)))).toEqual([
 		23, 25, 0,
 	]);
 });
@@ -342,7 +342,7 @@ test("Decode ParameterDescription", async () => {
 test("Decode CommandComplete", async () => {
 	expect(
 		["INSERT 0 3", "SELECT 5", "BEGIN", "CREATE TABLE", "COPY 2"]
-			.map((x) => decode(p.commandComplete, msg("C", str(x))))
+			.map((x) => decode(p.command_complete, msg("C", str(x))))
 			.map((x) => [x.command, x.count]),
 	).toEqual([
 		["INSERT", 3],
@@ -354,7 +354,7 @@ test("Decode CommandComplete", async () => {
 });
 
 test("Decode ReadyForQuery status", async () => {
-	expect(["I", "T", "E"].map((x) => decode(p.readyForQuery, msg("Z", Buffer.from(x))))).toEqual([
+	expect(["I", "T", "E"].map((x) => decode(p.ready_for_query, msg("Z", Buffer.from(x))))).toEqual([
 		"I",
 		"T",
 		"E",
@@ -367,8 +367,8 @@ test("Decode NotificationResponse", async () => {
 });
 
 test("Decode ParameterStatus and BackendKeyData", async () => {
-	const [name, value] = decode(p.parameterStatus, msg("S", str("TimeZone"), str("UTC"))),
-		key = decode(p.backendKeyData, msg("K", i32(99), i32(-7)));
+	const [name, value] = decode(p.parameter_status, msg("S", str("TimeZone"), str("UTC"))),
+		key = decode(p.backend_key_data, msg("K", i32(99), i32(-7)));
 	expect([name, value, key.pid, key.secret]).toEqual(["TimeZone", "UTC", 99, -7]);
 });
 
@@ -392,7 +392,7 @@ test("Column table oids, numbers and type oids are read unsigned, as in v3", asy
 	body.writeUInt32BE(0x80000001, 8 + name.length);
 	const x = Buffer.concat([Buffer.from("T"), Buffer.alloc(4), body]);
 	x.writeInt32BE(body.length + 4, 1);
-	const [c] = p.rowDescription(x, 0, x.length);
+	const [c] = p.row_description(x, 0, x.length);
 	expect([c.table, c.number, c.type]).toEqual([4294967280, 65535, 2147483649]);
 });
 

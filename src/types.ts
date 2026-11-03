@@ -29,9 +29,9 @@ const number = (x: string) => +x,
 	// The default serializer; `x` may be anything
 	string = (x: any): string =>
 		x instanceof Date
-			? serializeDate(x)
+			? serialize_date(x)
 			: Array.isArray(x)
-				? serializeArray(x, string)
+				? serialize_array(x, string)
 				: literal(x)
 					? JSON.stringify(x)
 					: "" + x,
@@ -118,7 +118,7 @@ export const types = {
 	number: { to: 0, from: [21, 23, 26, 700, 701], serialize: string, parse: number },
 	json: { to: 114, from: [114, 3802], serialize: (x: unknown) => JSON.stringify(x), parse: json },
 	boolean: { to: 16, from: [16], serialize: (x: unknown) => (x === true ? "t" : "f"), parse: bool },
-	date: { to: 1184, from: [1082, 1114, 1184], serialize: serializeDate },
+	date: { to: 1184, from: [1082, 1114, 1184], serialize: serialize_date },
 	bytea: {
 		to: 17,
 		from: [17],
@@ -127,7 +127,7 @@ export const types = {
 	},
 } satisfies Record<string, PostgresType>;
 
-const dates = { 1082: parseDate, 1114: parseTimestamp, 1184: parseTimestamptz };
+const dates = { 1082: parse_date, 1114: parse_timestamp, 1184: parse_timestamptz };
 
 function integer(x: Buffer, i: number, end: number) {
 	const negative = x[i] === 45;
@@ -226,16 +226,16 @@ function iso_time(x: Buffer, start: number, end: number, zoned: boolean) {
 		: NaN;
 }
 
-/** Decodes a timestamptz from the bytes of its text, as parseTimestamptz parses the text */
+/** Decodes a timestamptz from the bytes of its text, as parse_timestamptz parses the text */
 function timestamptz(x: Buffer, start: number, end: number) {
 	const t = iso_time(x, start, end, true);
-	return Number.isNaN(t) ? parseTimestamptz(x.toString("latin1", start, end)) : new Date(t);
+	return Number.isNaN(t) ? parse_timestamptz(x.toString("latin1", start, end)) : new Date(t);
 }
 
-/** Decodes a date, or a timestamp read as UTC, from the bytes of its text, as parseDate parses the text */
+/** Decodes a date, or a timestamp read as UTC, from the bytes of its text, as parse_date parses the text */
 function utc_time(x: Buffer, start: number, end: number) {
 	const t = iso_time(x, start, end, false);
-	return Number.isNaN(t) ? parseDate(x.toString("latin1", start, end)) : new Date(t);
+	return Number.isNaN(t) ? parse_date(x.toString("latin1", start, end)) : new Date(t);
 }
 
 /**
@@ -310,7 +310,7 @@ function binary_bytea(x: Buffer, start: number, end: number) {
 const shaped = (is: (x: unknown) => boolean, serialize: Serializer) => (x: unknown) =>
 	is(x) ? serialize(x) : string(x);
 
-const shapedTypes = {
+const shaped_types = {
 	...types,
 	boolean: {
 		...types.boolean,
@@ -334,15 +334,15 @@ export function Types(
 		serializers: Record<number, Serializer> = {},
 		// The element type and the delimiter of each array type
 		elements: Record<number, [number, string]> = {},
-		undefinedValue = options.transform && options.transform.undefined;
+		undefined_value = options.transform && options.transform.undefined;
 
 	Object.entries(arrays).forEach(
 		([oid, array]) => (elements[array] = [+oid, +oid === 603 ? ";" : ","]),
 	);
-	register(options.infer === false ? shapedTypes : types);
+	register(options.infer === false ? shaped_types : types);
 	Object.assign(parsers, dates);
 	if (options.infer === false) {
-		parsers[1114] = parseDate;
+		parsers[1114] = parse_date;
 	}
 	const custom = Object.values<PostgresType>(options.types || {}),
 		named = custom.filter((x) => [x.to].concat(x.from || []).some((y) => typeof y === "string")),
@@ -418,7 +418,7 @@ export function Types(
 		if (oid in elements) {
 			const [element, delimiter] = elements[oid],
 				parse = parser(element);
-			const array: Parser = (x) => parseArray(x, parse === identity ? null : parse, delimiter);
+			const array: Parser = (x) => parse_array(x, parse === identity ? null : parse, delimiter);
 			// So that binary() can tell which parser the elements get
 			array.element = parse;
 			return (parsers[oid] = array);
@@ -441,7 +441,7 @@ export function Types(
 				serialize = serializer(element);
 			return (serializers[oid] = (xs: unknown) =>
 				Array.isArray(xs)
-					? serializeArray(xs, serialize, delimiter, undefinedValue)
+					? serialize_array(xs, serialize, delimiter, undefined_value)
 					: serialize(xs));
 		}
 
@@ -532,10 +532,10 @@ function decoder(oid: number, parse: Parser | undefined) {
 	if (parse === bool && oid === 16) {
 		return boolean;
 	}
-	if (parse === parseTimestamptz && oid === 1184) {
+	if (parse === parse_timestamptz && oid === 1184) {
 		return timestamptz;
 	}
-	if (parse === parseDate && (oid === 1114 || oid === 1082)) {
+	if (parse === parse_date && (oid === 1114 || oid === 1082)) {
 		return utc_time;
 	}
 	return null;
@@ -578,7 +578,7 @@ export function infer(x: unknown): number {
 							: 0;
 }
 
-export function parseArray(x: string, parse: Parser | null, delimiter = ",") {
+export function parse_array(x: string, parse: Parser | null, delimiter = ",") {
 	let i = x[0] === "[" ? x.indexOf("=") + 1 : 0;
 	return level();
 
@@ -617,14 +617,14 @@ export function parseArray(x: string, parse: Parser | null, delimiter = ",") {
  * @param serialize serializes one element; a result that is not a string is converted as
  *   `"" + result` converts it (valueOf() before toString())
  * @param delimiter the element type's `typdelim`
- * @param undefinedValue what stands in for an undefined element; if it is undefined too, an
+ * @param undefined_value what stands in for an undefined element; if it is undefined too, an
  *   undefined element throws UNDEFINED_VALUE
  */
-export function serializeArray(
+export function serialize_array(
 	xs: unknown[],
 	serialize: Serializer = string,
 	delimiter = ",",
-	undefinedValue?: unknown,
+	undefined_value?: unknown,
 ): string {
 	return (
 		"{" +
@@ -633,13 +633,13 @@ export function serializeArray(
 				const typed = element instanceof Parameter;
 				let x = typed ? element.value : element;
 				if (x === undefined) {
-					x = undefinedValue;
+					x = undefined_value;
 				}
 				if (x === undefined) {
 					throw Errors.generic("UNDEFINED_VALUE", "Undefined values are not allowed");
 				}
 				if (Array.isArray(x) && !typed) {
-					return serializeArray(x, serialize, delimiter, undefinedValue);
+					return serialize_array(x, serialize, delimiter, undefined_value);
 				}
 				if (x === null) {
 					return "NULL";
@@ -653,7 +653,7 @@ export function serializeArray(
 	);
 }
 
-function serializeDate(x: Date | number) {
+function serialize_date(x: Date | number) {
 	return x === Infinity
 		? "infinity"
 		: x === -Infinity
@@ -712,7 +712,7 @@ function plain(x: string) {
 	);
 }
 
-function parseTimestamptz(x: string) {
+function parse_timestamptz(x: string) {
 	if (plain(x)) {
 		return new Date(x);
 	}
@@ -731,12 +731,12 @@ function parseTimestamptz(x: string) {
 	return date;
 }
 
-function parseDate(x: string) {
+function parse_date(x: string) {
 	const p = infinite(x) || parts(x);
 	return !p ? new Date(x) : typeof p === "number" ? p : utc(p);
 }
 
-function parseTimestamp(x: string) {
+function parse_timestamp(x: string) {
 	const p = infinite(x) || parts(x);
 	if (!p || typeof p === "number") {
 		return p || new Date(x);

@@ -1375,13 +1375,16 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function ParameterDescription(x: Buffer, start: number) {
-		answered("ParameterDescription", "query", "describe").params = p.parameterDescription(x, start);
+		answered("ParameterDescription", "query", "describe").params = p.parameter_description(
+			x,
+			start,
+		);
 	}
 
 	function RowDescription(x: Buffer, start: number) {
 		received(
 			answered("RowDescription", "query", "simple", "describe"),
-			p.rowDescription(x, start, 0, column),
+			p.row_description(x, start, 0, column),
 		);
 	}
 
@@ -1485,7 +1488,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function CommandComplete(x: Buffer, start: number, end: number) {
 		const item = answered("CommandComplete", "query", "simple", "step", "internal"),
-			{ command, count } = p.commandComplete(x, start, end),
+			{ command, count } = p.command_complete(x, start, end),
 			result = item.result;
 
 		result.command = command;
@@ -1606,7 +1609,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function ReadyForQuery(x: Buffer, start: number) {
-		status = p.readyForQuery(x, start);
+		status = p.ready_for_query(x, start);
 		frames.own(false);
 		const item = sent.shift();
 		if (item === undefined) {
@@ -1897,7 +1900,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function ParameterStatus(x: Buffer, start: number) {
-		const [k, v] = p.parameterStatus(x, start);
+		const [k, v] = p.parameter_status(x, start);
 		connection.parameters[k] = v;
 		if (events.onparameter) {
 			guard(events.onparameter, k, v);
@@ -1965,9 +1968,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 */
 	function end_copy(item: CopyExchange, message: string) {
 		if (item.copy === "both") {
-			p.copyDone(out);
+			p.copy_done(out);
 		} else {
-			p.copyFail(out, message);
+			p.copy_fail(out, message);
 		}
 		item.copied = true;
 		item.open = false;
@@ -1975,7 +1978,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function writeData(chunk: Buffer | string, callback: () => void) {
-		p.copyData(out, chunk);
+		p.copy_data(out, chunk);
 		if (flush()) {
 			callback();
 		} else {
@@ -1998,7 +2001,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 				}
 			},
 			final(callback) {
-				p.copyDone(out);
+				p.copy_done(out);
 				item.copied = true;
 				item.open = false;
 				item.final = callback;
