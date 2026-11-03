@@ -1,6 +1,6 @@
 # Fable 5.1 re-review of the commits that only Opus reviewed
 
-Triaged on 2026-11-03. Line numbers are at `e5e2356` on `prime`.
+Triaged on 2026-11-03. Line numbers are at `33b7849` on `prime`.
 
 ## Why
 
@@ -85,23 +85,38 @@ On 2026-11-03, after reading the triage, you asked for the tooling and docs find
 | `cb10f9f` | A query's `cancel()` resolves without a cancel request once the connection closes, for a query not yet at the head; the comment said only "settled", and the public docstring said only when it rejects. (`63cd67b..e0a73e5`) |
 | `e5e2356` | A test that `idle_timeout` closes a connection that a cancel request holds for good, the case that `2fff2f3` was for. It fails if no idle timer starts during the hold. (`41cf3d4..0b98c6f`) |
 
+`review-commits` reviewed these nine commits as one batch, `760fd66` to `e5e2356`. These commits act on that review:
+
+| Commit | Finding |
+|---|---|
+| `598f0ce` | A custom type given by name made every `sql.listen()` reject with TYPE_NOT_FOUND, because the LISTEN pool, made with `fetch_types: false`, carried the custom types. It now carries none. |
+| `ea3a6ac` | Once it had written the CancelRequest, `cancel()` took any close of its connection as the server's. A socket from `options.socket` is handed over before it connects, so a refused connection made `cancel()` resolve as if the request had been handled. |
+| `5628ce0` | A failed cancel request for a query sent behind another was reported twice (and, on CONNECT_TIMEOUT, abandoned the connection twice), because two holds followed it. |
+| `bfd5009` | The docs of a query's `cancel()` in `cb10f9f` left out that a request may already be on its way when the connection closes, and `Query.cancel()`'s docstring still said only when it rejects. |
+| `2c0bdc1` | The options that two test files make by hand now set `onread` and `channel_binding`, as `parse_options()` does. |
+| `dd59f54` | `with_env()` refuses any thenable, not only a native promise, and handles the refused one's rejection. |
+| `ab0d2b3` | The idle_timeout test of a held connection moved from tracing.test.ts to queries.test.ts; `is_cancel_request()` in tests/setup.ts replaced two copies of the CancelRequest check, with a check of the chunk's length; the test's query sleeps 10 s instead of 2. |
+| `33b7849` | `pnpm format` fixes what `pnpm format:check` reports, with the pinned oxfmt. |
+
+Left alone from that review: moving the TYPE_NOT_FOUND check into `parse_options()`, which would check only the options that a user gives; `parse_options()` passing hand-made options with `shared` through without filling in defaults; and a helper for the fixture that the two proxy tests of a held cancel request share.
+
 ## Open
 
 Deferred: on 2026-11-03 you chose to keep these here for now. Each changes how options are read.
 
-- **A url with both `ssl=` and `sslmode=` silently drops `sslmode`** ([src/index.ts:1122](../src/index.ts#L1122), `read_option`). For example, `?ssl=prefer&sslmode=verify-full` connects with `prefer`, which checks no certificate. libpq reads `ssl=true` as `sslmode=require`, and refuses any other value of `ssl` as an invalid parameter. Fix: throw when the url has both. (`07bee56..62b07fb`)
-- **The `PGSSL` check throws even where `PGSSL` was never read** ([src/index.ts:1206](../src/index.ts#L1206)). With a leftover `PGSSL=1`, `postgres(url, { ssl: { ca } })` throws, and the advice in the error message, "set PGSSLMODE", would not help, because the option outranks `PGSSLMODE`. Fix: throw only when `options.ssl` would otherwise come from the environment. (`b19f553..78492df`)
-- **`min` greater than `max` is accepted, and the pool uses `max` instead** ([src/index.ts:1067](../src/index.ts#L1067), [src/pool.ts:679](../src/pool.ts#L679)). Throwing could break a setup where `PGMAX` comes from the environment and is lower than a `min` set in code. Either throw, or say in the README that `min` is capped at `max`. (`63cd67b..e0a73e5`)
-- **The options object takes `'true'`, `'false'` and `'disable'` as text for an option that is on or off**, so `{ prepare: 'false' }` turns prepare off ([src/index.ts:874](../src/index.ts#L874)). [CHANGELOG.md:34](../CHANGELOG.md#L34) gives the text forms only for the url and the environment, so it reads as if this throws. v3 took any text in the options object as on. Either document it, or throw for text in the options object. (`7d93138..7b630db`)
+- **A url with both `ssl=` and `sslmode=` silently drops `sslmode`** ([src/index.ts:1127](../src/index.ts#L1127), `read_option`). For example, `?ssl=prefer&sslmode=verify-full` connects with `prefer`, which checks no certificate. libpq reads `ssl=true` as `sslmode=require`, and refuses any other value of `ssl` as an invalid parameter. Fix: throw when the url has both. (`07bee56..62b07fb`)
+- **The `PGSSL` check throws even where `PGSSL` was never read** ([src/index.ts:1211](../src/index.ts#L1211)). With a leftover `PGSSL=1`, `postgres(url, { ssl: { ca } })` throws, and the advice in the error message, "set PGSSLMODE", would not help, because the option outranks `PGSSLMODE`. Fix: throw only when `options.ssl` would otherwise come from the environment. (`b19f553..78492df`)
+- **`min` greater than `max` is accepted, and the pool uses `max` instead** ([src/index.ts:1072](../src/index.ts#L1072), [src/pool.ts:682](../src/pool.ts#L682)). Throwing could break a setup where `PGMAX` comes from the environment and is lower than a `min` set in code. Either throw, or say in the README that `min` is capped at `max`. (`63cd67b..e0a73e5`)
+- **The options object takes `'true'`, `'false'` and `'disable'` as text for an option that is on or off**, so `{ prepare: 'false' }` turns prepare off ([src/index.ts:879](../src/index.ts#L879)). [CHANGELOG.md:34](../CHANGELOG.md#L34) gives the text forms only for the url and the environment, so it reads as if this throws. v3 took any text in the options object as on. Either document it, or throw for text in the options object. (`7d93138..7b630db`)
 
 Explained to you on 2026-11-03, awaiting a decision. Each changes a public type.
 
-- **`tx.CLOSE` and `tx.END` are undefined.** Only the pool's `sql` has them ([src/index.ts:124](../src/index.ts#L124), [types/index.d.ts:854](../types/index.d.ts#L854)), so a JavaScript cursor callback inside a transaction that returns `tx.CLOSE` keeps fetching. No test closes a cursor that runs in a transaction, through CLOSE or `break`. Adding CLOSE and END to the transaction's and the reserved connection's `sql` adds to a public type. (`e74c077..be63c0a`)
+- **`tx.CLOSE` and `tx.END` are undefined.** Only the pool's `sql` has them ([src/index.ts:124](../src/index.ts#L124), [types/index.d.ts:855](../types/index.d.ts#L855)), so a JavaScript cursor callback inside a transaction that returns `tx.CLOSE` keeps fetching. No test closes a cursor that runs in a transaction, through CLOSE or `break`. Adding CLOSE and END to the transaction's and the reserved connection's `sql` adds to a public type. (`e74c077..be63c0a`)
 - **`PostgresType` requires `from`, `serialize` and `parse`** ([types/index.d.ts:123](../types/index.d.ts#L123)), but src treats them as optional, and four tests cast to `any` to leave one out. Making them optional is a change to a public type. (`e74c077..be63c0a`)
 
 Not put to you, as it affects only diagnostics during a forced shutdown:
 
-- **When `sql.end({ timeout })` destroys a connection in a transaction, the lease's `CONNECTION_CLOSED` drops the in-flight query's `query`, `parameters`, `args` and the caller's stack** ([src/pool.ts:1327](../src/pool.ts#L1327)). It affects only diagnostics, during a forced shutdown. (`81ba8c0..fdf3f06`)
+- **When `sql.end({ timeout })` destroys a connection in a transaction, the lease's `CONNECTION_CLOSED` drops the in-flight query's `query`, `parameters`, `args` and the caller's stack** ([src/pool.ts:1349](../src/pool.ts#L1349)). It affects only diagnostics, during a forced shutdown. (`81ba8c0..fdf3f06`)
 
 ## Checked and left alone
 
