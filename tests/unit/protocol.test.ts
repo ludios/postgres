@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import * as fc from "fast-check";
 import * as p from "../../src/protocol.ts";
 import { thrown } from "../helpers.ts";
 
@@ -401,4 +402,302 @@ test("A parameter type oid above 2^31 is written as its four bytes", async () =>
 	p.parse(w, "", "select $1", [0x80000001]);
 	const x = w.take();
 	expect(x.subarray(x.length - 4).toString("hex")).toBe("80000001");
+});
+
+/** A message of the server: its type byte, and its body (the bytes after the length) */
+const server_message = fc.tuple(fc.integer({ min: 0, max: 255 }), fc.uint8Array({ maxLength: 40 }));
+
+/**
+ * @param type - the type byte of a message of the server
+ * @param body - its body
+ * @returns the message as the server sends it
+ */
+function framed(type: number, body: Uint8Array) {
+	return Buffer.concat([Buffer.from([type]), i32(body.length + 4), Buffer.from(body)]);
+}
+
+/**
+ * @param x - bytes
+ * @param lengths - the lengths of the chunks to cut `x` into, in order; a length may be 0
+ * @returns the chunks, and what is left of `x` after them as one more chunk (possibly empty)
+ */
+function chunked(x: Buffer, lengths: number[]) {
+	const chunks: Buffer[] = [];
+	let at = 0;
+	for (const n of lengths) {
+		if (at >= x.length) {
+			break;
+		}
+		chunks.push(x.subarray(at, at + n));
+		at += n;
+	}
+	chunks.push(x.subarray(at));
+	return chunks;
+}
+
+/**
+ * Feeds messages to a Frames the way a socket would, and gathers what it hands over.
+ * @param ms - the messages
+ * @param lengths - how to cut the bytes of `ms` into pushes, as chunked() takes them
+ * @param pauses - the indexes of the messages whose handler pauses the Frames
+ * @param shared - whether every push comes from one read buffer that the next read overwrites
+ * @param own_at - the index of the message whose handler asks the Frames to own its buffers from
+ *   then on, if any
+ * @returns the type byte and the hex of each message handed over, in order; a message whose buffer
+ *   the Frames owns is kept by reference, as the connection keeps it, so that an overwritten shared
+ *   buffer shows up as a wrong message
+ */
+function handed_over(
+	ms: [number, Uint8Array][],
+	lengths: number[],
+	pauses: number[],
+	shared: boolean,
+	own_at: number | null,
+) {
+	const all = Buffer.concat(ms.map(([type, body]) => framed(type, body))),
+		buffer = Buffer.alloc(all.length + 1),
+		out: [number, Buffer][] = [],
+		frames = p.Frames((type, x, start, end) => {
+			out.push([
+				type,
+				frames.owns(x) ? x.subarray(start, end) : Buffer.from(x.subarray(start, end)),
+			]);
+			if (out.length - 1 === own_at) {
+				frames.own(true);
+			}
+			if (pauses.includes(out.length - 1)) {
+				frames.pause();
+			}
+		}, shared);
+
+	for (const chunk of chunked(all, lengths)) {
+		if (shared) {
+			chunk.copy(buffer);
+			frames.push(buffer.subarray(0, chunk.length));
+			buffer.fill(0xff);
+		} else {
+			frames.push(chunk);
+		}
+	}
+	while (frames.paused) {
+		frames.resume();
+	}
+	return out.map(([type, x]) => [type, hex(x)]);
+}
+
+test("Frames hands over every message whole, however the bytes are chunked, paused and copied", async () => {
+	fc.assert(
+		fc.property(
+			fc.array(server_message, { maxLength: 12 }),
+			fc.array(fc.nat({ max: 50 })),
+			fc.uniqueArray(fc.nat({ max: 12 })),
+			fc.boolean(),
+			fc.option(fc.nat({ max: 12 })),
+			(ms, lengths, pauses, shared, own_at) => {
+				expect(handed_over(ms, lengths, pauses, shared, own_at)).toEqual(
+					ms.map(([type, body]) => [type, hex(framed(type, body))]),
+				);
+			},
+		),
+		{ numRuns: 2000 },
+	);
+});
+
+/** A string that survives a round trip through utf8: no lone surrogates */
+const well_formed = fc.string({ unit: "binary" }).filter((x) => x.isWellFormed());
+
+/** A write to a Writer, and the bytes that the write adds */
+type Write = { apply: (w: p.Writer) => void; bytes: Buffer };
+
+const writes: fc.Arbitrary<Write> = fc.oneof(
+	well_formed.map((x) => ({ apply: (w: p.Writer) => w.str(x), bytes: Buffer.from(x + "\0") })),
+	well_formed.map((x) => ({ apply: (w: p.Writer) => w.bytes(x), bytes: Buffer.from(x) })),
+	fc
+		.uint8Array({ maxLength: 100 })
+		.map((x) => ({ apply: (w: p.Writer) => w.bytes(x), bytes: Buffer.from(x) })),
+	fc.option(well_formed).map((x) => ({
+		apply: (w: p.Writer) => w.value(x),
+		bytes: x === null ? i32(-1) : Buffer.concat([i32(Buffer.byteLength(x)), Buffer.from(x)]),
+	})),
+	fc
+		.integer({ min: 0, max: 255 })
+		.map((x) => ({ apply: (w: p.Writer) => w.u8(x), bytes: Buffer.from([x]) })),
+	fc
+		.integer({ min: -32768, max: 32767 })
+		.map((x) => ({ apply: (w: p.Writer) => w.i16(x), bytes: i16(x) })),
+	fc.integer({ min: 0, max: 65535 }).map((x) => ({
+		apply: (w: p.Writer) => w.u16(x),
+		bytes: Buffer.from([x >> 8, x & 255]),
+	})),
+	fc.integer().map((x) => ({ apply: (w: p.Writer) => w.i32(x), bytes: i32(x) })),
+	// Rarely, more than the 4096 bytes past which take() hands over the buffer itself
+	fc.uint8Array({ minLength: 4096, maxLength: 5000 }).map((x) => ({
+		apply: (w: p.Writer) => w.bytes(x),
+		bytes: Buffer.from(x),
+	})),
+);
+
+/** The type byte and the writes of a message to the server */
+const client_message = fc.tuple(
+	fc.integer({ min: 1, max: 127 }),
+	fc.array(writes, { maxLength: 8 }),
+);
+
+/**
+ * @param w - a Writer
+ * @param type - the type byte of a message
+ * @param xs - the writes of its body
+ * @returns the message that `w` hands over for them
+ */
+function written(w: p.Writer, type: number, xs: Write[]) {
+	w.type(type);
+	xs.forEach((x) => x.apply(w));
+	return w.end().take();
+}
+
+const expected_message = (type: number, xs: Write[]) =>
+	hex(msg(String.fromCharCode(type), ...xs.map((x) => x.bytes)));
+
+test("Writer encodes any writes from any starting size, and a message taken stays intact", async () => {
+	fc.assert(
+		fc.property(
+			fc.integer({ min: 1, max: 100 }),
+			client_message,
+			client_message,
+			(size, [type_a, a], [type_b, b]) => {
+				const w = p.Writer(size),
+					first = written(w, type_a, a),
+					second = written(w, type_b, b);
+				expect([hex(first), hex(second)]).toEqual([
+					expected_message(type_a, a),
+					expected_message(type_b, b),
+				]);
+			},
+		),
+		{ numRuns: 1000 },
+	);
+});
+
+test("Bind encodes any values, as text or bytes, with their lengths in bytes", async () => {
+	const values = fc.array(
+		fc.oneof(well_formed, fc.uint8Array({ maxLength: 50 }), fc.constant(null)),
+	);
+	fc.assert(
+		fc.property(
+			well_formed,
+			well_formed,
+			values,
+			fc.array(fc.integer({ min: 0, max: 1 })),
+			fc.array(fc.integer({ min: 0, max: 1 })),
+			(portal, statement, xs, formats, results) => {
+				const expected = msg(
+					"B",
+					str(portal),
+					str(statement),
+					i16(formats.length),
+					...formats.map(i16),
+					i16(xs.length),
+					...xs.map((x) =>
+						x === null ? i32(-1) : Buffer.concat([i32(Buffer.byteLength(x)), Buffer.from(x)]),
+					),
+					i16(results.length),
+					...results.map(i16),
+				);
+				expect(hex(p.Bind(portal, statement, xs, formats, results))).toBe(hex(expected));
+			},
+		),
+		{ numRuns: 1000 },
+	);
+});
+
+/** A string that a message of the server can hold as a field: well-formed, with no NUL */
+const field_text = well_formed.filter((x) => !x.includes("\0"));
+
+test("Decode RowDescription with any names and unsigned oids and numbers", async () => {
+	const column = fc.record({
+		name: field_text,
+		table: fc.integer({ min: 0, max: 0xffffffff }),
+		number: fc.integer({ min: 0, max: 0xffff }),
+		type: fc.integer({ min: 0, max: 0xffffffff }),
+	});
+	const u32 = (x: number) => {
+		const b = Buffer.alloc(4);
+		b.writeUInt32BE(x);
+		return b;
+	};
+	fc.assert(
+		fc.property(fc.array(column, { maxLength: 20 }), (columns) => {
+			const x = msg(
+				"T",
+				i16(columns.length),
+				...columns.flatMap((c) => [
+					str(c.name),
+					u32(c.table),
+					Buffer.from([c.number >> 8, c.number & 255]),
+					u32(c.type),
+					i16(-1),
+					i32(-1),
+					i16(0),
+				]),
+			);
+			expect(decode(p.row_description, x).map((c) => [c.name, c.table, c.number, c.type])).toEqual(
+				columns.map((c) => [c.name, c.table, c.number, c.type]),
+			);
+		}),
+		{ numRuns: 500 },
+	);
+});
+
+test("Decode ErrorResponse with any texts in its fields", async () => {
+	const fields = fc.record({
+		severity: field_text,
+		code: field_text,
+		message: field_text,
+		detail: field_text,
+		hint: field_text,
+		position: field_text,
+	});
+	fc.assert(
+		fc.property(fields, (f) => {
+			const x = msg(
+				"E",
+				str("S" + f.severity),
+				str("V" + f.severity),
+				str("C" + f.code),
+				str("M" + f.message),
+				str("D" + f.detail),
+				str("H" + f.hint),
+				str("P" + f.position),
+				Buffer.from([0]),
+			);
+			const e = decode(p.error, x);
+			expect([e.severity, e.code, e.message, e.detail, e.hint, e.position]).toEqual([
+				f.severity,
+				f.code,
+				f.message,
+				f.detail,
+				f.hint,
+				f.position,
+			]);
+		}),
+		{ numRuns: 500 },
+	);
+});
+
+test("Decode CommandComplete for any command tag, counting its last number", async () => {
+	fc.assert(
+		fc.property(
+			fc.stringMatching(/^[A-Z]+( [A-Z]+)*$/),
+			fc.array(fc.nat(), { maxLength: 3 }),
+			(command, counts) => {
+				const tag = command + counts.map((n) => " " + n).join(""),
+					x = decode(p.command_complete, msg("C", str(tag)));
+				expect([x.command, x.count]).toEqual([
+					command,
+					counts.length ? counts[counts.length - 1] : null,
+				]);
+			},
+		),
+		{ numRuns: 500 },
+	);
 });
