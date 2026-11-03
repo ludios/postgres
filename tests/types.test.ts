@@ -587,11 +587,11 @@ test("A custom type name that does not exist rejects with TYPE_NOT_FOUND", async
 });
 
 test("sql.end() resolves after the types fail to load for a waiting query", async () => {
-	// No idle_timeout: the connection must not close by itself, or end() resolves through that
+	// No idle timeout: the connection must not close by itself, or end() resolves through that
 	const sql2 = postgres({
 		...options,
 		max: 1,
-		idle_timeout: undefined,
+		idle_timeout: 0,
 		types: { nope: { to: "no_such_type", serialize: String } } as any,
 	});
 	const code = sql2`select 1`.then(
