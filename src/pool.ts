@@ -1267,7 +1267,7 @@ function plain(job: Job | undefined): job is Waiting & QueryJob {
 
 /** @returns whether `job` may go on a connection that has queries in flight: it is not a lease, and not exclusive */
 function pipelined(job: Job) {
-	return job.kind === "describe" || (job.kind === "query" && !job.exclusive);
+	return job.kind === "describe" || plain(job);
 }
 
 function usable(c: Pooled) {

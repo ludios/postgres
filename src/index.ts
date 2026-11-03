@@ -313,7 +313,11 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 								q.reject(did.after || (did.after = rolled_back()));
 								return;
 							}
-							q.catch((e) => did.uncaught || (did.uncaught = e));
+							q.catch((e) => {
+								if (!did.uncaught) {
+									did.uncaught = e;
+								}
+							});
 							lease.send(q);
 						},
 						{ cancel: pool.cancel },

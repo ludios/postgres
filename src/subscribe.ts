@@ -294,7 +294,10 @@ export default function Subscribe(
 		function drain(at: Promise<unknown>) {
 			at.then(() => {
 				if (queue !== at) {
-					return queue && drain(queue);
+					if (queue) {
+						drain(queue);
+					}
+					return;
 				}
 
 				queue = null;

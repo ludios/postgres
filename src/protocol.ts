@@ -449,7 +449,10 @@ export function Frames(
 				owned.add(whole);
 			}
 			filled = x.copy(whole);
-			return filled === whole.length && done(whole);
+			if (filled === whole.length) {
+				done(whole);
+			}
+			return;
 		}
 		done(x);
 	}
