@@ -833,8 +833,14 @@ test("A nested sql.begin with a different mode throws, the same mode is allowed"
 				() => "ran",
 				(e) => e.code,
 			),
+		await tx
+			.begin("read\nwrite", (sp) => sp`select 1`)
+			.then(
+				() => "ran",
+				(e) => e.code,
+			),
 	]);
-	expect(codes).toEqual(["NESTED_TRANSACTION_MODE", "ran"]);
+	expect(codes).toEqual(["NESTED_TRANSACTION_MODE", "ran", "ran"]);
 });
 
 test("A nested sql.begin can not be prepared", async () => {

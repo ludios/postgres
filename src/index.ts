@@ -485,13 +485,14 @@ function rolled_back() {
 
 /**
  * @param x - the mode of a transaction, such as "read write", or undefined for none
- * @returns `x` in lower case, with only its letters and spaces, each run of spaces made one, and
- *   no space at either end, so that two modes can be compared; "" for none
+ * @returns `x` in lower case, with only the letters a to z and whitespace, each run of whitespace
+ *   made one space, and no space at either end, so that a mode compares equal to itself written
+ *   with other case, whitespace or punctuation; "" for none
  */
 function normal(x: string | undefined) {
 	return (x || "")
 		.toLowerCase()
-		.replace(/[^a-z ]/g, "")
+		.replace(/[^a-z\s]/g, "")
 		.replace(/\s+/g, " ")
 		.trim();
 }
