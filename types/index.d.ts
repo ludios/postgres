@@ -154,6 +154,11 @@ declare namespace postgres {
 	/** A socket of your own: anything with the events and methods of a net.Socket that are used */
 	interface SocketLike {
 		write(data: Uint8Array): boolean;
+		/**
+		 * Ends the socket, after `data` (the last message: a Terminate, or a CancelRequest) if given.
+		 * Two overloads, not `data?: Uint8Array`, so that net.Socket's end(), whose overloads take a
+		 * callback, or a chunk and a callback, is one.
+		 */
 		end(): unknown;
 		end(data: Uint8Array): unknown;
 		destroy(error?: Error): unknown;

@@ -1,4 +1,6 @@
 import dc from "node:diagnostics_channel";
+import net from "node:net";
+import tls from "node:tls";
 import postgres, {
 	type Sql,
 	type TransactionSql,
@@ -208,3 +210,9 @@ dc.subscribe("postgres:pool", (message) => (message as PoolEvent).stats.waiting)
 queries;
 transactions;
 rest;
+
+// A socket of Node's is a SocketLike
+const plain_socket: postgres.SocketLike = net.connect(5432),
+	tls_socket: postgres.SocketLike = new tls.TLSSocket(new net.Socket());
+plain_socket;
+tls_socket;
