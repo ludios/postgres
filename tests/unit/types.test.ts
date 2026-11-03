@@ -346,7 +346,7 @@ function decoded(oid: number, text: string) {
 const instants = fc.date({
 		min: new Date(Date.UTC(-500, 0, 1)),
 		max: new Date(Date.UTC(12000, 0, 1)),
-		no_invalid_date: true,
+		noInvalidDate: true,
 	}),
 	offsets = fc.oneof(
 		fc.integer({ min: -15, max: 15 }).map((h) => h * 3600),
@@ -377,7 +377,7 @@ test("Decode the timestamps of the years 1000 to 9999 without their text", async
 			fc.date({
 				min: new Date(Date.UTC(1000, 0, 2)),
 				max: new Date(Date.UTC(9999, 11, 30)),
-				no_invalid_date: true,
+				noInvalidDate: true,
 			}),
 			micros,
 			offsets.filter((x) => x % 60 === 0),
