@@ -66,8 +66,9 @@ function set_env(name: string, value: string | undefined) {
 
 /**
  * @param vars - the environment variables to set while `f` runs, by name; `undefined` unsets one
- * @param f    - a function to run, which must not return a promise: the variables are restored
- *   as soon as `f` returns, so the rest of an async `f` would run without them
+ * @param f    - a function to run, which must not return a promise or another thenable: the
+ *   variables are restored as soon as `f` returns, so the rest of an async `f` would see the values
+ *   that they had before
  * @returns what `f` returns; whether `f` returns or throws, each variable in `vars` then has the
  * value that it had before `with_env` was called, or is unset if it was unset then
  */
@@ -78,8 +79,10 @@ export function with_env<T>(vars: Record<string, string | undefined>, f: () => T
 	}
 	try {
 		const result = f();
-		if (result instanceof Promise) {
-			throw new Error("with_env() was given a function that returned a promise");
+		if (typeof (result as { then?: unknown } | null | undefined)?.then === "function") {
+			// Its rejection, if any, would otherwise go unhandled
+			Promise.resolve(result).catch(() => {});
+			throw new Error("with_env() was given a function that returned a thenable");
 		}
 		return result;
 	} finally {
