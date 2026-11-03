@@ -76,7 +76,8 @@ async function write() {
 				resumedAt = Date.now();
 			}
 		} catch (error) {
-			const { message, code = message } = error as { code?: string; message: string };
+			const { message, code: raw } = error as { code?: string | null; message: string },
+				code = raw || message;
 			errors[code] = (errors[code] || 0) + 1;
 			if (code === "25006") {
 				failures.push("a write reached a read-only server: " + message);
