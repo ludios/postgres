@@ -18,7 +18,7 @@ type Begin = { lsn: bigint; time: Date; xid: number };
 type Commit = { lsn: bigint; end: bigint };
 
 /**
- * A change of a row, as parse() reports it: a public ReplicationEvent, before message() adds the
+ * A change of a row, as parse() reports it: a public ReplicationEvent, before change() adds the
  * transaction's `lsn`, `time` and `xid`
  */
 type Change = {
@@ -32,9 +32,9 @@ type Change = {
 
 /** Gets each message that parse() reads: a Begin, a Commit, or a change of a row */
 type Message = {
-	(kind: "begin", x: Begin): unknown;
-	(kind: "commit", x: Commit): unknown;
-	(kind: "change", row: postgres.Row | null, info: Change): unknown;
+	begin(x: Begin): void;
+	commit(x: Commit): void;
+	change(row: postgres.Row | null, info: Change): void;
 };
 
 const noop = (..._: any[]) => {},
@@ -121,10 +121,10 @@ export default function Subscribe(
 			connection = init();
 		}
 
-		const subscriber = { fn, onsubscribe, onerror };
-		const fns = subscribers.has(event)
-			? subscribers.get(event).add(subscriber)
-			: subscribers.set(event, new Set([subscriber])).get(event);
+		const subscriber = { fn, onsubscribe, onerror },
+			fns = subscribers.get(event) ?? new Set<Subscriber>();
+		fns.add(subscriber);
+		subscribers.set(event, fns);
 
 		const unsubscribe = () => {
 			fns.delete(subscriber);
@@ -221,7 +221,13 @@ export default function Subscribe(
 		function data(x: Buffer) {
 			if (x[0] === 0x77) {
 				received = max(received, x.readBigUInt64BE(9));
-				parse(x.subarray(25), relations, sql.options.parsers, message, options.transform);
+				parse(
+					x.subarray(25),
+					relations,
+					sql.options.parsers,
+					{ begin, commit, change },
+					options.transform,
+				);
 			} else if (x[0] === 0x6b) {
 				received = max(received, x.readBigUInt64BE(1));
 				if (idle()) {
@@ -233,27 +239,37 @@ export default function Subscribe(
 			}
 		}
 
-		function message(kind: "begin", x: Begin): Transaction;
-		function message(kind: "commit", x: Commit): void;
-		function message(kind: "change", row: postgres.Row | null, info: Change): void;
-		function message(kind: string, x: any, info?: Change) {
-			if (kind === "begin") {
-				transaction = { lsn: x.lsn, end: null, time: x.time, xid: x.xid };
-				return transaction;
-			}
+		function begin(x: Begin) {
+			transaction = { lsn: x.lsn, time: x.time, xid: x.xid };
+		}
 
-			if (kind === "commit") {
-				const done = transaction;
-				done.end = x.end;
+		function commit(x: Commit) {
+			if (began("a Commit")) {
 				transaction = null;
-				return run(() => commit(done));
+				run(() => confirm(x.end));
 			}
+		}
 
-			const at: Partial<Transaction> = transaction || {};
-			info.lsn = at.lsn && lsnToString(at.lsn);
-			info.time = at.time;
-			info.xid = at.xid;
-			run(() => handle(x, info));
+		function change(row: postgres.Row | null, info: Change) {
+			const open = began("a change");
+			if (open) {
+				info.lsn = lsnToString(open.lsn);
+				info.time = open.time;
+				info.xid = open.xid;
+				run(() => handle(row, info));
+			}
+		}
+
+		/**
+		 * @param what - the message that came, for the error
+		 * @returns the transaction that the stream is in; or null, having failed the stream, as the
+		 *   message came outside one
+		 */
+		function began(what: string) {
+			if (transaction === null) {
+				stream.destroy(new Error("The replication stream sent " + what + " before a Begin"));
+			}
+			return transaction;
 		}
 
 		function run(fn: () => unknown) {
@@ -270,15 +286,15 @@ export default function Subscribe(
 			if (result instanceof Promise) {
 				queue = result;
 				stream.pause();
-				drain();
+				drain(result);
 			}
 		}
 
-		function drain() {
-			const at = queue;
+		/** Resumes the stream once `at` (the `queue`), and what queued behind it, have settled */
+		function drain(at: Promise<unknown>) {
 			at.then(() => {
 				if (queue !== at) {
-					return queue && drain();
+					return queue && drain(queue);
 				}
 
 				queue = null;
@@ -288,8 +304,9 @@ export default function Subscribe(
 			}, noop);
 		}
 
-		function commit(done: Transaction) {
-			acked = max(acked, done.end);
+		/** Confirms the transaction whose changes the subscribers have handled, up to `lsn`, the LSN of its end */
+		function confirm(lsn: bigint) {
+			acked = max(acked, lsn);
 			if (persistent && !soon) {
 				soon = timers.setImmediate(() => {
 					soon = null;
@@ -323,8 +340,9 @@ export default function Subscribe(
 			row: postgres.Row | null,
 			info: Change,
 		) {
-			if (subscribers.has(event)) {
-				subscribers.get(event).forEach((subscriber) => {
+			const fns = subscribers.get(event);
+			if (fns) {
+				fns.forEach((subscriber) => {
 					let result: unknown;
 					try {
 						// The change has the transaction's fields by now: it is a ReplicationEvent
@@ -434,8 +452,6 @@ export default function Subscribe(
 /** The transaction that the replication messages are part of, from its Begin to its Commit */
 type Transaction = {
 	lsn: bigint;
-	/** The LSN of the end of the transaction, from its Commit */
-	end: bigint | null;
 	/** When it committed */
 	time: Date;
 	xid: number;
@@ -487,16 +503,16 @@ function parse(
 			i += 4;
 		}
 	} else if (type === 66) {
-		message("begin", {
+		message.begin({
 			lsn: x.readBigUInt64BE(1),
 			time: Time(x.readBigInt64BE(9)),
 			xid: x.readUInt32BE(17),
 		});
 	} else if (type === 67) {
-		message("commit", { lsn: x.readBigUInt64BE(2), end: x.readBigUInt64BE(10) });
+		message.commit({ lsn: x.readBigUInt64BE(2), end: x.readBigUInt64BE(10) });
 	} else if (type === 73) {
 		const relation = relations[x.readUInt32BE(1)];
-		message("change", tuples(x, relation.columns, 8, transform).row, {
+		message.change(tuples(x, relation.columns, 8, transform).row, {
 			command: "insert",
 			relation,
 		});
@@ -505,8 +521,7 @@ function parse(
 		const relation = relations[x.readUInt32BE(i)];
 		i += 4;
 		const key = x[i] === 75;
-		message(
-			"change",
+		message.change(
 			key || x[i] === 79 ? tuples(x, relation.columns, (i += 3), transform).row : null,
 			{ command: "delete", relation, key },
 		);
@@ -522,12 +537,12 @@ function parse(
 		}
 
 		const { row } = tuples(x, relation.columns, i + 3, transform);
-		message("change", row, { command: "update", relation, key, old: xs && xs.row });
+		message.change(row, { command: "update", relation, key, old: xs && xs.row });
 	} else if (type === 84) {
 		const count = x.readUInt32BE(1),
 			flags = x[5];
 		for (let i = 0; i < count; i++) {
-			message("change", null, {
+			message.change(null, {
 				command: "truncate",
 				relation: relations[x.readUInt32BE(6 + i * 4)],
 				cascade: (flags & 1) === 1,
@@ -571,9 +586,9 @@ function tuples(
 }
 
 function parseEvent(x: string) {
-	const [, command, path, key] = x.match(
-		/^(\*|insert|update|delete|truncate)?:?([^.]+?\.?[^=]+)?=?(.+)?/i,
-	);
+	// Every part is optional, so any string matches
+	const [, command, path, key] =
+		x.match(/^(\*|insert|update|delete|truncate)?:?([^.]+?\.?[^=]+)?=?(.+)?/i) ?? [];
 
 	return (
 		(command || "*") +

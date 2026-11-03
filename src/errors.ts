@@ -119,7 +119,7 @@ export function withOrigin(error: Error, origin: string | null | undefined) {
 	if (origin) {
 		Object.defineProperty(error, "stack", {
 			value: [
-				error.stack.split("\n")[0],
+				(error.stack ?? String(error)).split("\n")[0],
 				...origin
 					.split("\n")
 					.slice(1)

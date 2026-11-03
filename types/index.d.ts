@@ -464,7 +464,8 @@ declare namespace postgres {
 		key: number;
 		name: string;
 		type: number;
-		parser?(raw: string): unknown;
+		/** Parses a value of the column from its text */
+		parser: (raw: string) => unknown;
 		atttypmod: number;
 	}
 
@@ -477,10 +478,10 @@ declare namespace postgres {
 
 	interface TransactionInfo {
 		/** The LSN of the transaction, like '0/1A2B3C4' */
-		lsn: string | undefined;
+		lsn: string;
 		/** When it committed */
-		time: Date | undefined;
-		xid: number | undefined;
+		time: Date;
+		xid: number;
 	}
 
 	// Every event has `old` (undefined but for an update), so that a handler can destructure it from any

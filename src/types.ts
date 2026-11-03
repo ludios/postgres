@@ -395,12 +395,13 @@ export function Types(
 		Object.values(xs).forEach((x) => {
 			// Numbers: names() resolves a named type's names before it registers the type
 			const from = ([] as (number | string)[]).concat(x.from || []) as number[];
-			if (x.parse) {
-				from.forEach((oid) => (parsers[oid] = x.parse));
+			const { parse, serialize } = x;
+			if (parse) {
+				from.forEach((oid) => (parsers[oid] = parse));
 			}
-			if (x.serialize) {
-				serializers[x.to as number] = x.serialize;
-				from.forEach((oid) => (serializers[oid] = x.serialize));
+			if (serialize) {
+				serializers[x.to as number] = serialize;
+				from.forEach((oid) => (serializers[oid] = serialize));
 			}
 		});
 	}
@@ -459,7 +460,9 @@ export function Types(
 						.filter((x): x is string => typeof x === "string"),
 				),
 			],
-			list = wanted.map((x) => "'" + x.split(".").pop().replace(/'/g, "''") + "'").join(","),
+			list = wanted
+				.map((x) => "'" + x.slice(x.lastIndexOf(".") + 1).replace(/'/g, "''") + "'")
+				.join(","),
 			rows = await run(
 				"select t.oid::int, t.typarray::int as array, t.typdelim as delimiter, t.typname as name, n.nspname as schema, " +
 					"pg_catalog.pg_type_is_visible(t.oid) as visible from pg_catalog.pg_type t " +

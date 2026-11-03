@@ -17,10 +17,8 @@ export default function largeObject(
 	return new Promise((resolve, reject) => {
 		const transaction = sql.begin(async (tx) => {
 			const { promise: finished, resolve: finish, reject: fail } = Promise.withResolvers();
-			if (!oid) {
-				[{ oid }] = await tx`select lo_creat(-1) as oid`;
-			}
-			const [{ fd }] = await tx`select lo_open(${oid}, ${mode}) as fd`;
+			const id: number = oid || (await tx`select lo_creat(-1) as oid`)[0].oid,
+				[{ fd }] = await tx`select lo_open(${id}, ${mode}) as fd`;
 
 			const lo = {
 				writable,

@@ -324,7 +324,7 @@ function context(sql: string): Kind | null {
 			}
 			const word = depth === 0 && sql.slice(i + 1, end).toLowerCase();
 			if (word && clauses.has(word)) {
-				return clauses.get(word);
+				return clauses.get(word) ?? null;
 			}
 			if (word === "into") {
 				return insert_into(words, sql, i) ? "insert" : null;
