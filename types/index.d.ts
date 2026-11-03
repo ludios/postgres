@@ -558,7 +558,8 @@ declare namespace postgres {
 		type: number;
 		table: number;
 		number: number;
-		parser?: ((raw: string) => unknown) | undefined;
+		/** Parses a value of the column from its text; null for a column read as text */
+		parser?: ((raw: string) => unknown) | null | undefined;
 	}
 
 	type ColumnList<T> = (T extends string ? Column<T> : never)[];

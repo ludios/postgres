@@ -29,100 +29,189 @@ let ids = 1,
 
 /**
  * One exchange with the server: the messages of a query (Parse to Sync, or one Query), or of the
- * connection's own work, and what the connection learns while they are in flight.
+ * connection's own work, and what the connection learns while they are in flight. A union by
+ * `kind`: "query", a query of the extended protocol; "simple", one of the simple protocol; "step",
+ * the next rows of a cursor; "describe", a Describe of a statement; "internal", the connection's
+ * own, such as the rollback of an unsafe transaction; "local", a query that failed before it was
+ * written.
  */
-export type Exchange = {
-	/**
-	 * "query": a query of the extended protocol; "simple": one of the simple protocol; "step": the next
-	 * rows of a cursor; "describe": a Describe of a statement; "internal": the connection's own, such
-	 * as the rollback of an unsafe transaction; "local": a query that failed before it was written
-	 */
-	kind: "query" | "simple" | "step" | "describe" | "internal" | "local";
-	/** The query, or null for the connection's own work */
-	query: Query | null;
-	/** The lease that the query is sent through, if any */
+export type Exchange =
+	| QueryExchange
+	| SimpleExchange
+	| StepExchange
+	| DescribeExchange
+	| InternalExchange
+	| LocalExchange;
+
+/** What every exchange has */
+type Base = {
+	/** The lease that the exchange is sent through, or null for the pool's own work */
 	lease: Lease | null;
-	/** Writes the exchange's messages; returns `skip` if the query cannot be written */
-	write: (x: Exchange) => unknown;
-	trace: postgres.QueryTrace | null;
-	/** The statement, from the pool's cache */
-	statement: Statement | null;
-	text: string;
-	/** The connection's entry for the prepared statement, once the exchange uses one */
-	entry: Entry | null;
-	/** The entry made for a statement that this exchange prepares */
-	fresh: Entry | null;
-	/** For a retry: the entry of the exchange that is retried */
-	previous: Entry | null;
-	/** The names of the statements whose ParseComplete has not come yet */
-	parses: string[];
-	/** The parameters, serialized */
-	values: (string | Uint8Array | null)[] | null;
-	/** The types of the parameters, from ParameterDescription */
-	params: number[] | null;
-	columns: Column[] | null;
-	// The result format of each column for Bind, or null for text
-	formats: number[] | null;
-	/** The columns that `reader` reads */
-	shaped: Column[] | null;
-	reader: Shape | null;
+	/** The rows and the command tag of the statement that the server is answering */
 	result: Result;
-	/** The results of a simple-protocol exchange, one per statement */
-	results: Result[] | null;
-	/** For a step: the cursor's exchange */
-	origin: Exchange | null;
-	portal: string;
-	/** The rows per Execute of a cursor; 0 for all */
-	rows: number;
-	end: boolean;
-	failure: Failure | null;
-	flushing: boolean;
-	streaming: boolean;
-	open: boolean;
-	/** Whether the query must have the connection to itself */
-	alone: boolean;
-	describing: boolean;
-	learn: boolean;
-	verify: boolean;
+	/** Whether the exchange's Sync, or its Query message (which syncs too), has been written */
 	synced: boolean;
-	bound: boolean;
-	suspended: boolean;
-	finished: boolean;
+	/** Whether the exchange's ReadyForQuery has come */
 	done: boolean;
+	/** `epoch` as of the exchange's write */
+	epoch: number;
 	/** Whether the statement ends a transaction */
 	ends: boolean;
-	epoch: number;
-	retried: boolean;
-	/** For a retry: the error of the exchange that is retried */
-	original: Failure | null;
+	/** Whether the query must have the connection to itself */
+	alone: boolean;
+	/** Whether the query is a COPY stream (readable() or writable()) */
+	streaming: boolean;
+	/** Whether a COPY still takes data from its stream: no query may be queued meanwhile */
+	open: boolean;
+	/** The error that the server answered with, or that reading an answer threw */
 	error: Failure | null;
 	/** An error of the exchange's own, before any answer of the server, such as a refused build */
 	own: Failure | null;
+	/** The scheduler's estimate of the exchange's time, in ms, or undefined without an estimate */
+	cost: number | undefined;
+};
+
+/** What the exchanges of a user's query have */
+type UserBase = Base & {
+	query: Query;
+	trace: postgres.QueryTrace | null;
+	/** Settled once the exchange's cancel request has been handled: see cancel() */
 	cancel: PromiseWithResolvers<void> | null;
-	// Whether a cancel request has been sent for this exchange
+	/** Whether a cancel request has been sent for this exchange */
 	stopped: boolean;
-	// The promise of this exchange's cancel request while that request is in flight; otherwise null
+	/** The promise of this exchange's cancel request while that request is in flight; otherwise null */
 	stopping: Promise<unknown> | null;
-	/** The stream of a COPY */
+};
+
+/** The reader of the rows that an exchange gets */
+type Reading = {
+	/** The columns of the rows, once the server has described them (or the cache knows them) */
+	columns: Column[] | null;
+	/** The readers of `columns`, once a DataRow has come */
+	reader: Shape | null;
+};
+
+/** The state of the COPY that a query may turn out to be */
+type Copying = {
+	/** The stream of a COPY, from the Copy*Response until the COPY's data has ended */
 	stream: Stream.Readable | Stream.Writable | null;
-	// "in", "out" or "both", once the server has started a COPY FROM, TO or BOTH
+	/** "in", "out" or "both", once the server has started a COPY FROM, TO or BOTH */
 	copy: "in" | "out" | "both" | null;
-	// Whether we have sent all of the COPY data, for COPY FROM and COPY BOTH
+	/** Whether we have sent all of the COPY data, for COPY FROM and COPY BOTH */
 	copied: boolean;
 	/** Whether the reader of a COPY TO stream wants more data */
 	wanted: boolean;
-	/** Whether the cursor's callback is running, for the rows of a step that PortalSuspended ended */
-	awaiting: boolean;
-	/** The promise of the cursor callback's last call, which the query settles after */
-	last: Promise<unknown> | null;
 	/** The final callback of a COPY FROM stream, until CommandComplete calls it */
 	final: ((error?: Error | null) => void) | null;
-	/** Settle the promise of the exchange's kind: with rows, a Description, or nothing */
-	resolve: ((value: any) => void) | null;
-	reject: ((error: unknown) => void) | null;
-	/** The scheduler's estimate of the query's cost */
-	cost: number | undefined;
 };
+
+/** The cursor of a query made with .cursor(), whose callback (see cursor_callback()) gets each batch of rows */
+type Cursor = {
+	/** The rows per Execute; 0 for all */
+	rows: number;
+	/** The portal's name, given as the exchange is written: "" (the unnamed portal) outside a transaction */
+	portal: string;
+};
+
+/** A query of the extended protocol */
+export type QueryExchange = UserBase &
+	Reading &
+	Copying & {
+		kind: "query";
+		/** The statement, from the pool's cache */
+		statement: Statement;
+		cursor: Cursor | null;
+		/** The connection's entry for the prepared statement, once the exchange uses one */
+		entry: Entry | null;
+		/** The entry made for a statement that this exchange prepares */
+		fresh: Entry | null;
+		/** For a retry: the entry of the exchange that is retried */
+		previous: Entry | null;
+		/** The names of the statements whose ParseComplete has not come yet */
+		parses: string[];
+		/** The types of the parameters, from ParameterDescription */
+		params: number[] | null;
+		/** The result format of each column for Bind, or null for text */
+		formats: number[] | null;
+		/** Whether the exchange waits for the server's description before it binds */
+		describing: boolean;
+		/** Whether the exchange learns the description for its entry */
+		learn: boolean;
+		/** For a retry: whether the description must be compared with the previous entry's */
+		verify: boolean;
+		bound: boolean;
+		/** Whether the cursor waits for its callback, after a PortalSuspended (a named portal) */
+		suspended: boolean;
+		/** Whether the cursor's callback is running, for the rows of a step that PortalSuspended ended */
+		awaiting: boolean;
+		/** The promise of the cursor callback's last call, which the query settles after */
+		last: Promise<unknown> | null;
+		retried: boolean;
+		/** For a retry: the error of the exchange that is retried */
+		original: Failure | null;
+	};
+
+/** A query exchange with a cursor */
+export type CursorExchange = QueryExchange & { cursor: Cursor };
+
+/** A query of the simple protocol */
+export type SimpleExchange = UserBase &
+	Reading &
+	Copying & {
+		kind: "simple";
+		text: string;
+		/** The results, one per statement of the text */
+		results: Result[];
+	};
+
+/** The next rows of a cursor's named portal: an Execute, or a Close once the cursor ends */
+export type StepExchange = UserBase &
+	Reading & {
+		kind: "step";
+		/** The cursor's exchange */
+		origin: CursorExchange;
+		/** Whether the step closes the cursor */
+		end: boolean;
+		/** What the cursor's callback threw, which the step fails its query with */
+		failure: Failure | null;
+		/** Whether the cursor waits for its callback, after a PortalSuspended */
+		suspended: boolean;
+		/** The promise of the cursor callback's last call, which the query settles after */
+		last: Promise<unknown> | null;
+	};
+
+/** A Describe of a statement, for the pool: resolves with the statement's parameter types and columns */
+export type DescribeExchange = Base & {
+	kind: "describe";
+	query: null;
+	text: string;
+	/** The types of the parameters that the caller knows; 0 for one to describe */
+	oids: number[];
+	/** The types of the parameters, from ParameterDescription */
+	params: number[] | null;
+	columns: Column[] | null;
+	resolve: (description: Description) => void;
+	reject: (error: unknown) => void;
+};
+
+/** The connection's own work: the rollback of an unsafe transaction */
+export type InternalExchange = Base & {
+	kind: "internal";
+	query: null;
+};
+
+/** A query that failed before it was written, or a step that wrote nothing: settles without the server */
+export type LocalExchange = UserBase & {
+	kind: "local";
+	/** For a step: the cursor's exchange, which the step closes */
+	origin: CursorExchange | null;
+};
+
+/** The exchanges that the server answers, of a user's query */
+type UserExchange = QueryExchange | SimpleExchange | StepExchange;
+
+/** The exchanges that may turn out to be a COPY */
+type CopyExchange = QueryExchange | SimpleExchange;
 
 /** The connection's cache entry for a prepared statement */
 type Entry = {
@@ -132,7 +221,7 @@ type Entry = {
 	 * The exchange that prepares the statement. ReadyForQuery sets it to null once that exchange has
 	 * ended, so that the cache does not keep the exchange's query.
 	 */
-	owner: Exchange | null;
+	owner: QueryExchange | null;
 	/** The types of the parameters, or null until the server has described them */
 	oids: number[] | null;
 	/** The columns of the statement's rows, once the server has described them */
@@ -357,13 +446,14 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function release() {
-		while (!blocker && pending.length && pending[0] !== fence) {
+		for (let x = pending[0]; !blocker && x !== undefined && x !== fence; x = pending[0]) {
 			// Before each write, because write() runs user code (a debug callback, a custom type's
 			// serializer) that may cancel a query, and a cancel starts a hold
 			if (cancelling) {
 				break;
 			}
-			write(pending.shift());
+			pending.shift();
+			write(x);
 		}
 
 		schedule();
@@ -389,40 +479,25 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function write(x: Exchange) {
 		const mark = out.length;
-		let result;
+		let result: unknown;
 		try {
-			result = x.write(x);
+			result = messages(x);
 		} catch (error) {
 			x.own = as_error(error);
 			result = skip;
 		}
 		if (result === skip) {
 			out.truncate(mark);
-			x.fresh = null;
-			x.parses = [];
-			x.portal = "";
-			x.describing = x.synced = x.flushing = x.open = false;
-			if (!x.own || x.kind === "step" || !connection.lease) {
-				x.kind = "local";
-				x.cost = undefined;
-				if (sent.length === 0) {
-					settle_soon(x);
-				} else {
-					sent.push(x);
-				}
+			const refusal = skipped(x);
+			if (refusal === null) {
 				return;
 			}
-
-			x.kind = "simple";
-			x.text = refused;
-			x.results = [];
-			x.entry = null;
-			sync(x, true);
+			x = refusal;
 		}
-		if (x.fresh) {
-			register(x.fresh);
+		if (x.kind === "query" && x.fresh) {
+			register(x, x.fresh);
 		}
-		if (x.portal && x.kind === "query") {
+		if (is_cursor(x) && x.cursor.portal) {
 			open.add(x);
 		}
 		if (x.query) {
@@ -439,9 +514,74 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		if (holds(x)) {
 			blocker = x;
 		}
-		if (x.trace) {
-			wrote(x);
+		if (user(x) && x.kind !== "local" && x.trace) {
+			wrote(x, x.trace);
 		}
+	}
+
+	/**
+	 * Writes the messages of exchange `x`, by its kind.
+	 * @returns `skip` if nothing was written: for a local exchange, and for a step that only closes
+	 *   a cursor whose transaction has ended
+	 */
+	function messages(x: Exchange) {
+		switch (x.kind) {
+			case "query":
+				return extended(x);
+			case "simple":
+				debug(x.text, [], []);
+				p.query(out, x.text);
+				x.synced = true;
+				return;
+			case "step":
+				return stepped(x);
+			case "describe":
+				p.parse(out, "", x.text, x.oids);
+				p.describe(out, "S", "");
+				sync(x);
+				return;
+			case "internal":
+				p.query(out, "rollback");
+				x.synced = true;
+				return;
+			case "local":
+				return skip;
+		}
+	}
+
+	/**
+	 * Takes over for exchange `x`, which wrote nothing, or whose messages were dropped because
+	 * writing them threw (which `x.own` then holds).
+	 * @returns null, once `x` has been dealt with: a local exchange settles with `x.own` (if any)
+	 *   without an answer of the server, once nothing is in flight ahead of it. Or, for a query with
+	 *   a lease and an error of its own, a simple exchange of a query that the server refuses, to be
+	 *   written in `x`'s place, so that the lease's transaction fails too.
+	 */
+	function skipped(x: Exchange): SimpleExchange | null {
+		if (x.kind === "describe" || x.kind === "internal") {
+			// The connection's own messages are always written: this is a bug of this file
+			abandon(x.own || new Error("Bug: an exchange of the connection's own wrote nothing"));
+			return null;
+		}
+		if (!x.own || x.kind === "step" || !connection.lease) {
+			const settling_locally =
+				x.kind === "local"
+					? x
+					: LocalExchange(x.query, x.lease, x.own, x.kind === "step" ? x.origin : null);
+			if (sent.length === 0) {
+				settle_soon(settling_locally);
+			} else {
+				sent.push(settling_locally);
+			}
+			return null;
+		}
+		const refusal = SimpleExchange(x.query, x.lease, refused);
+		refusal.own = x.own;
+		refusal.trace = x.trace;
+		refusal.ends = x.ends;
+		refusal.cost = x.cost;
+		sync(refusal, true);
+		return refusal;
 	}
 
 	function sync(x: Exchange, refuse?: boolean) {
@@ -458,20 +598,24 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		schedule();
 	}
 
-	function register(entry: Entry) {
+	/**
+	 * Puts `entry`, the statement that exchange `x` prepares, in the cache, as the newest entry; and
+	 * closes the oldest statement whose ParseComplete has come, once the cache holds more than `limit`.
+	 */
+	function register(x: QueryExchange, entry: Entry) {
 		const current = prepared.get(entry.name);
 		if (current) {
 			prepared.delete(entry.name);
 		}
 		prepared.set(entry.name, entry);
-		entry.owner.entry = entry;
-		entry.owner.fresh = null;
+		x.entry = entry;
+		x.fresh = null;
 		if (prepared.size <= limit) {
 			return;
 		}
 
-		for (const [name, x] of prepared) {
-			if (x.state !== "parsing") {
+		for (const [name, cached] of prepared) {
+			if (cached.state !== "parsing") {
 				prepared.delete(name);
 				p.close(out, "S", name);
 				return;
@@ -487,9 +631,8 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function send(query: Query) {
 		const { statement } = query.wire,
-			x = Exchange("query", query, connection.lease, extended);
+			x = QueryExchange(query, connection.lease, statement);
 
-		x.statement = statement;
 		x.ends =
 			statement.ends === undefined
 				? (statement.ends = ending.test(statement.text))
@@ -503,7 +646,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	function timed(x: Exchange) {
 		const t = timers.now();
 
-		if (x.cost !== undefined) {
+		if (x.cost !== undefined && x.query && x.query.cost) {
 			const sample = t - headSince,
 				c = x.query.cost;
 			c.est = c.est === undefined || sample > c.est ? sample : c.est + (sample - c.est) * 0.1;
@@ -540,14 +683,14 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 * was no estimate yet). The time that an exchange has already run is not subtracted.
 	 */
 	function costly(ms: number) {
-		for (let i = 0; i < sent.length; i++) {
-			if (sent[i].cost >= ms) {
+		for (const x of sent) {
+			if (x.cost !== undefined && x.cost >= ms) {
 				return true;
 			}
 		}
 
-		for (let i = 0; i < pending.length; i++) {
-			if (pending[i].cost >= ms) {
+		for (const x of pending) {
+			if (x.cost !== undefined && x.cost >= ms) {
 				return true;
 			}
 		}
@@ -555,20 +698,15 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		return false;
 	}
 
-	function extended(x: Exchange) {
-		const { query } = x,
+	function extended(x: QueryExchange) {
+		const { query, statement } = x,
 			{ built } = query.wire,
-			statement = x.statement,
 			name = statement.name,
 			current = name ? prepared.get(name) : null;
 
-		if (query.cursorFn) {
-			x.rows = query.cursorRows;
-			x.portal = transaction() ? "c" + portals++ : "";
-			x.flushing = !x.portal;
+		if (x.cursor) {
+			x.cursor.portal = transaction() ? "c" + portals++ : "";
 		}
-
-		x.streaming = x.open = query.streaming;
 
 		if (current && current.state === "parsing" && current.oids === null) {
 			throw Errors.generic(
@@ -583,8 +721,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			x.entry = current;
 			x.columns = binary ? binary.columns : current.columns;
 			x.formats = binary ? binary.formats : null;
-			x.values = serialize(current.oids, built, current);
-			return run(x, name);
+			return run(x, name, serialize(current.oids, built, current));
 		}
 
 		if (x.retried) {
@@ -613,31 +750,54 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 
 		x.learn = true;
-		x.values = serialize(built.oids, built, x.fresh || {});
-		run(x, name);
+		run(x, name, serialize(built.oids, built, x.fresh || {}));
 	}
 
-	function parse(x: Exchange, name: string, query_text: string, oids: number[]) {
+	function parse(x: QueryExchange, name: string, query_text: string, oids: number[]) {
 		p.parse(out, name, query_text, oids);
 		x.parses.push(name);
 	}
 
-	function run(x: Exchange, name: string) {
-		const mark = out.length;
+	/**
+	 * Writes the Bind, Execute and Sync (or Flush, for an unnamed cursor) of query exchange `x`.
+	 * @param name - the statement's name; "" for the unnamed statement
+	 * @param values - the parameters, serialized
+	 */
+	function run(x: QueryExchange, name: string, values: Value[]) {
+		const mark = out.length,
+			{ cursor } = x,
+			// The unnamed portal of a cursor gets a Flush, so that its rows can be read, and a Sync later
+			flushes = cursor !== null && cursor.portal === "";
 		try {
-			p.run(out, x.portal, name, x.values, x.rows, x.flushing, x.formats);
+			p.run(
+				out,
+				cursor ? cursor.portal : "",
+				name,
+				values,
+				cursor ? cursor.rows : 0,
+				flushes,
+				x.formats,
+			);
 		} catch (error) {
 			out.truncate(mark);
 			throw error;
 		}
-		if (!x.flushing) {
+		if (!flushes) {
 			x.synced = true;
 		}
-		debug(x.statement.text, x.values, x.entry ? x.entry.oids : x.params || x.query.wire.built.oids);
+		debug(x.statement.text, values, x.entry?.oids ?? x.params ?? x.query.wire.built.oids);
 	}
 
-	function learned(entry: Entry, statement: Statement) {
-		const shape = entry.oids.join() + ":" + entry.columns.map((x) => x.type).join();
+	/**
+	 * Gives `entry` the server's description of its statement, and `statement` the shape that it
+	 * describes.
+	 * @param oids - the types of the parameters
+	 * @param columns - the columns of the rows
+	 */
+	function learned(entry: Entry, statement: Statement, oids: number[], columns: Column[]) {
+		const shape = oids.join() + ":" + columns.map((x) => x.type).join();
+		entry.oids = oids;
+		entry.columns = columns;
 		if (statement.shape !== shape) {
 			if (statement.shape !== undefined) {
 				statement.version++;
@@ -645,7 +805,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			statement.shape = shape;
 		}
 		entry.version = statement.version;
-		entry.binary = binary_columns(entry.columns);
+		entry.binary = binary_columns(columns);
 	}
 
 	/**
@@ -655,19 +815,17 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 *   Bind (1 for binary, 0 for text); or null, if no column is read in binary
 	 */
 	function binary_columns(columns: Column[]) {
-		let binary: Column[] | null = null,
-			formats: number[] | null = null;
+		let binary: Entry["binary"] = null;
 		for (let i = 0; i < columns.length; i++) {
 			// The parser that the column has as text, so that the decoder gives what it would
 			const decode = events.binary(columns[i].type, columns[i].parser);
 			if (decode) {
-				binary = binary || columns.slice();
-				formats = formats || columns.map(() => 0);
-				binary[i] = { ...columns[i], decode };
-				formats[i] = 1;
+				binary = binary || { columns: columns.slice(), formats: columns.map(() => 0) };
+				binary.columns[i] = { ...columns[i], decode };
+				binary.formats[i] = 1;
 			}
 		}
-		return binary && { columns: binary, formats };
+		return binary;
 	}
 
 	/**
@@ -679,18 +837,19 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			serialized = new Array<Value>(values.length);
 
 		for (let i = 0; i < values.length; i++) {
-			serialized[i] = values[i] === null ? null : (serializers[i](values[i]) as Value);
+			const value = values[i] === null ? null : (serializers[i](values[i]) as Value);
 			if (
-				serialized[i] !== null &&
-				serialized[i] !== undefined &&
-				typeof serialized[i] !== "string" &&
-				!(serialized[i] instanceof Uint8Array)
+				value !== null &&
+				value !== undefined &&
+				typeof value !== "string" &&
+				!(value instanceof Uint8Array)
 			) {
 				// A serializer must return a string or bytes. For anything else, Buffer.byteLength
 				// throws here, where the error is this query's, instead of the writer corrupting the
 				// wire later
-				Buffer.byteLength(serialized[i]);
+				Buffer.byteLength(value);
 			}
+			serialized[i] = value;
 		}
 
 		return serialized;
@@ -700,7 +859,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		return !!connection.lease && connection.lease.kind === "transaction";
 	}
 
-	function described(x: Exchange) {
+	function described(x: QueryExchange) {
 		x.describing = false;
 		const { built } = x.query.wire,
 			name = x.statement.name,
@@ -719,17 +878,13 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 					stale(previous);
 					x.statement.version++;
 				}
-				x.values = serialize(params, built, {});
-				return run(x, "");
+				return run(x, "", serialize(params, built, {}));
 			}
 			const entry = x.entry;
 			if (entry) {
-				entry.oids = params;
-				entry.columns = columns;
-				learned(entry, x.statement);
+				learned(entry, x.statement, params, columns);
 			}
-			x.values = serialize(params, built, entry || {});
-			run(x, name);
+			run(x, name, serialize(params, built, entry || {}));
 		} catch (error) {
 			x.own = as_error(error);
 			sync(x, !!connection.lease);
@@ -738,27 +893,13 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function describe(statement_text: string, oids: number[]) {
 		return new Promise<Description>((resolve, reject) => {
-			const x = Exchange("describe", null, connection.lease, (item) => {
-				p.parse(out, "", statement_text, oids);
-				p.describe(out, "S", "");
-				sync(item);
-			});
-			x.resolve = resolve;
-			x.reject = reject;
-			queue(x);
+			queue(DescribeExchange(connection.lease, statement_text, oids, resolve, reject));
 		});
 	}
 
 	function simple(query: Query, sql: string) {
-		const x = Exchange("simple", query, connection.lease, (item) => {
-			debug(sql, [], []);
-			p.query(out, sql);
-			item.synced = true;
-		});
-		x.text = sql;
-		x.results = [];
+		const x = SimpleExchange(query, connection.lease, sql);
 		x.ends = ending.test(sql);
-		x.streaming = x.open = query.streaming;
 		if (options.scheduler) {
 			cost(x);
 		}
@@ -766,11 +907,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function local(query: Query, error: Error) {
-		queue(
-			Exchange("query", query, connection.lease, () => {
-				throw error;
-			}),
-		);
+		queue(LocalExchange(query, connection.lease, error, null));
 	}
 
 	/**
@@ -781,7 +918,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 *
 	 * @returns a promise that settles as the CancelRequest does
 	 */
-	function stop(x: Exchange) {
+	function stop(x: UserExchange) {
 		// A cancel request for anything else would hit whatever the backend runs next
 		if (sent[0] !== x) {
 			const i = sent.indexOf(x);
@@ -841,7 +978,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 *
 	 * @returns a promise that settles once the stop has been sent
 	 */
-	function cancel_copy(x: Exchange) {
+	function cancel_copy(x: CopyExchange) {
 		if (x.copy === "out") {
 			// Also once the COPY data has ended, since statements after the COPY in the same
 			// query may still run. Before the destroy, so that the hold also covers what resuming the socket finishes
@@ -859,7 +996,11 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function cancel(query: Query) {
-		if (running.has(query) || (sent[0] && sent[0].query === query && sent[0].awaiting)) {
+		const in_flight = sent[0];
+		if (
+			running.has(query) ||
+			(in_flight && in_flight.kind === "query" && in_flight.query === query && in_flight.awaiting)
+		) {
 			query.aborted = Errors.canceled();
 			return Promise.resolve();
 		}
@@ -875,7 +1016,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			return Promise.resolve();
 		}
 
-		const x = sent.find((item) => item.query === query);
+		const x = sent.find((item): item is UserExchange | LocalExchange => item.query === query);
 		// A local exchange wrote nothing, and fails with its own error
 		if (!x || x.kind === "local") {
 			return Promise.resolve();
@@ -891,7 +1032,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			}
 			return x.cancel.promise;
 		}
-		return x.copy ? cancel_copy(x) : stop(x);
+		return x.kind !== "step" && x.copy ? cancel_copy(x) : stop(x);
 	}
 
 	function close() {
@@ -978,24 +1119,27 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			head = sent[0],
 			fatal =
 				connection_error || (head && head.error && head.error.severity === "FATAL" && head.error);
-		closed = Errors.connection(
+		const ended = Errors.connection(
 			destroyed ? "CONNECTION_DESTROYED" : "CONNECTION_CLOSED",
 			options,
 			ready.host,
 			ready.port,
 		);
-		closed.cause = fatal || error || undefined;
+		closed = ended;
+		ended.cause = fatal || error || undefined;
 		// A FATAL error that came with no query to give it to, such as from
 		// idle_in_transaction_session_timeout, is what ended the lease (if any)
 		let lease_error =
 			connection_error && connection_error.severity === "FATAL" ? connection_error : null;
 		sent.splice(0).forEach((x) => {
-			// The query fails with `closed`, so there is nothing left to cancel
-			if (x.cancel) {
-				x.cancel.resolve();
-			}
-			if (x.stream) {
-				x.stream.destroy(closed);
+			if (user(x)) {
+				// The query fails with `closed`, so there is nothing left to cancel
+				if (x.cancel) {
+					x.cancel.resolve();
+				}
+				if (x.kind !== "step" && x.kind !== "local" && x.stream) {
+					x.stream.destroy(ended);
+				}
 			}
 			if (x.own) {
 				settle(x);
@@ -1007,7 +1151,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			}
 			// The head's own FATAL error is copied too, because it may be `closed.cause`, which every
 			// copy of `closed` shares
-			const reason = x === head && x.error && x.error.severity === "FATAL" ? x.error : closed,
+			const reason = x === head && x.error && x.error.severity === "FATAL" ? x.error : ended,
 				copied = copy_error(reason);
 			// settleError adds x's query to `copied`
 			settleError(x, copied);
@@ -1017,19 +1161,19 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 			if (
 				x === head &&
 				lease_error === null &&
-				(reason === closed || (reason === fatal && !x.ends))
+				(reason === ended || (reason === fatal && !x.ends))
 			) {
 				lease_error = copied;
 			}
 		});
-		pending.splice(0).forEach((x) => (x.own ? settle(x) : settleError(x, copy_error(closed))));
-		running.forEach((query) => query.settled || query.reject(decorate(query, copy_error(closed))));
+		pending.splice(0).forEach((x) => (x.own ? settle(x) : settleError(x, copy_error(ended))));
+		running.forEach((query) => query.settled || query.reject(decorate(query, copy_error(ended))));
 		running.clear();
 		open.clear();
 		if (resolve_closing) {
 			resolve_closing();
 		}
-		events.onclose(connection, closed, lease_error, orderly);
+		events.onclose(connection, ended, lease_error, orderly);
 	}
 
 	function decorate(query: Query, error: unknown) {
@@ -1044,17 +1188,23 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 	}
 
-	function debug(query_text: string, values: Value[] | null, oids: number[] | null) {
+	function debug(query_text: string, values: Value[], oids: number[]) {
 		if (typeof options.debug === "function") {
 			options.debug(connection.id, query_text, values, oids);
 		}
 	}
 
-	function wrote(x: Exchange) {
-		const trace = x.trace;
+	/** Fills in `trace`, the trace of exchange `x`, as `x` is written */
+	function wrote(x: UserExchange, trace: postgres.QueryTrace) {
 		traced++;
-		trace.query = x.text || x.statement.text;
-		trace.statement = x.statement ? x.statement.name : "";
+		if (x.kind === "simple") {
+			trace.query = x.text;
+			trace.statement = "";
+		} else {
+			const { statement } = x.kind === "step" ? x.origin : x;
+			trace.query = statement.text;
+			trace.statement = statement.name;
+		}
 		trace.parameters = options.debug ? x.query.parameters : undefined;
 		trace.connection = connection.id;
 		trace.host = connection.host;
@@ -1064,7 +1214,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function first() {
 		const x = sent[0];
-		if (x && x.trace && x.trace.firstByte === null) {
+		if (x && user(x) && x.trace && x.trace.firstByte === null) {
 			x.trace.firstByte = now();
 		}
 	}
@@ -1161,7 +1311,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function fail(x: Exchange, error: Failure) {
 		x.error = x.error || error;
-		x.describing = false;
+		if (x.kind === "query") {
+			x.describing = false;
+		}
 		x.open = false;
 		sync(x);
 	}
@@ -1172,10 +1324,36 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 	}
 
-	function ParseComplete() {
-		const x = sent[0],
-			name = x.parses.shift();
+	/**
+	 * @param message - the message's name, for the error
+	 * @param kinds - the kinds of exchange that the server answers with the message
+	 * @returns the head of `sent`, which the server's `message` answers
+	 * @throws UNEXPECTED_MESSAGE if nothing is in flight, or the head is of another kind: the server
+	 *   broke the protocol, or this file has a bug
+	 */
+	function answered<K extends Exchange["kind"]>(message: string, ...kinds: K[]) {
+		const x = sent[0];
+		if (x === undefined) {
+			throw Errors.generic(
+				"UNEXPECTED_MESSAGE",
+				"A " + message + " came while nothing was in flight",
+			);
+		}
+		if (!(kinds as string[]).includes(x.kind)) {
+			throw Errors.generic(
+				"UNEXPECTED_MESSAGE",
+				"A " + message + " came for a " + x.kind + " exchange",
+			);
+		}
+		return x as Extract<Exchange, { kind: K }>;
+	}
 
+	function ParseComplete() {
+		const x = answered("ParseComplete", "query", "describe");
+		if (x.kind === "describe") {
+			return;
+		}
+		const name = x.parses.shift();
 		if (
 			name &&
 			x.entry &&
@@ -1188,7 +1366,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function BindComplete() {
-		const x = sent[0];
+		const x = answered("BindComplete", "query");
 		x.bound = true;
 		if (!x.columns && x.entry) {
 			x.columns = x.entry.columns;
@@ -1197,29 +1375,35 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function ParameterDescription(x: Buffer, start: number) {
-		sent[0].params = p.parameterDescription(x, start);
+		answered("ParameterDescription", "query", "describe").params = p.parameterDescription(x, start);
 	}
 
 	function RowDescription(x: Buffer, start: number) {
-		received(sent[0], p.rowDescription(x, start, 0, column));
+		received(
+			answered("RowDescription", "query", "simple", "describe"),
+			p.rowDescription(x, start, 0, column),
+		);
 	}
 
 	function NoData() {
-		received(sent[0], []);
+		received(answered("NoData", "query", "describe"), []);
 	}
 
-	function received(x: Exchange, columns: Column[]) {
+	function received(x: QueryExchange | SimpleExchange | DescribeExchange, columns: Column[]) {
 		if (x.kind === "simple" && x.result.command !== null) {
 			x.results.push(x.result);
 			x.result = new Result();
 		}
 		x.columns = columns;
 		x.result.columns = columns;
+		if (x.kind !== "query") {
+			return;
+		}
 		if (x.learn) {
 			x.learn = false;
 			if (x.entry && x.entry.owner === x) {
-				x.entry.columns = columns;
-				learned(x.entry, x.statement);
+				// A query whose types were all given: the entry was made with them
+				learned(x.entry, x.statement, x.query.wire.built.oids, columns);
 			}
 		}
 		if (x.describing) {
@@ -1240,12 +1424,14 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function DataRow(x: Buffer, start: number) {
-		const item = sent[0],
+		const item = answered("DataRow", "query", "simple", "step"),
 			{ query, columns } = item,
 			raw = query.isRaw,
 			from = raw !== true ? transform.value.from : null;
-		if (item.shaped !== columns) {
-			item.shaped = columns;
+		if (columns === null) {
+			throw Errors.generic("UNEXPECTED_MESSAGE", "A DataRow came before the RowDescription");
+		}
+		if (item.reader === null || item.reader.columns !== columns) {
 			item.reader = Rows(columns);
 		}
 		const shape = item.reader,
@@ -1298,7 +1484,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function CommandComplete(x: Buffer, start: number, end: number) {
-		const item = sent[0],
+		const item = answered("CommandComplete", "query", "simple", "step", "internal"),
 			{ command, count } = p.commandComplete(x, start, end),
 			result = item.result;
 
@@ -1306,32 +1492,29 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		result.count = count;
 		result.state = connection.backend;
 		result.statement = item;
-		if (item.query) {
-			item.query.source = item;
+		if (item.kind === "internal") {
+			return;
 		}
+		item.query.source = item;
 		result.columns = result.columns || item.columns;
 
-		if (item.final) {
-			if (item.stream) {
-				Object.assign(item.stream, { count, command });
-			}
-			item.final();
-			item.final = null;
-		}
-
 		if (item.kind === "simple") {
+			finalize_copy(item, command, count);
 			item.results.push(item.result);
 			item.result = new Result();
 			return;
 		}
 
-		if (item.rows) {
-			item.finished = true;
-			if (item.flushing) {
+		if (item.kind === "query") {
+			finalize_copy(item, command, count);
+		}
+		const cursor = item.kind === "query" ? item.cursor : item.origin.cursor;
+		if (cursor) {
+			if (unnamed_cursor(item)) {
 				sync(item);
 			}
 			if (result.count) {
-				(item.last = new Promise((r) => r(item.query.cursorFn(result)))).catch(noop);
+				(item.last = new Promise((r) => r(cursor_callback(item.query)(result)))).catch(noop);
 			}
 		}
 	}
@@ -1344,16 +1527,11 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 				x.own = unsafe_transaction();
 			}
 		}
-		pending.unshift(
-			Exchange("internal", null, null, (x) => {
-				p.query(out, "rollback");
-				x.synced = true;
-			}),
-		);
+		pending.unshift(InternalExchange());
 	}
 
 	function EmptyQueryResponse() {
-		const item = sent[0];
+		const item = answered("EmptyQueryResponse", "query", "simple");
 		if (item.kind === "simple") {
 			item.results.push(item.result);
 			item.result = new Result();
@@ -1361,12 +1539,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function PortalSuspended() {
-		const item = sent[0];
-		if (!item.flushing) {
+		const item = answered("PortalSuspended", "query", "step");
+		if (unnamed_cursor(item)) {
+			void resume(item);
+		} else {
 			item.suspended = true;
-			return;
 		}
-		void resume(item);
 	}
 
 	/**
@@ -1374,10 +1552,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 * what the callback returned, fetches the next rows or closes the portal. Async, so its errors
 	 * cannot reach frame()'s catch: it fails `item` with them itself.
 	 */
-	async function resume(item: Exchange) {
+	async function resume(item: CursorExchange) {
 		try {
 			item.awaiting = true;
-			const next = await item.query.cursorFn(item.result);
+			const next = await cursor_callback(item.query)(item.result);
 			item.awaiting = false;
 			item.result = new Result();
 			if (closed || item.synced || sent[0] !== item) {
@@ -1390,7 +1568,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 				p.close(out, "P", "");
 				sync(item);
 			} else {
-				p.execute(out, "", item.rows);
+				p.execute(out, "", item.cursor.rows);
 				p.flush(out);
 				schedule();
 			}
@@ -1416,12 +1594,14 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 		// First, so that the stream's destroy knows that the server has already failed the COPY
 		fail(item, error);
-		if (item.stream) {
-			item.stream.destroy(error);
-		}
-		if (item.final) {
-			item.final(error);
-			item.final = null;
+		if (item.kind === "query" || item.kind === "simple") {
+			if (item.stream) {
+				item.stream.destroy(error);
+			}
+			if (item.final) {
+				item.final(error);
+				item.final = null;
+			}
 		}
 	}
 
@@ -1429,12 +1609,18 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		status = p.readyForQuery(x, start);
 		frames.own(false);
 		const item = sent.shift();
+		if (item === undefined) {
+			throw Errors.generic(
+				"UNEXPECTED_MESSAGE",
+				"A ReadyForQuery came while nothing was in flight",
+			);
+		}
 		if (options.scheduler) {
 			timed(item);
 		}
 		item.done = true;
 		item.open = false;
-		if (item.trace) {
+		if (user(item) && item.trace) {
 			traced--;
 		}
 		if (item.kind === "internal") {
@@ -1449,17 +1635,19 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		settle(item);
 		// So that the cached statement no longer keeps the query that prepared it, with its values
 		// and rows
-		if (item.entry && item.entry.owner === item) {
+		if (item.kind === "query" && item.entry && item.entry.owner === item) {
 			item.entry.owner = null;
 		}
-		while (sent.length && sent[0].kind === "local") {
-			settle(sent.shift());
+		for (let settled = sent[0]; settled && settled.kind === "local"; settled = sent[0]) {
+			sent.shift();
+			settle(settled);
 		}
 		const next = sent[0];
-		if (next && next.query) {
+		if (next && user(next)) {
 			next.query.active = true;
-			if (next.cancel) {
-				stop(next).then(() => next.cancel.resolve(), next.cancel.reject);
+			const { cancel: requested } = next;
+			if (requested && next.kind !== "local") {
+				stop(next).then(() => requested.resolve(), requested.reject);
 			}
 		}
 		release();
@@ -1482,9 +1670,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 
 		const { query } = x,
-			cursor = x.origin || (x.portal ? x : null);
-		if (cursor && (x.own || x.error || !x.suspended)) {
-			unfence(cursor);
+			origin = cursor_of(x),
+			waiting = (x.kind === "query" || x.kind === "step") && x.suspended;
+		if (origin && (x.own || x.error || !waiting)) {
+			unfence(origin);
 		}
 
 		if (x.own) {
@@ -1493,17 +1682,18 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 
 		if (x.error) {
-			failed(x);
+			failed(x, x.error);
 			return;
 		}
 
-		if (x.suspended) {
+		if ((x.kind === "query" || x.kind === "step") && x.suspended) {
 			suspended(x);
 			return;
 		}
 
-		if (x.last) {
-			x.last.then(
+		const last = x.kind === "query" || x.kind === "step" ? x.last : null;
+		if (last) {
+			last.then(
 				() => query.settled || finish(x),
 				(error) => query.settled || query.reject(decorate(query, error)),
 			);
@@ -1512,7 +1702,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 	}
 
-	function unfence(cursor: Exchange) {
+	function unfence(cursor: CursorExchange) {
 		if (!open.delete(cursor) || open.size || !fence) {
 			return;
 		}
@@ -1520,56 +1710,62 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		release();
 	}
 
-	function failed(x: Exchange) {
-		const entry = x.kind === "query" ? x.entry : null;
-		const parsing = x.fresh || (entry && entry.owner === x && entry.state === "parsing");
+	/** Fails exchange `x` with `error`, the server's; or runs a query again, for an error that a stale cache entry caused */
+	function failed(x: UserExchange | LocalExchange, error: Failure) {
+		if (x.kind !== "query") {
+			settleError(x, error);
+			return;
+		}
+		const { entry } = x,
+			parsing =
+				x.fresh !== null || (entry !== null && entry.owner === x && entry.state === "parsing");
 
-		if (x.error.code === "42P05" && x.kind === "query" && x.statement.name && parsing) {
+		if (error.code === "42P05" && x.statement.name && parsing) {
 			if (entry) {
 				drop(entry);
 			}
 			x.statement.name += "_";
-			again_or_fail(x);
+			again_or_fail(x, error);
 			return;
 		}
 
 		if (!entry) {
-			settleError(x, x.error);
+			settleError(x, error);
 			return;
 		}
 
 		if (entry.owner === x && entry.state === "parsing") {
 			drop(entry);
-			settleError(x, x.error);
+			settleError(x, error);
 			return;
 		}
 
-		if (x.error.code === "26000") {
+		if (error.code === "26000") {
 			drop(entry);
-			again_or_fail(x);
+			again_or_fail(x, error);
 			return;
 		}
 
 		if (x.bound) {
-			settleError(x, x.error);
+			settleError(x, error);
 			return;
 		}
 
 		if (retryable(x)) {
-			again(x, x.error);
+			again(x, error);
 			return;
 		}
 
 		stale(entry);
-		settleError(x, x.error);
+		settleError(x, error);
 	}
 
-	/** Runs `x` again if it can be run again (see `retryable`), and otherwise fails it with its error */
-	function again_or_fail(x: Exchange) {
+	/** Runs `x` again if it can be run again (see `retryable`), and otherwise fails it with `error` */
+	function again_or_fail(x: QueryExchange, error: Failure) {
 		if (retryable(x)) {
 			again(x, null);
 		} else {
-			settleError(x, x.error);
+			settleError(x, error);
 		}
 	}
 
@@ -1579,12 +1775,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 	}
 
-	function retryable(x: Exchange) {
+	function retryable(x: QueryExchange) {
 		return (
 			!x.retried &&
 			!x.stopped &&
 			!x.query.cancelled &&
-			!x.query.cursorFn &&
+			x.cursor === null &&
 			!x.streaming &&
 			x.lease === connection.lease &&
 			status === "I" &&
@@ -1593,9 +1789,8 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		);
 	}
 
-	function again(x: Exchange, original: Failure | null) {
-		const retry = Exchange("query", x.query, x.lease, extended);
-		retry.statement = x.statement;
+	function again(x: QueryExchange, original: Failure | null) {
+		const retry = QueryExchange(x.query, x.lease, x.statement);
 		retry.ends = x.ends;
 		retry.retried = true;
 		retry.original = original;
@@ -1612,41 +1807,36 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		release();
 	}
 
-	function suspended(x: Exchange) {
-		const cursor = x.origin || x,
+	/**
+	 * Gives the cursor's callback the rows of exchange `x` (the cursor's, or a step's), whose named
+	 * portal PortalSuspended has suspended; then queues the next step: an Execute, or the Close that
+	 * what the callback returned or threw asks for.
+	 */
+	function suspended(x: QueryExchange | StepExchange) {
+		const origin = x.kind === "step" ? x.origin : is_cursor(x) ? x : null,
 			{ query } = x;
+		if (origin === null) {
+			throw new Error("Bug: a PortalSuspended came for a query without a cursor");
+		}
 
 		running.add(query);
 
-		new Promise((r) => r(query.cursorFn(x.result))).then(
+		new Promise((r) => r(cursor_callback(query)(x.result))).then(
 			(next) => {
 				running.delete(query);
 				if (query.settled) {
-					return unfence(cursor);
+					return unfence(origin);
 				}
-				queue(step(cursor, next === CLOSE || !!query.aborted, query.aborted || null));
+				queue(StepExchange(origin, next === CLOSE || !!query.aborted, query.aborted || null));
 			},
 			(error) => {
 				running.delete(query);
 				if (query.settled) {
-					return unfence(cursor);
+					return unfence(origin);
 				}
-				queue(step(cursor, true, error));
+				queue(StepExchange(origin, true, error));
 			},
 		);
-	}
-
-	function step(cursor: Exchange, end: boolean, failure: Failure | null) {
-		const x = Exchange("step", cursor.query, cursor.lease, stepped);
-		x.origin = cursor;
-		x.statement = cursor.statement;
-		x.entry = cursor.entry;
-		x.columns = cursor.columns;
-		x.portal = cursor.portal;
-		x.rows = cursor.rows;
-		x.end = end;
-		x.failure = failure;
-		return x;
 	}
 
 	/**
@@ -1656,10 +1846,10 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 * @throws the step's failure, or UNSAFE_TRANSACTION for a step that would read from a cursor
 	 *   whose transaction has ended
 	 */
-	function stepped(x: Exchange) {
-		const cursor = x.origin;
+	function stepped(x: StepExchange) {
+		const { origin } = x;
 
-		if (connection.lease !== cursor.lease || cursor.epoch !== epoch) {
+		if (connection.lease !== origin.lease || origin.epoch !== epoch) {
 			if (x.failure) {
 				throw x.failure;
 			}
@@ -1671,9 +1861,9 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 		x.own = x.failure;
 		if (x.end) {
-			p.close(out, "P", x.portal);
+			p.close(out, "P", origin.cursor.portal);
 		} else {
-			p.execute(out, x.portal, x.rows);
+			p.execute(out, origin.cursor.portal, origin.cursor.rows);
 		}
 		sync(x);
 		return null;
@@ -1729,7 +1919,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 * head of `sent` (which is empty once the connection has closed), and its
 	 * stream is still attached
 	 */
-	function in_progress(item: Exchange) {
+	function in_progress(item: CopyExchange) {
 		return !!item.stream && sent[0] === item;
 	}
 
@@ -1740,12 +1930,12 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 * written behind the COPY, so only a COPY in progress that is the first
 	 * statement of its query, outside a transaction block, and alone on the wire.
 	 */
-	function cancellable(item: Exchange) {
+	function cancellable(item: CopyExchange) {
 		return (
 			in_progress(item) &&
 			status === "I" &&
 			!item.error &&
-			!(item.results && item.results.length) &&
+			!(item.kind === "simple" && item.results.length) &&
 			sent.length === 1
 		);
 	}
@@ -1757,7 +1947,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 *
 	 * @param item the exchange whose COPY the stream belonged to
 	 */
-	function discard(item: Exchange) {
+	function discard(item: CopyExchange) {
 		const reading = in_progress(item);
 		item.stream = null;
 		if (reading) {
@@ -1772,7 +1962,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	 * with `message`. A COPY BOTH ends with CopyDone, because walsender, the server
 	 * of COPY BOTH, takes CopyFail as a FATAL error.
 	 */
-	function end_copy(item: Exchange, message: string) {
+	function end_copy(item: CopyExchange, message: string) {
 		if (item.copy === "both") {
 			p.copyDone(out);
 		} else {
@@ -1792,7 +1982,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		}
 	}
 
-	function writable(item: Exchange): Stream.WritableOptions {
+	function writable(item: CopyExchange): Stream.WritableOptions {
 		return {
 			autoDestroy: true,
 			write(chunk, encoding, callback) {
@@ -1818,7 +2008,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function CopyInResponse() {
-		const item = sent[0];
+		const item = answered("CopyInResponse", "query", "simple");
 		item.copy = "in";
 		// The server holds back a cancel request while it waits for COPY data, so a
 		// cancelled COPY FROM ends with CopyFail
@@ -1829,7 +2019,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		item.query.resolve(item.stream);
 	}
 
-	function readable(item: Exchange) {
+	function readable(item: CopyExchange) {
 		return () => {
 			item.wanted = true;
 			unpause();
@@ -1837,7 +2027,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function CopyOutResponse() {
-		const item = sent[0];
+		const item = answered("CopyOutResponse", "query", "simple");
 		item.copy = "out";
 		item.stream = new Stream.Readable({
 			read: readable(item),
@@ -1857,7 +2047,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function CopyBothResponse() {
-		const item = sent[0];
+		const item = answered("CopyBothResponse", "query", "simple");
 		item.copy = "both";
 		// The server holds back a cancel request while it waits for COPY data, so a
 		// cancelled COPY BOTH ends with CopyDone, which fails nothing
@@ -1871,7 +2061,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function CopyData(x: Buffer, start: number, end: number) {
-		const item = sent[0];
+		const item = answered("CopyData", "query", "simple");
 
 		if (!item.stream) {
 			return;
@@ -1891,7 +2081,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function CopyDone() {
 		frames.own(false);
-		const item = sent[0];
+		const item = answered("CopyDone", "query", "simple");
 		if (item.stream) {
 			(item.stream as Stream.Readable).push(null);
 		}
@@ -1904,6 +2094,28 @@ function unsafe_transaction() {
 	return Errors.generic("UNSAFE_TRANSACTION", "Only use sql.begin, sql.reserved or max: 1");
 }
 
+/** @returns the exchange of the cursor (with a named portal) that `x` is, steps, or closes; else null */
+function cursor_of(x: UserExchange | LocalExchange) {
+	if (x.kind === "step" || x.kind === "local") {
+		return x.origin;
+	}
+	return is_cursor(x) && x.cursor.portal ? x : null;
+}
+
+/**
+ * Calls the final callback of the COPY FROM stream of `item`, if one waits, once the server has
+ * answered the COPY with its command tag, `command` and `count`, which the stream gets too.
+ */
+function finalize_copy(item: CopyExchange, command: string, count: number | null) {
+	if (item.final) {
+		if (item.stream) {
+			Object.assign(item.stream, { count, command });
+		}
+		item.final();
+		item.final = null;
+	}
+}
+
 /**
  * @returns whether nothing may be written behind exchange `x` yet. A COPY holds
  * the connection until its ReadyForQuery, so that no query waits behind a slow
@@ -1911,26 +2123,53 @@ function unsafe_transaction() {
  */
 function holds(x: Exchange) {
 	return (
-		x.describing ||
+		(x.kind === "query" && (x.describing || (unnamed_cursor(x) && !x.synced))) ||
 		(x.error !== null && !x.done) ||
-		(x.flushing && !x.synced) ||
 		(x.streaming && !x.done) ||
 		(x.alone && !x.done)
 	);
 }
 
 function exclusive(x: Exchange) {
-	return x.flushing || x.streaming || x.alone;
+	return unnamed_cursor(x) || x.streaming || x.alone;
 }
 
-function cost(x: Exchange) {
+/** @returns whether `x` is an exchange of a user's query, which the connection's own work is not */
+function user(x: Exchange): x is UserExchange | LocalExchange {
+	return x.kind !== "describe" && x.kind !== "internal";
+}
+
+/**
+ * @returns the callback of the cursor of `query`, read when a batch of rows is ready, because the
+ *   async iterator of .cursor() gives the query a new callback for each batch
+ */
+function cursor_callback(query: Query) {
+	const { cursorFn } = query;
+	if (cursorFn === null) {
+		throw new Error("Bug: the query of a cursor has no callback");
+	}
+	return cursorFn;
+}
+
+/** @returns whether `x` is a query made with .cursor() */
+function is_cursor(x: Exchange): x is CursorExchange {
+	return x.kind === "query" && x.cursor !== null;
+}
+
+/** @returns whether `x` is a cursor of the unnamed portal, whose Execute a Flush follows, not a Sync */
+function unnamed_cursor(x: Exchange): x is CursorExchange {
+	return is_cursor(x) && x.cursor.portal === "";
+}
+
+function cost(x: QueryExchange | SimpleExchange) {
 	const { query } = x;
-	if (query.cost && !query.cursorFn && !query.streaming) {
+	if (query.cost && !is_cursor(x) && !x.streaming) {
 		x.cost = query.cost.est === undefined ? unknown : query.cost.est;
 	}
 }
 
-function usable(entry: Entry, statement: Statement) {
+/** @returns whether the cached `entry` can run `statement` as it is: described, and of the statement's shape */
+function usable(entry: Entry, statement: Statement): entry is Entry & { oids: number[] } {
 	return (
 		entry.oids !== null &&
 		(entry.state === "parsing" || (entry.state === "ready" && entry.version === statement.version))
@@ -1963,7 +2202,7 @@ function outlived() {
 	return Errors.generic("UNSAFE_TRANSACTION", "The cursor outlived its transaction");
 }
 
-function finish(x: Exchange) {
+function finish(x: UserExchange | LocalExchange) {
 	const { query } = x;
 
 	if (x.kind === "simple") {
@@ -1997,77 +2236,151 @@ export function own(row: object, name: string, value: unknown) {
 }
 
 /**
- * @returns a new exchange of `kind`, for `query` (null for the connection's own work), sent through
- *   `lease` (null for the pool's), whose messages `write` writes
+ * @param lease - the lease that the exchange is sent through, or null for the pool's own work
+ * @param query - the query, or null for the connection's own work
+ * @returns what every exchange starts with
  */
-function Exchange(
-	kind: Exchange["kind"],
-	query: Query | null,
-	lease: Lease | null,
-	write: Exchange["write"],
-): Exchange {
+function base(lease: Lease | null, query: Query | null): Base {
 	return {
-		kind,
-		query,
 		lease,
-		write,
-		trace: (query && query.trace) || null,
-		statement: null,
-		text: "",
+		result: new Result(),
+		synced: false,
+		done: false,
+		epoch: 0,
+		ends: false,
+		alone: query?.alone ?? false,
+		streaming: query?.streaming ?? false,
+		open: query?.streaming ?? false,
+		error: null,
+		own: null,
+		cost: undefined,
+	};
+}
+
+/** @returns what every exchange of `query`, sent through `lease`, starts with */
+function user_base(query: Query, lease: Lease | null): UserBase {
+	return {
+		...base(lease, query),
+		query,
+		trace: query.trace,
+		cancel: null,
+		stopped: false,
+		stopping: null,
+	};
+}
+
+/** @returns what every exchange that may turn out to be a COPY starts with */
+function copying(): Copying {
+	return { stream: null, copy: null, copied: false, wanted: false, final: null };
+}
+
+/** @returns a new exchange of the extended protocol, for `query`, of `statement`, sent through `lease` */
+function QueryExchange(query: Query, lease: Lease | null, statement: Statement): QueryExchange {
+	return {
+		...user_base(query, lease),
+		...copying(),
+		kind: "query",
+		statement,
+		cursor: query.cursorFn ? { rows: query.cursorRows, portal: "" } : null,
+		columns: null,
+		reader: null,
 		entry: null,
 		fresh: null,
 		previous: null,
 		parses: [],
-		values: null,
 		params: null,
-		columns: null,
-		// The result format of each column for Bind, or null for text
 		formats: null,
-		shaped: null,
-		reader: null,
-		result: new Result(),
-		results: null,
-		origin: null,
-		portal: "",
-		rows: 0,
-		end: false,
-		failure: null,
-		flushing: false,
-		streaming: false,
-		open: false,
-		alone: query?.alone ?? false,
 		describing: false,
 		learn: false,
 		verify: false,
-		synced: false,
 		bound: false,
 		suspended: false,
-		finished: false,
-		done: false,
-		ends: false,
-		epoch: 0,
-		retried: false,
-		original: null,
-		error: null,
-		own: null,
-		cancel: null,
-		// Whether a cancel request has been sent for this exchange
-		stopped: false,
-		// The promise of this exchange's cancel request while that request is in flight; otherwise null
-		stopping: null,
-		stream: null,
-		// "in", "out" or "both", once the server has started a COPY FROM, TO or BOTH
-		copy: null,
-		// Whether we have sent all of the COPY data, for COPY FROM and COPY BOTH
-		copied: false,
-		wanted: false,
 		awaiting: false,
 		last: null,
-		final: null,
-		resolve: null,
-		reject: null,
-		cost: undefined,
+		retried: false,
+		original: null,
 	};
+}
+
+/** @returns a new exchange of the simple protocol, for `query`, of `query_text`, sent through `lease` */
+function SimpleExchange(query: Query, lease: Lease | null, query_text: string): SimpleExchange {
+	return {
+		...user_base(query, lease),
+		...copying(),
+		kind: "simple",
+		text: query_text,
+		results: [],
+		columns: null,
+		reader: null,
+	};
+}
+
+/**
+ * @param origin - the cursor's exchange
+ * @param end - whether the step closes the cursor
+ * @param failure - what the cursor's callback threw, which the step fails its query with
+ * @returns a new step of the cursor
+ */
+function StepExchange(origin: CursorExchange, end: boolean, failure: Failure | null): StepExchange {
+	return {
+		...user_base(origin.query, origin.lease),
+		kind: "step",
+		origin,
+		end,
+		failure,
+		columns: origin.columns,
+		reader: null,
+		suspended: false,
+		last: null,
+	};
+}
+
+/**
+ * @param lease - the lease that the describe is sent through, or null for the pool's own
+ * @param statement_text - the statement's text
+ * @param oids - the types of the parameters that the caller knows; 0 for one to describe
+ * @param resolve - gets the statement's description
+ * @param reject - gets the error that the server answered with
+ * @returns a new Describe of the statement
+ */
+function DescribeExchange(
+	lease: Lease | null,
+	statement_text: string,
+	oids: number[],
+	resolve: (description: Description) => void,
+	reject: (error: unknown) => void,
+): DescribeExchange {
+	return {
+		...base(lease, null),
+		kind: "describe",
+		query: null,
+		text: statement_text,
+		oids,
+		params: null,
+		columns: null,
+		resolve,
+		reject,
+	};
+}
+
+/** @returns a new exchange of the connection's own: the rollback of an unsafe transaction */
+function InternalExchange(): InternalExchange {
+	return { ...base(null, null), kind: "internal", query: null };
+}
+
+/**
+ * @param error - the error that the query failed with before it was written, or null for a step that
+ *   only closes a cursor
+ * @param origin - for a step: the cursor's exchange
+ * @returns a new local exchange for `query`, sent through `lease`: see LocalExchange
+ */
+function LocalExchange(
+	query: Query,
+	lease: Lease | null,
+	error: Failure | null,
+	origin: CursorExchange | null,
+): LocalExchange {
+	return { ...user_base(query, lease), kind: "local", origin, own: error };
 }
 
 /**
@@ -2077,7 +2390,7 @@ function Exchange(
  * @param oids - the types of the parameters, or null until the server has described them
  * @returns the connection's cache entry for a prepared statement
  */
-function Entry(name: string, owner: Exchange, oids: number[] | null): Entry {
+function Entry(name: string, owner: QueryExchange, oids: number[] | null): Entry {
 	return {
 		name,
 		owner,

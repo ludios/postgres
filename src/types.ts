@@ -377,13 +377,13 @@ export function Types(
 
 	/**
 	 * @param oid - the type of a column
-	 * @param parse - the parser that the column's values get, as text
+	 * @param parse - the parser that the column's values get, as text; null or undefined for none
 	 * @returns a decoder `(x, start, end) => value` of the column's values in the binary format,
 	 *   which gives what `parse` gives for the text; or null, if the column is read as text: a type
 	 *   without such a decoder, or one whose parser, or whose elements' parser, is not the built-in
 	 *   one (such as one from options.types or sql.options.parsers)
 	 */
-	function binary(oid: number, parse: Parser | undefined) {
+	function binary(oid: number, parse: Parser | null | undefined) {
 		if (oid === 17) {
 			return parse === types.bytea.parse ? binary_bytea : null;
 		}

@@ -57,7 +57,7 @@ export class Query extends Promise<any> {
 	declare originError: Error | null;
 	declare streaming: boolean;
 	declare cursorRows: number;
-	declare cursorFn: CursorFn;
+	declare cursorFn: CursorFn | null;
 	declare onlyDescribe: boolean;
 	declare forEachFn: (row: any, result: any) => unknown;
 	/** `true` for `.raw()`, `"values"` for `.values()`. */
@@ -111,6 +111,8 @@ export class Query extends Promise<any> {
 		this.trace = null;
 		this.aborts = null;
 		this.streaming = false;
+		this.cursorFn = null;
+		this.cursorRows = 0;
 
 		this.originError = handler.debug ? new Error() : null;
 		if (this.tagged && !handler.debug && !origins.has(strings)) {

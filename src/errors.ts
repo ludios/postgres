@@ -51,7 +51,7 @@ export const Errors = {
 	notSupported,
 };
 
-function connection(code: string, options: Options, host: string, port: number) {
+function connection(code: string, options: Options, host: string | null, port: number) {
 	const address = options.path || host,
 		error = Object.assign(
 			new Error("write " + code + " " + (options.path || host + ":" + port)),

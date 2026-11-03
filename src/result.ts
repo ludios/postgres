@@ -2,7 +2,7 @@ import type { Exchange } from "./connection.ts";
 import type { Column } from "./protocol.ts";
 
 /** The statement of a Result, as .statement gives it: see README's "### .statement" */
-type Described = ReturnType<typeof statement>;
+type Described = { name: string; string: string; types: number[]; columns: Column[] };
 
 export default class Result extends Array {
 	#count: number | null = null;
@@ -50,12 +50,21 @@ export default class Result extends Array {
 	}
 }
 
-export function statement(item: Exchange) {
-	const x = item.statement;
-	return {
-		name: x ? x.name : "",
-		string: x ? x.text : item.text || "",
-		types: item.params || (item.entry && item.entry.oids) || [],
-		columns: item.columns || [],
-	};
+export function statement(item: Exchange): Described {
+	switch (item.kind) {
+		case "query":
+			return {
+				name: item.statement.name,
+				string: item.statement.text,
+				types: item.params || (item.entry && item.entry.oids) || [],
+				columns: item.columns || [],
+			};
+		case "step":
+			// The step's own exchange learns nothing of the statement: the cursor's did
+			return statement(item.origin);
+		case "simple":
+			return { name: "", string: item.text, types: [], columns: item.columns || [] };
+		default:
+			return { name: "", string: "", types: [], columns: [] };
+	}
 }

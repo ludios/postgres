@@ -33,8 +33,9 @@ export function active(t: Tracing | null) {
 	);
 }
 
-export function listened(channel: Channel | null) {
-	return !!channel && channel.hasSubscribers;
+/** @returns whether `channel` exists and has subscribers, so that publishing to it is worth the work */
+export function listened(channel: Channel | null): channel is Channel {
+	return channel !== null && channel.hasSubscribers;
 }
 
 export function start<T>(t: Tracing, context: object, fn: () => T): T {
