@@ -74,13 +74,19 @@ test("Queue stays small when items cycle through it without it ever draining (#7
 	expect([q.length, process.memoryUsage().heapUsed - before < 1024 * 1024]).toEqual([3, true]);
 });
 
-/** An operation on a queue of numbers; remove() takes out the first item equal to its number */
+/**
+ * An operation on a queue of numbers: remove() takes out the first item equal to its number, and
+ * push_many() and shift_many() do many at once, so that a run gets past the 1024 shifts after which
+ * the queue compacts
+ */
 type Operation =
 	| { op: "push"; x: number }
 	| { op: "shift" }
 	| { op: "peek" }
 	| { op: "remove"; x: number }
-	| { op: "take" };
+	| { op: "take" }
+	| { op: "push_many"; n: number }
+	| { op: "shift_many"; n: number };
 
 const operation: fc.Arbitrary<Operation> = fc.oneof(
 	fc.record({ op: fc.constant("push" as const), x: fc.nat({ max: 20 }) }),
@@ -88,13 +94,29 @@ const operation: fc.Arbitrary<Operation> = fc.oneof(
 	fc.record({ op: fc.constant("peek" as const) }),
 	fc.record({ op: fc.constant("remove" as const), x: fc.nat({ max: 20 }) }),
 	fc.record({ op: fc.constant("take" as const) }),
+	// Often, and of up to 1500 items, so that about one run in ten compacts (measured: 102 of 1000)
+	{
+		arbitrary: fc.record({
+			op: fc.constant("push_many" as const),
+			n: fc.integer({ min: 1, max: 1500 }),
+		}),
+		weight: 4,
+	},
+	{
+		arbitrary: fc.record({
+			op: fc.constant("shift_many" as const),
+			n: fc.integer({ min: 1, max: 1500 }),
+		}),
+		weight: 4,
+	},
 );
 
 /**
  * @param ops - operations, run in order on a Queue and on a plain array
  * @returns what each operation gave on the Queue, then what each gave on the array: shift() and
- *   peek() the item (or "empty" for a shift() of an empty queue, which throws), remove() whether it
- *   removed, take() the items, push() the length after it
+ *   peek() the item (or the error's message for a shift() of an empty queue, which throws),
+ *   remove() whether it removed, take() the items, push() the queue's length after it, push_many()
+ *   the length after it, and shift_many() the items it shifted (no more than the queue had)
  */
 function compared(ops: Operation[]) {
 	const queue = Queue<number>(),
@@ -134,30 +156,32 @@ function compared(ops: Operation[]) {
 				want.push(model.splice(0));
 				break;
 			}
+			case "push_many": {
+				for (let i = 0; i < o.n; i++) {
+					queue.push(i % 21);
+					model.push(i % 21);
+				}
+				got.push(queue.length);
+				want.push(model.length);
+				break;
+			}
+			case "shift_many": {
+				const n = Math.min(o.n, model.length);
+				got.push(Array.from({ length: n }, () => queue.shift()));
+				want.push(model.splice(0, n));
+				break;
+			}
 		}
 	}
 	return [got, want];
 }
 
-test("Queue gives what a plain array gives, for any pushes, shifts, peeks, removes and takes", async () => {
+test("Queue gives what a plain array gives, for any pushes, shifts, peeks, removes and takes, also once it compacts", async () => {
 	fc.assert(
-		fc.property(fc.array(operation, { maxLength: 200 }), (ops) => {
+		fc.property(fc.array(operation, { maxLength: 60 }), (ops) => {
 			const [got, want] = compared(ops);
 			expect(got).toEqual(want);
 		}),
 		{ numRuns: 1000 },
-	);
-});
-
-test("Queue gives what a plain array gives past the 1024 shifts after which it compacts", async () => {
-	// Fill past the compaction point, then operate at random
-	const fill = Array.from({ length: 1100 }, (_, i) => ({ op: "push" as const, x: i % 21 })),
-		drain = Array.from({ length: 1050 }, () => ({ op: "shift" as const }));
-	fc.assert(
-		fc.property(fc.array(operation, { maxLength: 100 }), (ops) => {
-			const [got, want] = compared([...fill, ...drain, ...ops]);
-			expect(got).toEqual(want);
-		}),
-		{ numRuns: 200 },
 	);
 });
