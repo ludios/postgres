@@ -382,7 +382,8 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 		 * Whether an exchange that must run alone, such as a cursor or a stream, is in flight, or a
 		 * cancel request holds the connection (see `held`). The pool pipelines nothing onto an
 		 * exclusive connection. A query of its lease (if it has one) still comes to it, and waits in
-		 * `pending` until that exchange or the hold has ended (during a COPY, queue() fails it instead)
+		 * `pending` until that exchange has ended and no cancel request holds the connection (while a
+		 * COPY's stream is open, queue() fails it instead)
 		 */
 		get exclusive() {
 			return (!!blocker && exclusive(blocker)) || cancelling > 0;
@@ -2379,10 +2380,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 }
 
-/**
- * @returns the error for a query that left a transaction open on a pooled connection, and for each
- *   other query already sent on that connection
- */
+/** @returns a new error for a transaction left open on a pooled connection (UNSAFE_TRANSACTION) */
 function unsafe_transaction() {
 	return Errors.generic("UNSAFE_TRANSACTION", "Only use sql.begin, sql.reserve or max: 1");
 }

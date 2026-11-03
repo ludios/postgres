@@ -1185,10 +1185,10 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	/**
 	 * Settles connection `c` into idleness, if it has nothing in flight, no lease, is not closing
 	 * and is not waiting for the pool's types to load: publishes `idle` for it, unless a cancel
-	 * request holds it (then the one `idle` comes when the hold ends, through onready(), unless the
-	 * connection closes first); with `unref_sockets`, lets its socket go (unless queries wait that
-	 * `c` could not take); and with `idle_timeout`, starts its idle timer, or, if that is already
-	 * running, counts the timeout from now again.
+	 * request holds it (then, when the hold ends, onready() calls this again, unless onready()
+	 * closes the connection instead or the connection has already closed); with `unref_sockets`,
+	 * lets its socket go (unless queries wait that `c` could not take); and with `idle_timeout`,
+	 * starts its idle timer, or, if that is already running, counts the timeout from now again.
 	 * @param c - a connection that just opened, finished the last query it had in flight, was
 	 *   released, stopped waiting for the types, or stopped being held for a cancel request, after
 	 *   the pool has given it whatever waiting work it could
