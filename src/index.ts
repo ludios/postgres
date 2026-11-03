@@ -404,9 +404,9 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 					return savepoint((sp: any) => sp.apply(sp, arguments));
 				}
 
-				// With one argument, that is the callback, and the savepoint has no label
+				// With one argument, that is the callback, and there is no label; a falsy label is none too
 				const inner = callback === undefined ? (label as Body) : callback,
-					suffix = callback === undefined ? "" : "_" + (label as string);
+					suffix = callback !== undefined && label ? "_" + (label as string) : "";
 				return scope(inner, "s" + savepoints++ + suffix, false, stopped);
 			}
 
