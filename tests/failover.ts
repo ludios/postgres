@@ -59,9 +59,9 @@ if (!standby) {
 const state = { running: true };
 let id = 0,
 	written = 0,
-	lastPort: number | null = null,
-	failedAt: number | null = null,
-	resumedAt: number | null = null;
+	last_port: number | null = null,
+	failed_at: number | null = null,
+	resumed_at: number | null = null;
 const errors: Record<string, number> = {};
 
 async function write() {
@@ -71,9 +71,9 @@ async function write() {
 			const [{ port }] =
 				await writer`insert into failover values (${x}, inet_server_port()) returning port`;
 			written++;
-			lastPort = port;
-			if (failedAt && !resumedAt && port === 5435) {
-				resumedAt = Date.now();
+			last_port = port;
+			if (failed_at && !resumed_at && port === 5435) {
+				resumed_at = Date.now();
 			}
 		} catch (error) {
 			const { message, code: raw } = error as { code?: string | null; message: string },
@@ -92,15 +92,15 @@ async function write() {
 
 const writers = [...Array(4)].map(write);
 await delay(1000);
-const before = { written, port: lastPort };
+const before = { written, port: last_port };
 
 ctl("-D", dir + "/primary", "-m", "immediate", "stop");
-failedAt = Date.now();
+failed_at = Date.now();
 await delay(300);
 ctl("-D", dir + "/standby", "promote", "-w");
 
 const deadline = Date.now() + 20000;
-await until(() => resumedAt || Date.now() > deadline);
+await until(() => resumed_at || Date.now() > deadline);
 await delay(1000);
 state.running = false;
 await Promise.race([
@@ -111,11 +111,11 @@ await Promise.race([
 if (before.port !== 5434) {
 	failures.push("writes before the failover went to " + before.port);
 }
-if (!resumedAt) {
+if (!resumed_at) {
 	failures.push("writes did not resume within 20s of the failover");
 }
-if (lastPort !== 5435) {
-	failures.push("writes after the failover went to " + lastPort + ", not the promoted standby");
+if (last_port !== 5435) {
+	failures.push("writes after the failover went to " + last_port + ", not the promoted standby");
 }
 
 const [{ count }] = await writer`select count(*)::int as count from failover`.catch(() => [
@@ -145,7 +145,7 @@ console.log(
 	"written " +
 		written +
 		", resumed after " +
-		(resumedAt ? resumedAt - failedAt + "ms" : "-") +
+		(resumed_at ? resumed_at - failed_at + "ms" : "-") +
 		", errors " +
 		JSON.stringify(errors),
 );

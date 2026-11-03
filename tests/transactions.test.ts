@@ -573,18 +573,18 @@ test("Disconnected transaction cannot query a reused connection", async () => {
 });
 
 test("Disconnected transaction cannot commit a reused connection", async () => {
-	const [before, after] = await finishDisconnectedTransaction();
+	const [before, after] = await finish_disconnected_transaction();
 	expect(after).toBe(before);
 });
 
 test("Disconnected transaction cannot roll back a reused connection", async () => {
-	const [before, after] = await finishDisconnectedTransaction(
+	const [before, after] = await finish_disconnected_transaction(
 		new Error("original callback failed"),
 	);
 	expect(after).toBe(before);
 });
 
-function finishDisconnectedTransaction(error?: Error) {
+function finish_disconnected_transaction(error?: Error) {
 	return with_disconnected_transaction(({ sql, finish }) =>
 		sql.begin(async (tx) => {
 			const [{ x: before }] = await tx`select txid_current()::text as x`;

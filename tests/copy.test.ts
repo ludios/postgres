@@ -129,8 +129,8 @@ test("Copy from settles instead of hanging when the server rejects the data", as
 test("Copy read with back-pressure", async () => {
 	await sql`create table test (x int)`;
 
-	const bufferSize = Math.ceil(stream.getDefaultHighWaterMark(false) / 6);
-	await sql`insert into test select * from generate_series(10000, ${9999 + bufferSize})`;
+	const buffer_size = Math.ceil(stream.getDefaultHighWaterMark(false) / 6);
+	await sql`insert into test select * from generate_series(10000, ${9999 + buffer_size})`;
 
 	let result = 0;
 	const readable = await sql`copy test to stdout`.readable();
@@ -141,7 +141,7 @@ test("Copy read with back-pressure", async () => {
 		new Promise((r) => readable.on("end", r)),
 		new Promise<void>((r) =>
 			readable.on("readable", () => {
-				if ((readable as any).readableBuffer.length === bufferSize) {
+				if ((readable as any).readableBuffer.length === buffer_size) {
 					readable.removeAllListeners("readable");
 					r();
 				}
@@ -151,11 +151,11 @@ test("Copy read with back-pressure", async () => {
 
 	await sql`select 1`;
 
-	expect(result).toBe(bufferSize);
+	expect(result).toBe(buffer_size);
 });
 
 test("Copy read through a slow pipeline keeps every byte and never stalls", async () => {
-	const [expected, got] = await slowCopy(sql);
+	const [expected, got] = await slow_copy(sql);
 	expect(got).toBe(expected);
 }, 30_000);
 
@@ -165,11 +165,11 @@ test("Copy read through a slow pipeline over direct TLS keeps every byte", async
 
 	await using tls = postgres({ ...options, ssl: "require", sslnegotiation: "direct", max: 1 });
 	const [{ ssl }] = await tls`select ssl from pg_stat_ssl where pid = pg_backend_pid()`;
-	const [expected, got] = await slowCopy(tls);
+	const [expected, got] = await slow_copy(tls);
 	expect([got, ssl]).toEqual([expected, true]);
 }, 30_000);
 
-async function slowCopy(sql: Sql) {
+async function slow_copy(sql: Sql) {
 	const query =
 			"select i, md5(i::text) || repeat(chr(65 + i % 26), i % 300) from generate_series(1, 50000) i",
 		[{ expected }] = await sql.unsafe(

@@ -12,14 +12,14 @@ replace_pg_vars({});
 const single = process.env.SEED !== undefined,
 	first = single ? Number(process.env.SEED) : 1,
 	runs = single ? 1 : Number(process.env.RUNS) || 2000,
-	modulePath = process.env.MODULE || "../src/index.ts",
+	module_path = process.env.MODULE || "../src/index.ts",
 	globals = !!process.env.GLOBALS;
 
 const postgres = (
 	await import(
-		modulePath.startsWith(".")
-			? new URL(modulePath, import.meta.url).href
-			: path.resolve(modulePath)
+		module_path.startsWith(".")
+			? new URL(module_path, import.meta.url).href
+			: path.resolve(module_path)
 	)
 ).default;
 
@@ -30,10 +30,10 @@ const scenarios: Record<string, { faults: string[]; kinds?: string[] }> = {
 	terminate: { faults: ["kill"] },
 	stale: { faults: ["stale", "deallocate"] },
 	shapes: { faults: ["retype"] },
-	commit: { faults: ["commitRollback"], kinds: ["begin", "query"] },
+	commit: { faults: ["commit_rollback"], kinds: ["begin", "query"] },
 	startup: { faults: ["outage"] },
 	mixed: {
-		faults: ["kill", "close", "reset", "stale", "deallocate", "retype", "commitRollback", "outage"],
+		faults: ["kill", "close", "reset", "stale", "deallocate", "retype", "commit_rollback", "outage"],
 	},
 };
 
@@ -88,7 +88,7 @@ async function simulate(seed: number) {
 		wire = single && process.env.WIRE ? (x: string) => log("wire " + x) : undefined,
 		server = Server({ clock, random, delay: config.delay, split: config.split, log: wire }),
 		stray = (x: any) => violations.push("unhandled: " + ((x && x.stack) || x)),
-		restore = globals && fakeGlobals(clock);
+		restore = globals && fake_globals(clock);
 
 	log("config " + JSON.stringify(config));
 	process.on("unhandledRejection", stray);
@@ -188,7 +188,7 @@ async function simulate(seed: number) {
 			clock.pending +
 				" timers left after end(), due at " +
 				clock
-					.pendingTimers()
+					.pending_timers()
 					.map((x) => Math.round(x.at) + "ms")
 					.join(", "),
 		);
@@ -453,7 +453,7 @@ async function simulate(seed: number) {
 		} else if (kind === "reset") {
 			server.close(x, true);
 		} else {
-			server[kind as "stale" | "deallocate" | "retype" | "commitRollback"](x);
+			server[kind as "stale" | "deallocate" | "retype" | "commit_rollback"](x);
 		}
 	}
 }
@@ -465,7 +465,7 @@ type Row = { id: number; scope: number; shape: number | string };
 type Settled = Promise<unknown> & { done?: boolean };
 
 /** Replaces the global timers with the clock's; @returns a function that puts them back */
-function fakeGlobals(clock: ReturnType<typeof Clock>) {
+function fake_globals(clock: ReturnType<typeof Clock>) {
 	const real = globalThis as unknown as Record<string, unknown>,
 		faked = clock.timers as unknown as Record<string, unknown>,
 		saved = ["setTimeout", "clearTimeout", "setImmediate", "clearImmediate"].map(

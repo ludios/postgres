@@ -40,7 +40,7 @@ export function Clock(
 	},
 ) {
 	const timers = new Map<number, Timer>(),
-		realImmediate = setImmediate;
+		real_immediate = setImmediate;
 	let now = 0,
 		seq = 0;
 
@@ -74,12 +74,12 @@ export function Clock(
 		get pending() {
 			return timers.size;
 		},
-		pendingTimers: () => [...timers.values()],
+		pending_timers: () => [...timers.values()],
 		async run(until = Infinity) {
 			let same = 0,
 				at = now;
 			while (true) {
-				await new Promise(realImmediate);
+				await new Promise(real_immediate);
 				same = now === at ? same + 1 : 0;
 				at = now;
 				if (same > 20000) {

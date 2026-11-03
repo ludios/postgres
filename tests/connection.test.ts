@@ -620,7 +620,7 @@ test("prefer-standby tries every host for a standby before accepting a primary",
 	expect([x, probe]).toEqual([1, 1]);
 });
 
-const backendMessage = (type: string, body: Buffer) => {
+const backend_message = (type: string, body: Buffer) => {
 	const header = Buffer.alloc(5);
 	header.write(type);
 	header.writeInt32BE(body.length + 4, 1);
@@ -634,8 +634,8 @@ const backendMessage = (type: string, body: Buffer) => {
  *   V field, as PostgreSQL before 9.6 and some poolers do
  * @returns an ErrorResponse message
  */
-const errorResponse = (severity: string, code: string, localized_only = false) =>
-	backendMessage(
+const error_response = (severity: string, code: string, localized_only = false) =>
+	backend_message(
 		"E",
 		Buffer.from(
 			"S" +
@@ -651,8 +651,8 @@ const errorResponse = (severity: string, code: string, localized_only = false) =
 	);
 
 const authenticated = Buffer.concat([
-	backendMessage("R", Buffer.alloc(4)),
-	backendMessage("Z", Buffer.from("I")),
+	backend_message("R", Buffer.alloc(4)),
+	backend_message("Z", Buffer.from("I")),
 ]);
 
 test("Query runs on a new connection if the backend dies while fetching array types", async () => {
@@ -670,7 +670,7 @@ test("Query runs on a new connection if the backend dies while fetching array ty
 			if (!killed && x.includes("pg_type")) {
 				killed = true;
 				c.server.destroy();
-				c.client.end(errorResponse("FATAL", "57P01"));
+				c.client.end(error_response("FATAL", "57P01"));
 				return true;
 			}
 			return false;
@@ -787,7 +787,7 @@ test("A query refused with a FATAL error rejects with the peer error instead of 
 		socket.on("error", () => socket.destroy());
 		socket.on("data", () => {
 			if (started) {
-				socket.end(errorResponse("FATAL", "08P01"));
+				socket.end(error_response("FATAL", "08P01"));
 			} else {
 				started = true;
 				socket.write(authenticated);
@@ -814,7 +814,7 @@ test("A FATAL error with the severity only in the S field rejects the query and 
 			// Accepts the startup, and answers whatever comes next with the FATAL error
 			socket.on("data", () => {
 				if (started) {
-					socket.end(errorResponse("FATAL", "08P01", true));
+					socket.end(error_response("FATAL", "08P01", true));
 				} else {
 					started = true;
 					socket.write(authenticated);
@@ -854,14 +854,14 @@ function answering(answer: (socket: net.Socket, text: string) => void) {
 
 /** The answer to BEGIN: CommandComplete, and ReadyForQuery in a transaction block */
 const began = Buffer.concat([
-	backendMessage("C", Buffer.from("BEGIN\0")),
-	backendMessage("Z", Buffer.from("T")),
+	backend_message("C", Buffer.from("BEGIN\0")),
+	backend_message("Z", Buffer.from("T")),
 ]);
 
 test("A transaction rejects with the FATAL error that answers a query of it that could not be serialized", async () => {
 	const server = await answering((socket, text) => {
 		if (text.includes("could not be built")) {
-			socket.end(errorResponse("FATAL", "57P01"));
+			socket.end(error_response("FATAL", "57P01"));
 		} else {
 			socket.write(began);
 		}
@@ -891,7 +891,7 @@ test("A transaction whose COMMIT got a FATAL error, and whose connection end() t
 		server = await answering((socket, text) => {
 			if (text.includes("commit")) {
 				// Without closing the connection, so that end() destroys it
-				socket.write(errorResponse("FATAL", "57P01"));
+				socket.write(error_response("FATAL", "57P01"));
 				answered();
 			} else {
 				socket.write(began);
@@ -928,7 +928,10 @@ test("Failed array type fetch on a live connection is not an unhandled rejection
 		socket.on("data", (x) =>
 			x.includes("typarray")
 				? socket.write(
-						Buffer.concat([errorResponse("ERROR", "57014"), backendMessage("Z", Buffer.from("I"))]),
+						Buffer.concat([
+							error_response("ERROR", "57014"),
+							backend_message("Z", Buffer.from("I")),
+						]),
 					)
 				: x[0] === 88
 					? socket.end()
@@ -1231,7 +1234,7 @@ test("Queries keep working after the backend dies under a burst of pipelined wri
 	]);
 });
 
-function lyingServer(final: boolean) {
+function lying_server(final: boolean) {
 	const i32 = (n: number) => {
 			const b = Buffer.alloc(4);
 			b.writeInt32BE(n);
@@ -1314,7 +1317,7 @@ function lyingServer(final: boolean) {
 }
 
 test("A server whose SCRAM signature is wrong is not trusted", async () => {
-	const server = await lyingServer(true);
+	const server = await lying_server(true);
 	await using _close = defer(() => server.close());
 	await using sql = postgres({
 		host: "127.0.0.1",
@@ -1333,7 +1336,7 @@ test("A server whose SCRAM signature is wrong is not trusted", async () => {
 });
 
 test("A server that ends SCRAM without its signature is not trusted", async () => {
-	const server = await lyingServer(false);
+	const server = await lying_server(false);
 	await using _close = defer(() => server.close());
 	await using sql = postgres({
 		host: "127.0.0.1",

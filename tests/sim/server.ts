@@ -82,7 +82,7 @@ export function Server({
 			x.prepared.clear();
 		},
 		retype: (x: Session) => (x.shape = x.shape === "a" ? "b" : "a"),
-		commitRollback: (x: Session) => (x.commitRollback = true),
+		commit_rollback: (x: Session) => (x.commit_rollback = true),
 	};
 
 	function socket(host = 0) {
@@ -107,8 +107,8 @@ export function Server({
 			busy = false,
 			discard = false,
 			status = "I",
-			txScope = 0,
-			txScopes = new Set<number>(),
+			tx_scope = 0,
+			tx_scopes = new Set<number>(),
 			// The statement that sleeps, with how to cancel it
 			sleeping: { cancel: (cancelled?: boolean) => void } | null = null,
 			gone = false;
@@ -120,7 +120,7 @@ export function Server({
 			prepared,
 			wiped: new Set(),
 			shape: "a",
-			commitRollback: false,
+			commit_rollback: false,
 			get status() {
 				return status;
 			},
@@ -149,7 +149,7 @@ export function Server({
 		end.on("close", () => {
 			gone = true;
 			if (status !== "I") {
-				txScopes.forEach((s) => outcomes.set(s, "rollback"));
+				tx_scopes.forEach((s) => outcomes.set(s, "rollback"));
 			}
 			sessions.delete(x);
 			if (sleeping) {
@@ -464,7 +464,7 @@ export function Server({
 				scopes.set(scope, x.id);
 			}
 
-			if (status !== "I" && scope !== txScope) {
+			if (status !== "I" && scope !== tx_scope) {
 				violation(
 					"query " +
 						id +
@@ -473,7 +473,7 @@ export function Server({
 						" reached session " +
 						x.id +
 						" inside the transaction of scope " +
-						txScope,
+						tx_scope,
 				);
 			}
 		}
@@ -501,23 +501,23 @@ export function Server({
 			const c = command.toLowerCase();
 			if (c === "begin") {
 				if (status === "I") {
-					txScope = -1;
-					txScopes = new Set();
+					tx_scope = -1;
+					tx_scopes = new Set();
 				}
 				status = status === "I" ? "T" : status;
 				reply(msg("C", str("BEGIN")));
 			} else if (c === "commit" || c === "end") {
-				const rolled = status === "E" || x.commitRollback;
-				x.commitRollback = false;
-				txScopes.forEach((s) => outcomes.set(s, rolled ? "rollback" : "commit"));
+				const rolled = status === "E" || x.commit_rollback;
+				x.commit_rollback = false;
+				tx_scopes.forEach((s) => outcomes.set(s, rolled ? "rollback" : "commit"));
 				status = "I";
-				txScope = 0;
+				tx_scope = 0;
 				portals.clear();
 				reply(msg("C", str(rolled ? "ROLLBACK" : "COMMIT")));
 			} else if (c === "rollback") {
-				txScopes.forEach((s) => outcomes.set(s, "rollback"));
+				tx_scopes.forEach((s) => outcomes.set(s, "rollback"));
 				status = "I";
-				txScope = 0;
+				tx_scope = 0;
 				portals.clear();
 				reply(msg("C", str("ROLLBACK")));
 			} else if (c.startsWith("rollback to")) {
@@ -539,9 +539,9 @@ export function Server({
 		}
 
 		function bind(scope: number) {
-			if (txScope === -1 && scope) {
-				txScope = scope;
-				txScopes.add(scope);
+			if (tx_scope === -1 && scope) {
+				tx_scope = scope;
+				tx_scopes.add(scope);
 			}
 		}
 
