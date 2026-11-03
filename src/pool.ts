@@ -133,6 +133,16 @@ export type Statement = {
 	alone?: boolean | undefined;
 };
 
+/**
+ * @param backoff - the `backoff` option: a function of how many attempts have failed in a row, or
+ *   the seconds to wait, or false for no wait
+ * @param retries - how many attempts have failed in a row
+ * @returns how many seconds to wait before the next attempt
+ */
+export function backoff_seconds(backoff: Options["backoff"], retries: number) {
+	return typeof backoff === "function" ? backoff(retries) : Number(backoff);
+}
+
 export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	const { setTimeout, clearTimeout, now } = options.timers,
 		statements = Statements(options.scheduler),
@@ -741,13 +751,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			failingSince = now();
 		}
 		retries++;
-		nextAttempt =
-			now() +
-			// backoff is false when it is turned off: no wait then
-			1000 *
-				(typeof options.backoff === "function"
-					? options.backoff(retries)
-					: Number(options.backoff));
+		nextAttempt = now() + 1000 * backoff_seconds(options.backoff, retries);
 
 		const transient = !!error && (error.code === "CONNECTION_CLOSED" || error.code === "53300"),
 			expired = options.connect_timeout && now() - failingSince >= options.connect_timeout * 1000;

@@ -7,7 +7,7 @@ import type { PostgresType } from "./types.ts";
 import { Identifier, Builder } from "./build.ts";
 import { Query, CLOSE } from "./query.ts";
 import type { Handler, QueryOptions } from "./query.ts";
-import { Pool } from "./pool.ts";
+import { Pool, backoff_seconds } from "./pool.ts";
 import { Errors, PostgresError, throw_on_casing_transforms } from "./errors.ts";
 import Subscribe from "./subscribe.ts";
 import largeObject from "./large.ts";
@@ -584,16 +584,14 @@ function Listen(options: Options) {
 				}
 
 				channel.retries++;
-				// backoff is false when it is turned off: no wait then
-				const delay_seconds =
-					typeof options.backoff === "function"
-						? options.backoff(channel.retries)
-						: Number(options.backoff);
-				channel.timer = setTimeout(() => {
-					if (!closing && channel_by_name.get(name) === channel) {
-						relisten(channel, name);
-					}
-				}, delay_seconds * 1000);
+				channel.timer = setTimeout(
+					() => {
+						if (!closing && channel_by_name.get(name) === channel) {
+							relisten(channel, name);
+						}
+					},
+					backoff_seconds(options.backoff, channel.retries) * 1000,
+				);
 			},
 		);
 	}
