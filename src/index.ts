@@ -142,7 +142,8 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 	}
 
 	/**
-	 * @param handle - called with each Query that the returned `sql` makes, to run it
+	 * @param fn - called with each Query that the returned `sql` makes, to run it; its `cancel`
+	 *   property, if it has one, cancels a Query (else the pool's does)
 	 * @returns a new `sql`, without the properties that only some `sql`s have (such as `begin`
 	 *   or `release`), which the callers add
 	 */

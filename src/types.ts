@@ -612,7 +612,7 @@ export function parseArray(x: string, parse: Parser | null, delimiter = ",") {
 /**
  * Serializes array `xs` as a PostgreSQL array literal.
  * @param serialize serializes one element; a result that is not a string is converted as
- *   `"" + result` converts it (valueOf() before toString()), as upstream postgres.js does
+ *   `"" + result` converts it (valueOf() before toString())
  * @param delimiter the element type's `typdelim`
  * @param undefinedValue what stands in for an undefined element; if it is undefined too, an
  *   undefined element throws UNDEFINED_VALUE

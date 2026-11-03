@@ -3,7 +3,7 @@ import type postgres from "../types/index.js";
 
 /**
  * Opens large object `oid` in a transaction that stays open until the handle's close() is called.
- * @param sql the pool, or a transaction's `tx`
+ * @param sql the pool's `sql`, which begins the transaction
  * @param oid the large object's oid; 0 or undefined creates a new large object
  * @param mode lo_open()'s mode; the default is INV_READ | INV_WRITE
  * @returns the handle, once the large object is open. Its close() resolves once the transaction
