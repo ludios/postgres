@@ -31,8 +31,8 @@ export type RawSocket = net.Socket & {
 
 export async function Socket(
 	options: Options,
-	host?: string,
-	port?: number,
+	host: string | null,
+	port: number,
 	track: (socket: RawSocket) => void = noop,
 ) {
 	const raw = options.socket
@@ -83,8 +83,8 @@ export const direct = (options: Options) => secured(options) && options.sslnegot
 
 function connect(
 	options: Options,
-	host: string | undefined,
-	port: number | undefined,
+	host: string | null,
+	port: number,
 	track: (socket: RawSocket) => void,
 ) {
 	return new Promise<RawSocket>((resolve, reject) => {
@@ -96,18 +96,20 @@ function connect(
 					buffer: Buffer.allocUnsafe(65536),
 					// `b` is `buffer`, the Buffer above; true keeps the socket reading (false would pause it)
 					callback: (n, b) => {
-						socket.ondata((b as Buffer).subarray(0, n));
+						socket.ondata?.((b as Buffer).subarray(0, n));
 						return true;
 					},
 				},
-			target: net.NetConnectOpts = options.path ? { path: options.path } : { port, host };
+			target: net.NetConnectOpts = options.path
+				? { path: options.path }
+				: { port, host: host ?? undefined };
 		if (reads) {
 			target.onread = reads;
 		}
 		const socket: RawSocket = tlsNow
 			? tls.connect({
 					...target,
-					servername: net.isIP(host || "") || options.path ? undefined : host,
+					servername: net.isIP(host || "") || options.path ? undefined : (host ?? undefined),
 					...secureOptions(options.ssl),
 					ALPNProtocols: ["postgresql"],
 				})
@@ -125,7 +127,7 @@ function connect(
 	});
 }
 
-function wrap(socket: RawSocket, host: string | undefined) {
+function wrap(socket: RawSocket, host: string | null) {
 	let closed = false,
 		failure: Error | null = null;
 
@@ -226,7 +228,7 @@ function wrap(socket: RawSocket, host: string | undefined) {
 			unlisten();
 			const secure = tls.connect({
 				socket,
-				servername: net.isIP(host || "") ? undefined : host,
+				servername: net.isIP(host || "") ? undefined : (host ?? undefined),
 				...options,
 			});
 			const fail = (err: Error) => {

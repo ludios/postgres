@@ -1044,11 +1044,7 @@ export type Options = postgres.ParsedOptions<Record<string, any>> & {
 	onparameter?: (key: string, value: string) => void;
 	onclose?: (connection: number) => void;
 	/** Opens the socket of a connection instead of socket.ts; Cloudflare Workers give one */
-	socket?: (
-		options: Options,
-		host: string | undefined,
-		port: number | undefined,
-	) => RawSocket | Promise<RawSocket>;
+	socket?: (options: Options, host: string | null, port: number) => RawSocket | Promise<RawSocket>;
 	/** Opens a connection instead of startup.ts's open(); tests give one */
 	open?: typeof open;
 	/** Whether the pool makes no Subscribe (which would make a pool of its own) */

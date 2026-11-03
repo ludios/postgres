@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import * as p from "./protocol.ts";
+import type { Backend } from "./protocol.ts";
 import { Socket, secured, secureOptions } from "./socket.ts";
 import type { RawSocket } from "./socket.ts";
 import type { Options } from "./index.ts";
@@ -84,7 +85,7 @@ function traced(options: Options, host: string | null, port: number, signal: Sig
 	return promise.then(
 		(ready) => {
 			trace_finish(t, context, null, {
-				pid: ready.backend.pid,
+				pid: ready.backend ? ready.backend.pid : null,
 				status: ready.status,
 				readOnly: ready.attributes.readOnly,
 				standby: ready.attributes.standby,
@@ -113,7 +114,8 @@ export type Ready = {
 	socket: Connected;
 	/** What the socket had read after ReadyForQuery, which the connection's frames get first */
 	rest: Buffer;
-	backend: { pid: number | null; secret: number | null };
+	/** The backend's key data; null if the server sent none before ReadyForQuery (PostgreSQL always does) */
+	backend: Backend | null;
 	/** The server's ParameterStatus values, by name */
 	parameters: Record<string, string>;
 	/** The transaction status of ReadyForQuery: "I", "T" or "E" */
@@ -134,59 +136,71 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 	return new Promise<Ready>((resolve, reject) => {
 		const timer =
 			options.connect_timeout &&
-			setTimeout(() => done(true, fail("CONNECT_TIMEOUT")), options.connect_timeout * 1000);
+			setTimeout(() => give_up(fail("CONNECT_TIMEOUT")), options.connect_timeout * 1000);
 
-		let socket: Connected | null = null,
+		// The socket, once connected; the raw socket while it connects
+		let opened: Connected | null = null,
 			raw: RawSocket | null = null,
 			settled = false;
 
-		session().then(
-			(x) => done(false, null, x),
-			(e) => done(true, e),
-		);
+		session().then(fulfil, give_up);
 
-		function done(failed: boolean, error: Error | null, ready?: Ready) {
+		/** @returns whether the attempt was still unsettled: then it is settled now, and its timer cleared */
+		function settle() {
 			if (settled) {
-				return;
+				return false;
 			}
-
 			settled = true;
 			if (timer) {
 				clearTimeout(timer);
 			}
-			if (socket) {
-				signal.sockets.delete(socket);
+			if (opened) {
+				signal.sockets.delete(opened);
 			}
-			if (signal.aborted && !failed) {
-				failed = true;
-				error = fail("CONNECTION_DESTROYED");
-			}
+			return true;
+		}
 
-			if (failed) {
-				if (socket) {
-					socket.destroy();
-				} else if (raw) {
-					raw.destroy();
-				}
-				return reject(error);
+		function fulfil(ready: Ready) {
+			if (!settle()) {
+				return;
 			}
-
+			if (signal.aborted) {
+				destroy();
+				reject(fail("CONNECTION_DESTROYED"));
+				return;
+			}
 			ready.socket.onclose = () => {};
 			resolve(ready);
 		}
 
+		function give_up(error: Error) {
+			if (!settle()) {
+				return;
+			}
+			destroy();
+			reject(error);
+		}
+
+		/** Destroys the socket, or the raw socket that is still connecting */
+		function destroy() {
+			if (opened) {
+				opened.destroy();
+			} else if (raw) {
+				raw.destroy();
+			}
+		}
+
 		async function session() {
-			socket = await Socket(options, host, port, (x) => (raw = x));
+			const socket = await Socket(options, host, port, (x) => (raw = x));
+			opened = socket;
 			if (settled || signal.aborted) {
 				socket.destroy();
-				done(true, fail("CONNECTION_DESTROYED"));
-				return undefined;
+				throw fail("CONNECTION_DESTROYED");
 			}
 
 			signal.sockets.add(socket);
 			socket.onclose = (error) =>
-				done(
-					true,
+				give_up(
 					signal.aborted
 						? fail("CONNECTION_DESTROYED")
 						: error && error.code
@@ -196,10 +210,10 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 			socket.keepAlive(options.keep_alive);
 			await negotiate(socket, options);
 			const user = typeof options.user === "function" ? await options.user() : options.user;
-			return startup(user, options.database || user);
+			return startup(socket, user, options.database || user);
 		}
 
-		function startup(user: string, database: string) {
+		function startup(socket: Connected, user: string, database: string) {
 			return new Promise<Ready>((succeed, refuse) => {
 				const stored = () =>
 						pgpass(options.passfile, options.path ? "localhost" : host, port, database, user) || "",
@@ -210,7 +224,6 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 						socket,
 					}),
 					parameters: Record<string, string> = {},
-					backend: { pid: number | null; secret: number | null } = { pid: null, secret: null },
 					frames = p.Frames(frame, false, (error) => {
 						refuse(error);
 						socket.destroy();
@@ -219,6 +232,7 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 
 				let probing = false,
 					status: string | null = null,
+					backend: Backend | null = null,
 					authing: Promise<unknown> = Promise.resolve();
 
 				socket.ondata = (x) => frames.push(x);
@@ -232,7 +246,7 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 							const [k, v] = p.parameterStatus(x, start);
 							parameters[k] = v;
 						} else if (type === K) {
-							Object.assign(backend, p.backendKeyData(x, start));
+							backend = p.backendKeyData(x, start);
 						} else if (type === E) {
 							refuse(Errors.postgres(p.error(x, start, end)));
 						} else if (type === N) {
@@ -313,7 +327,7 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 						},
 						host,
 						port,
-						cancel: () => cancel(options, host, port, backend),
+						cancel: () => (backend ? cancel(options, host, port, backend) : Promise.resolve()),
 					});
 				}
 			});
@@ -358,16 +372,12 @@ async function negotiate(socket: Connected, options: Options) {
  *   after `connect_timeout` seconds, when the CancelRequest may still reach the
  *   server
  */
-function cancel(
-	options: Options,
-	host: string | null,
-	port: number,
-	{ pid, secret }: { pid: number | null; secret: number | null },
-) {
+function cancel(options: Options, host: string | null, port: number, { pid, secret }: Backend) {
 	const { setTimeout, clearTimeout } = options.timers;
 
 	return new Promise<void>((resolve, reject) => {
-		let socket: Connected | null = null,
+		// The socket, once connected
+		let opened: Connected | null = null,
 			settled = false;
 		const timer =
 			options.connect_timeout &&
@@ -382,7 +392,8 @@ function cancel(
 		);
 
 		async function send() {
-			socket = await Socket(options, host, port);
+			const socket = await Socket(options, host, port);
+			opened = socket;
 			if (!settled) {
 				await negotiate(socket, options);
 			}
@@ -409,8 +420,8 @@ function cancel(
 				resolve();
 				return;
 			}
-			if (socket) {
-				socket.destroy();
+			if (opened) {
+				opened.destroy();
 			}
 			reject(error);
 		}
@@ -431,8 +442,9 @@ function Auth({
 	binding: Options["channel_binding"];
 	socket: Connected;
 }) {
-	let nonce: string | undefined,
-		signature: string | undefined,
+	// The client nonce of SCRAM, made now, as one authentication needs at most one
+	const nonce = crypto.randomBytes(18).toString("base64");
+	let signature: string | undefined,
 		verified = true,
 		bound: Buffer | false = false,
 		header = "n,,";
@@ -491,7 +503,6 @@ function Auth({
 
 		header = plus ? "p=tls-server-end-point,," : hash ? "y,," : "n,,";
 		bound = plus ? hash : false;
-		nonce = crypto.randomBytes(18).toString("base64");
 		verified = false;
 		return p.SASL(plus ? "SCRAM-SHA-256-PLUS" : "SCRAM-SHA-256", header + "n=*,r=" + nonce);
 	}
@@ -513,18 +524,25 @@ function Auth({
 			);
 		}
 
-		if (!salted.has(key)) {
+		let saltedPassword = salted.get(key);
+		if (saltedPassword === undefined) {
 			if (salted.size >= 64) {
-				salted.delete(salted.keys().next().value);
+				for (const oldest of salted.keys()) {
+					salted.delete(oldest);
+					break;
+				}
 			}
-			salted.set(
-				key,
-				crypto.pbkdf2Sync(password_text, Buffer.from(res.s, "base64"), +res.i, 32, "sha256"),
+			saltedPassword = crypto.pbkdf2Sync(
+				password_text,
+				Buffer.from(res.s, "base64"),
+				+res.i,
+				32,
+				"sha256",
 			);
+			salted.set(key, saltedPassword);
 		}
 
-		const saltedPassword = salted.get(key),
-			clientKey = hmac(saltedPassword, "Client Key"),
+		const clientKey = hmac(saltedPassword, "Client Key"),
 			channel = (
 				bound ? Buffer.concat([Buffer.from(header), bound]) : Buffer.from(header)
 			).toString("base64"),

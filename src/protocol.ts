@@ -580,6 +580,9 @@ export function parameterStatus(x: Buffer, start: number) {
 	];
 }
 
-export function backendKeyData(x: Buffer, start: number) {
+/** The backend's process id and the secret key of its cancel requests, from BackendKeyData */
+export type Backend = { pid: number; secret: number };
+
+export function backendKeyData(x: Buffer, start: number): Backend {
 	return { pid: x.readInt32BE(start + 5), secret: x.readInt32BE(start + 9) };
 }

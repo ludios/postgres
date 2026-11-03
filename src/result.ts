@@ -1,12 +1,12 @@
 import type { Exchange } from "./connection.ts";
-import type { Column } from "./protocol.ts";
+import type { Backend, Column } from "./protocol.ts";
 
 /** The statement of a Result, as .statement gives it: see README's "### .statement" */
 type Described = { name: string; string: string; types: number[]; columns: Column[] };
 
 export default class Result extends Array {
 	#count: number | null = null;
-	#state: { pid: number | null; secret: number | null } | null = null;
+	#state: Backend | null = null;
 	#command: string | null = null;
 	#columns: Column[] | null = null;
 	/** The exchange, until .statement is read: then what statement() made of it */
@@ -21,7 +21,7 @@ export default class Result extends Array {
 	get state() {
 		return this.#state;
 	}
-	set state(x: { pid: number | null; secret: number | null } | null) {
+	set state(x: Backend | null) {
 		this.#state = x;
 	}
 	get command() {

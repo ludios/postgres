@@ -8,6 +8,7 @@ import type { Built } from "./build.ts";
 import type { Exchange, Connection } from "./connection.ts";
 import type { Options } from "./index.ts";
 import type { Cost, Statement } from "./pool.ts";
+import type { Backend } from "./protocol.ts";
 import type { Failure } from "./errors.ts";
 
 const origins = new WeakMap<TemplateStringsArray | string[], string>();
@@ -42,7 +43,7 @@ export class Query extends Promise<any> {
 	declare handler: Handler;
 	declare options: QueryOptions;
 	/** The `{ pid, secret }` of the backend process whose connection ran this Query. */
-	declare state: { pid: number | null; secret: number | null } | null;
+	declare state: Backend | null;
 	/** The connection's pipeline item that ran this Query. */
 	declare source: Exchange | null;
 	declare active: boolean;

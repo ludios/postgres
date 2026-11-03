@@ -30,13 +30,13 @@ const opts = (x: Partial<Options>) => x as Options;
 
 test("Socket takes the user socket", async () => {
 	const raw = fake(),
-		socket = await Socket(opts({ socket: () => raw }));
+		socket = await Socket(opts({ socket: () => raw }), "localhost", 5432);
 	expect(socket.raw === raw).toBe(true);
 });
 
 test("Socket passes data, drain and writes through", async () => {
 	const raw = fake(),
-		socket = await Socket(opts({ socket: async () => raw })),
+		socket = await Socket(opts({ socket: async () => raw }), "localhost", 5432),
 		got: string[] = [];
 	socket.ondata = (x) => got.push(x.toString());
 	socket.ondrain = () => got.push("drain");
@@ -48,7 +48,7 @@ test("Socket passes data, drain and writes through", async () => {
 
 test("Socket closes once with the error that came before", async () => {
 	const raw = fake(),
-		socket = await Socket(opts({ socket: () => raw })),
+		socket = await Socket(opts({ socket: () => raw }), "localhost", 5432),
 		closes: unknown[] = [];
 	socket.onclose = (x) => closes.push(x && x.code);
 	raw.emit("error", Object.assign(new Error("reset"), { code: "ECONNRESET" }));
@@ -59,7 +59,7 @@ test("Socket closes once with the error that came before", async () => {
 
 test("Socket does not write after close", async () => {
 	const raw = fake(),
-		socket = await Socket(opts({ socket: () => raw }));
+		socket = await Socket(opts({ socket: () => raw }), "localhost", 5432);
 	raw.emit("close", false);
 	expect([socket.write(Buffer.from("x")), raw.written.length, socket.closed]).toEqual([
 		false,
@@ -70,7 +70,7 @@ test("Socket does not write after close", async () => {
 
 test("Socket pause and resume reach the user socket", async () => {
 	const raw = fake(),
-		socket = await Socket(opts({ socket: () => raw }));
+		socket = await Socket(opts({ socket: () => raw }), "localhost", 5432);
 	socket.pause();
 	const paused = raw.paused;
 	socket.resume();
@@ -85,6 +85,8 @@ test("Socket rejects when the user socket fails", async () => {
 					throw new Error("nope");
 				},
 			}),
+			"localhost",
+			5432,
 		).catch((e) => e.message),
 	).toBe("nope");
 });

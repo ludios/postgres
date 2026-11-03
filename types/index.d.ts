@@ -294,9 +294,13 @@ declare namespace postgres {
 		 */
 		slot?: string | null | undefined;
 
-		/** A socket of your own for each connection */
+		/** A socket of your own for each connection; `host` is null for a Unix-domain socket (`path`) */
 		socket?:
-			| ((options: ParsedOptions, host: string, port: number) => SocketLike | Promise<SocketLike>)
+			| ((
+					options: ParsedOptions,
+					host: string | null,
+					port: number,
+			  ) => SocketLike | Promise<SocketLike>)
 			| undefined;
 		/** Reads plain and direct TLS connections into one shared buffer per connection (Node, Bun and Deno) @default true */
 		onread?: boolean | undefined;
@@ -731,7 +735,8 @@ declare namespace postgres {
 		user: string | null;
 		ssl: boolean;
 		sslnegotiation: "postgres" | "direct";
-		result?: { pid: number; status: string; readOnly: boolean; standby: boolean };
+		/** `pid` is null if the server sent no BackendKeyData */
+		result?: { pid: number | null; status: string; readOnly: boolean; standby: boolean };
 		error?: Error | globalThis.Error;
 	}
 
