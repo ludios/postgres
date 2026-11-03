@@ -153,6 +153,7 @@ These need no PostgreSQL server:
 
 	pnpm typecheck
 	pnpm lint  # must report no errors and no warnings
+	pnpm format:check
 	pnpm test:unit
 	node tests/simulate.ts
 

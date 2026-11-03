@@ -48,5 +48,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
+      - run: pnpm format:check
       - name: Run the simulation against dist/, which `pnpm install` built
         run: MODULE=../dist/index.js node tests/simulate.ts
