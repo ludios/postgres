@@ -2372,7 +2372,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 /** @returns the error for a query that left a transaction open on a pooled connection */
 function unsafe_transaction() {
-	return Errors.generic("UNSAFE_TRANSACTION", "Only use sql.begin, sql.reserved or max: 1");
+	return Errors.generic("UNSAFE_TRANSACTION", "Only use sql.begin, sql.reserve or max: 1");
 }
 
 /** @returns the exchange of the cursor (with a named portal) that `x` is, steps, or closes; else null */

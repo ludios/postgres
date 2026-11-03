@@ -1680,7 +1680,7 @@ Errors from the connection are Node.js errors such as `ECONNREFUSED`, or one wit
 There are also the following errors specifically for this library.
 
 ##### UNSAFE_TRANSACTION
-> Only use sql.begin, sql.reserved or max: 1
+> Only use sql.begin, sql.reserve or max: 1
 
 To ensure statements in a transaction runs on the same connection (which is required for them to run inside the transaction), you must use [`sql.begin(...)`](#transactions), a [reserved connection](#reserving-connections) or only allow a single connection in options (`max: 1`). A query on the pool that leaves its connection in a transaction is rolled back and rejected with this error. A query that looks like it may start a transaction runs alone on its connection, so no other query ends up in it, and one that opens and closes its own transaction, such as a migration file with `BEGIN` and `COMMIT`, runs as it is.
 
