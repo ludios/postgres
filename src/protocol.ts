@@ -344,13 +344,18 @@ export function Frames(
 		running = true;
 		try {
 			while (true) {
-				if (broken || paused || !((data && at < data.length) || next())) {
+				// onframe() may pause, and a bad length breaks
+				if (broken || paused) {
 					break;
 				}
-				if (part) {
-					fill();
+				const chunk = data !== null && at < data.length ? data : next();
+				if (chunk === null) {
+					break;
+				}
+				if (part !== null) {
+					fill(chunk, part);
 				} else {
-					frame();
+					frame(chunk);
 				}
 			}
 		} finally {
@@ -377,69 +382,80 @@ export function Frames(
 		return true;
 	}
 
+	/** @returns the next chunk, which becomes `data`, read from its start; or null if none waits */
 	function next() {
-		data = chunks.shift() || null;
+		data = chunks.shift() ?? null;
 		at = 0;
-		return data !== null;
+		return data;
 	}
 
-	function frame() {
-		const left = data.length - at;
+	/**
+	 * Reads the frame at `at` of `chunk` (the current `data`), if the chunk holds it whole; else
+	 * starts a partial frame with the rest of the chunk.
+	 */
+	function frame(chunk: Buffer) {
+		const left = chunk.length - at;
 		if (left < 5) {
-			return start(5);
+			return start(chunk, 5);
 		}
 
-		const length = data.readInt32BE(at + 1);
+		const length = chunk.readInt32BE(at + 1);
 		if (invalid(length)) {
 			return;
 		}
 
 		const end = at + 1 + length;
-		if (end > data.length) {
-			return start(end - at);
+		if (end > chunk.length) {
+			return start(chunk, end - at);
 		}
 
 		const begin = at;
 		at = end;
-		onframe(data[begin], data, begin, end);
+		onframe(chunk[begin], chunk, begin, end);
 	}
 
-	function start(length: number) {
-		part = Buffer.allocUnsafe(length);
+	/** Starts a partial frame of `length` bytes with the rest of `chunk` */
+	function start(chunk: Buffer, length: number) {
+		const x = Buffer.allocUnsafe(length);
+		part = x;
 		if (shared) {
-			owned.add(part);
+			owned.add(x);
 		}
-		filled = data.copy(part, 0, at);
-		at = data.length;
+		filled = chunk.copy(x, 0, at);
+		at = chunk.length;
 	}
 
-	function fill() {
-		const n = data.copy(part, filled, at, at + part.length - filled);
+	/**
+	 * Fills partial frame `x` (the current `part`) from `chunk` (the current `data`), and reads the
+	 * frame once it is whole. A partial frame of 5 bytes is a header, which gives the frame's length.
+	 */
+	function fill(chunk: Buffer, x: Buffer) {
+		const n = chunk.copy(x, filled, at, at + x.length - filled);
 		filled += n;
 		at += n;
-		if (filled < part.length) {
+		if (filled < x.length) {
 			return;
 		}
 
-		if (part.length === 5) {
-			const head = part,
-				length = head.readInt32BE(1);
+		if (x.length === 5) {
+			const length = x.readInt32BE(1);
 			if (invalid(length)) {
 				return;
 			}
 
-			part = Buffer.allocUnsafe(1 + length);
+			const whole = Buffer.allocUnsafe(1 + length);
+			part = whole;
 			if (shared) {
-				owned.add(part);
+				owned.add(whole);
 			}
-			filled = head.copy(part);
-			return filled === part.length && done();
+			filled = x.copy(whole);
+			return filled === whole.length && done(whole);
 		}
-		done();
+		done(x);
 	}
 
-	function done() {
-		const x = part;
+	/** Reads whole frame `x`, the current `part` */
+	function done(x: Buffer) {
 		part = null;
 		onframe(x[0], x, 0, x.length);
 	}
