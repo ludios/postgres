@@ -111,6 +111,7 @@ export class Query extends Promise<any> {
 		this.built = null;
 		this.trace = null;
 		this.aborts = null;
+		this.streaming = false;
 
 		this.originError = handler.debug ? new Error() : null;
 		if (this.tagged && !handler.debug && !origins.has(strings)) {
