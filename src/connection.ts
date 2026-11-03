@@ -4,14 +4,13 @@ import { Errors, as_error, copy_error, queryError } from "./errors.ts";
 import Result from "./result.ts";
 import { CLOSE } from "./query.ts";
 import type { Query } from "./query.ts";
-import type { Column } from "./protocol.ts";
+import type { Column, Value } from "./protocol.ts";
 import type { Lease, Statement } from "./pool.ts";
 import type postgres from "../types/index.js";
 import type { Options } from "./index.ts";
 import type { Ready } from "./startup.ts";
 import type { Built } from "./build.ts";
 import type { Failure } from "./errors.ts";
-import type { Value } from "./protocol.ts";
 import type { Types, Serializer } from "./types.ts";
 import { now, channels, listened } from "./diagnostics.ts";
 

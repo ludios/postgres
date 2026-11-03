@@ -5,9 +5,8 @@ import { channels, active, start, finish, now, userName } from "./diagnostics.ts
 import { statement } from "./result.ts";
 import type postgres from "../types/index.js";
 import type { Built } from "./build.ts";
-import type { Exchange } from "./connection.ts";
+import type { Exchange, Connection } from "./connection.ts";
 import type { Options } from "./index.ts";
-import type { Connection } from "./connection.ts";
 import type { Cost, Statement } from "./pool.ts";
 import type { Failure } from "./errors.ts";
 

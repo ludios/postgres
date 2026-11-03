@@ -37,7 +37,7 @@ type Channel = {
 	result: Promise<unknown> | null;
 	listening: boolean;
 	retries: number;
-	timer: ReturnType<Timers["setTimeout"]> | null;
+	timer: Timer | null;
 };
 
 /** A listener of a channel: `fn` gets each notification's payload; `onlisten` is called once listening */
@@ -1030,6 +1030,8 @@ function read_option(
  */
 /** The timer functions that a pool uses: the globals, unless the options gave others (tests do) */
 export type Timers = ReturnType<typeof default_timers>;
+/** A timer of Timers' setTimeout() */
+export type Timer = ReturnType<Timers["setTimeout"]>;
 
 /**
  * The options of a pool, as parse_options() makes them from the url, the options object and the

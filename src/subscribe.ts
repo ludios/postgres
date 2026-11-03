@@ -1,7 +1,7 @@
 import { own } from "./connection.ts";
 import type postgres from "../types/index.js";
 import type { Duplex } from "stream";
-import type { Options, Timers } from "./index.ts";
+import type { Options, Timer, Timers } from "./index.ts";
 import type { Failure } from "./errors.ts";
 
 /** A subscriber of an event: `fn` gets each change; `onsubscribe` is called once the stream is up */
@@ -203,7 +203,7 @@ export default function Subscribe(
 			queue: Promise<unknown> | null = null,
 			failed = false,
 			stopped = false,
-			timer: ReturnType<Timers["setTimeout"]> | null = timers.setTimeout(tick, statusInterval),
+			timer: Timer | null = timers.setTimeout(tick, statusInterval),
 			soon: ReturnType<Timers["setImmediate"]> | null = null;
 
 		stream.on("data", data);

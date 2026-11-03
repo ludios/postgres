@@ -5,14 +5,11 @@ import { Query } from "./query.ts";
 import { Errors, PostgresError, copy_error, queryError } from "./errors.ts";
 import { channels, listened } from "./diagnostics.ts";
 import type { Column } from "./protocol.ts";
-import type { Options, Timers } from "./index.ts";
+import type { Options, Timer } from "./index.ts";
 import type { Ready } from "./startup.ts";
 import type { Built } from "./build.ts";
 import type { Failure } from "./errors.ts";
 import type { Types } from "./types.ts";
-
-/** A timer of the pool's `timers` */
-type Timer = ReturnType<Timers["setTimeout"]>;
 
 /**
  * Milliseconds. A query estimated to take at least this long is slow, and the scheduler keeps slow

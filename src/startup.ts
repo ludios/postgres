@@ -111,7 +111,7 @@ function fits(want: string | null, { readOnly, standby }: Ready["attributes"]) {
 
 /** A connection that is ready for queries, as attempt() resolves it */
 export type Ready = {
-	socket: Awaited<ReturnType<typeof Socket>>;
+	socket: Connected;
 	/** What the socket had read after ReadyForQuery, which the connection's frames get first */
 	rest: Buffer;
 	backend: { pid: number | null; secret: number | null };
