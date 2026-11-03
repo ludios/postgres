@@ -48,7 +48,7 @@ export const Errors = {
 	postgres,
 	generic,
 	canceled,
-	notSupported,
+	not_supported,
 };
 
 function connection(code: string, options: Options, host: string | null, port: number) {
@@ -85,12 +85,12 @@ function canceled() {
 	return error;
 }
 
-function notSupported(x: string) {
+function not_supported(x: string) {
 	const error = Object.assign(new Error(x + " (B) is not supported"), {
 		code: "MESSAGE_NOT_SUPPORTED",
 		name: x,
 	});
-	Error.captureStackTrace(error, notSupported);
+	Error.captureStackTrace(error, not_supported);
 	return error;
 }
 
@@ -115,7 +115,7 @@ function locations() {
 	}
 }
 
-export function withOrigin(error: Error, origin: string | null | undefined) {
+export function with_origin(error: Error, origin: string | null | undefined) {
 	if (origin) {
 		Object.defineProperty(error, "stack", {
 			value: [
@@ -135,10 +135,10 @@ export function withOrigin(error: Error, origin: string | null | undefined) {
 
 /**
  * Copies an error, so that each of several queries that fail for one reason can get its own error
- * from `queryError`, which adds properties to the error that it is given.
+ * from `query_error`, which adds properties to the error that it is given.
  * @param error - the error to copy
  * @returns `error` itself if it is not an object. Otherwise, a new object with the prototype, the
- *   own properties and the `stack` of `error`, except the properties that `queryError` adds (if
+ *   own properties and the `stack` of `error`, except the properties that `query_error` adds (if
  *   `error` has them). If `error` is an `Error`, the copy is a native `Error` too, so that
  *   `Error.isError` and `structuredClone` treat it as one.
  */
@@ -181,7 +181,7 @@ export function as_error(thrown: unknown): Failure {
  * @returns the error, an Error made of `thrown` if it was not an object, with the query's text,
  *   values, args and types as (non-enumerable, unless `debug`) properties, and its origin in the stack
  */
-export function queryError(thrown: unknown, q: Query | null, debug: unknown) {
+export function query_error(thrown: unknown, q: Query | null, debug: unknown) {
 	const error = as_error(thrown);
 	if (!q || "query" in error) {
 		return error;
@@ -209,7 +209,7 @@ export function queryError(thrown: unknown, q: Query | null, debug: unknown) {
 			writable: true,
 		},
 	});
-	return withOrigin(error, q.origin);
+	return with_origin(error, q.origin);
 }
 
 /** The casing transforms that v3 had as properties of `postgres`, and that v4 removed */

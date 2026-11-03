@@ -1,6 +1,6 @@
 import Stream from "stream";
 import * as p from "./protocol.ts";
-import { Errors, as_error, copy_error, queryError } from "./errors.ts";
+import { Errors, as_error, copy_error, query_error } from "./errors.ts";
 import Result from "./result.ts";
 import { CLOSE } from "./query.ts";
 import type { Query } from "./query.ts";
@@ -1177,7 +1177,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 	}
 
 	function decorate(query: Query, error: unknown) {
-		return queryError(error, query, options.debug);
+		return query_error(error, query, options.debug);
 	}
 
 	function settle_error(x: Exchange, error: Error) {
@@ -1320,7 +1320,7 @@ export function Connection(ready: Ready, options: Options, events: Events) {
 
 	function unsupported(x: string) {
 		if (sent[0]) {
-			fail(sent[0], Errors.notSupported(x));
+			fail(sent[0], Errors.not_supported(x));
 		}
 	}
 

@@ -2,7 +2,7 @@ import { open as startup } from "./startup.ts";
 import type { Signal } from "./startup.ts";
 import { Connection } from "./connection.ts";
 import { Query } from "./query.ts";
-import { Errors, PostgresError, copy_error, queryError } from "./errors.ts";
+import { Errors, PostgresError, copy_error, query_error } from "./errors.ts";
 import { channels, listened } from "./diagnostics.ts";
 import type { Options, Timer } from "./index.ts";
 import type { Ready } from "./startup.ts";
@@ -224,7 +224,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	function query(q: Query, lease?: Lease) {
 		if (ending && !lease) {
 			q.reject(
-				queryError(
+				query_error(
 					Errors.connection("CONNECTION_ENDED", options, options.host[0], options.port[0]),
 					q,
 					options.debug,
@@ -293,7 +293,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			c.describe(built.text, built.oids).then(
 				({ params, columns }) =>
 					q.resolve({ string: built.text, types: params, name: "", columns }),
-				(error: Error) => q.reject(queryError(error, q, options.debug)),
+				(error: Error) => q.reject(query_error(error, q, options.debug)),
 			);
 			if (q.onwrite) {
 				q.onwrite();
@@ -303,7 +303,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 	}
 
 	function unbuilt(q: Query, thrown: unknown, lease?: Lease) {
-		const error = queryError(thrown, q, options.debug);
+		const error = query_error(thrown, q, options.debug);
 		if (!lease || lease.released || lease.connection.closed) {
 			q.reject(error);
 			return;
@@ -326,15 +326,15 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		}
 
 		if (job.q.cancelled) {
-			job.q.reject(queryError(Errors.canceled(), job.q, options.debug));
+			job.q.reject(query_error(Errors.canceled(), job.q, options.debug));
 			return;
 		}
 
 		if (lease) {
 			if (lease.connection.closed) {
-				job.q.reject(queryError(copy_error(lease.connection.closed), job.q, options.debug));
+				job.q.reject(query_error(copy_error(lease.connection.closed), job.q, options.debug));
 			} else if (lease.released) {
-				job.q.reject(queryError(ended(lease), job.q, options.debug));
+				job.q.reject(query_error(ended(lease), job.q, options.debug));
 			} else {
 				run(lease.connection, job);
 			}
@@ -823,7 +823,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 		if (job.kind === "lease") {
 			job.reject(error);
 		} else {
-			job.q.reject(queryError(error, job.q, options.debug));
+			job.q.reject(query_error(error, job.q, options.debug));
 		}
 	}
 
@@ -1103,12 +1103,12 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			},
 			send(q) {
 				if (c.closed) {
-					q.reject(queryError(copy_error(c.closed), q, options.debug));
+					q.reject(query_error(copy_error(c.closed), q, options.debug));
 					return;
 				}
 
 				if (released) {
-					q.reject(queryError(ended(x), q, options.debug));
+					q.reject(query_error(ended(x), q, options.debug));
 					return;
 				}
 
@@ -1166,7 +1166,7 @@ export function Pool(options: Options, types: ReturnType<typeof Types>) {
 			return true;
 		});
 		if (removed) {
-			q.reject(queryError(Errors.canceled(), q, options.debug));
+			q.reject(query_error(Errors.canceled(), q, options.debug));
 			return Promise.resolve();
 		}
 

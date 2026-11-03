@@ -1,7 +1,7 @@
 import util from "util";
-import { build, isQuery, Join, joinStrings } from "./build.ts";
+import { build, is_query, Join, join_strings } from "./build.ts";
 import { ours } from "./errors.ts";
-import { channels, active, start, finish, now, userName } from "./diagnostics.ts";
+import { channels, active, start, finish, now, user_name } from "./diagnostics.ts";
 import { statement } from "./result.ts";
 import type postgres from "../types/index.js";
 import type { Built } from "./build.ts";
@@ -77,8 +77,8 @@ export class Query extends Promise<any> {
 	declare cancelled: boolean | undefined;
 	/** The error that a cancel() of a cursor between two of its steps fails the cursor with */
 	declare aborted: Failure | null | undefined;
-	/** Marks a Query, which build.ts's isFragment() tests for */
-	declare [isQuery]: true;
+	/** Marks a Query, which build.ts's is_fragment() tests for */
+	declare [is_query]: true;
 
 	constructor(
 		strings: TemplateStringsArray | string[],
@@ -97,7 +97,7 @@ export class Query extends Promise<any> {
 		this.fulfil = resolve;
 		this.fail = reject;
 
-		this[isQuery] = true;
+		this[is_query] = true;
 		this.tagged = Array.isArray((strings as TemplateStringsArray).raw);
 		this.strings = strings;
 		this.args = args;
@@ -128,7 +128,7 @@ export class Query extends Promise<any> {
 
 	join(items: Iterable<unknown>) {
 		const kept = [...items].filter((x) => x !== false && x !== null && x !== undefined),
-			joined = new Query(joinStrings, [new Join(this, kept)], this.handler);
+			joined = new Query(join_strings, [new Join(this, kept)], this.handler);
 
 		void Object.defineProperty(joined, "length", { value: kept.length });
 		return joined;
@@ -396,7 +396,7 @@ function context(q: Query): postgres.QueryTrace {
 		query: text,
 		parameters: undefined,
 		database: options.database,
-		user: userName(options),
+		user: user_name(options),
 		host: null,
 		port: null,
 		connection: null,

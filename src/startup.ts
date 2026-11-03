@@ -2,7 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import * as p from "./protocol.ts";
 import type { Backend } from "./protocol.ts";
-import { Socket, secured, secureOptions } from "./socket.ts";
+import { Socket, secured, secure_options } from "./socket.ts";
 import type { RawSocket } from "./socket.ts";
 import type { Options } from "./index.ts";
 import { Errors } from "./errors.ts";
@@ -11,7 +11,7 @@ import {
 	active,
 	start as trace_start,
 	finish as trace_finish,
-	userName,
+	user_name,
 } from "./diagnostics.ts";
 
 const R = 82,
@@ -76,7 +76,7 @@ function traced(options: Options, host: string | null, port: number, signal: Sig
 		port: options.path ? null : port,
 		path: options.path || null,
 		database: options.database,
-		user: userName(options),
+		user: user_name(options),
 		ssl: secured(options),
 		sslnegotiation: options.sslnegotiation || "postgres",
 	};
@@ -207,7 +207,7 @@ function attempt(options: Options, host: string | null, port: number, signal: Si
 							? error
 							: fail("CONNECTION_CLOSED"),
 				);
-			socket.keepAlive(options.keep_alive);
+			socket.keep_alive(options.keep_alive);
 			await negotiate(socket, options);
 			const user = typeof options.user === "function" ? await options.user() : options.user;
 			return startup(socket, user, options.database || user);
@@ -341,7 +341,7 @@ async function negotiate(socket: Connected, options: Options) {
 	}
 
 	const ssl = options.ssl,
-		tls = secureOptions(ssl);
+		tls = secure_options(ssl);
 
 	if (options.sslnegotiation === "direct") {
 		await socket.upgrade({ ...tls, ALPNProtocols: ["postgresql"] });
@@ -524,25 +524,25 @@ function Auth({
 			);
 		}
 
-		let saltedPassword = salted.get(key);
-		if (saltedPassword === undefined) {
+		let salted_password = salted.get(key);
+		if (salted_password === undefined) {
 			if (salted.size >= 64) {
 				for (const oldest of salted.keys()) {
 					salted.delete(oldest);
 					break;
 				}
 			}
-			saltedPassword = crypto.pbkdf2Sync(
+			salted_password = crypto.pbkdf2Sync(
 				password_text,
 				Buffer.from(res.s, "base64"),
 				+res.i,
 				32,
 				"sha256",
 			);
-			salted.set(key, saltedPassword);
+			salted.set(key, salted_password);
 		}
 
-		const clientKey = hmac(saltedPassword, "Client Key"),
+		const client_key = hmac(salted_password, "Client Key"),
 			channel = (
 				bound ? Buffer.concat([Buffer.from(header), bound]) : Buffer.from(header)
 			).toString("base64"),
@@ -560,14 +560,14 @@ function Auth({
 				",r=" +
 				res.r;
 
-		signature = hmac(hmac(saltedPassword, "Server Key"), auth).toString("base64");
+		signature = hmac(hmac(salted_password, "Server Key"), auth).toString("base64");
 		return p.SASLResponse(
 			"c=" +
 				channel +
 				",r=" +
 				res.r +
 				",p=" +
-				xor(clientKey, hmac(sha256(clientKey), auth)).toString("base64"),
+				xor(client_key, hmac(sha256(client_key), auth)).toString("base64"),
 		);
 	}
 

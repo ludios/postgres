@@ -1,6 +1,6 @@
 import util from "util";
 import { expect, test } from "vitest";
-import { PostgresError, copy_error, queryError } from "../../src/errors.ts";
+import { PostgresError, copy_error, query_error } from "../../src/errors.ts";
 import type { Failure } from "../../src/errors.ts";
 import postgres from "../../src/index.ts";
 
@@ -25,7 +25,7 @@ test("PostgresError from a message string", async () => {
 
 test("copy_error copies an error as a native error of the same class, without a query's properties", async () => {
 	const error = new PostgresError({ message: "terminating connection", code: "57P01" });
-	queryError(error, { strings: ["select 1"], args: [1], origin: "" } as any, false);
+	query_error(error, { strings: ["select 1"], args: [1], origin: "" } as any, false);
 	const copy = copy_error(error);
 	expect([
 		copy !== error,

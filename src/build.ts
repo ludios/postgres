@@ -3,7 +3,7 @@ import { Parameter, infer } from "./types.ts";
 import type { Query } from "./query.ts";
 import type { Options } from "./index.ts";
 
-export const isQuery = Symbol("query");
+export const is_query = Symbol("query");
 
 /** The state of one build(): what every part of the query text is made with */
 type Context = {
@@ -31,13 +31,13 @@ type Helper = (first: unknown, rest: unknown[], o: Context) => string;
 class NotTagged {
 	// oxlint-disable-next-line unicorn/no-thenable -- awaiting a call of sql that is not a tagged template throws NOT_TAGGED_CALL
 	then() {
-		notTagged();
+		not_tagged();
 	}
 	catch() {
-		notTagged();
+		not_tagged();
 	}
 	finally() {
-		notTagged();
+		not_tagged();
 	}
 }
 
@@ -47,7 +47,7 @@ export class Identifier extends NotTagged {
 
 	constructor(identifier: string) {
 		super();
-		this.value = escapeIdentifier(identifier);
+		this.value = escape_identifier(identifier);
 	}
 }
 
@@ -61,7 +61,7 @@ export class Join {
 	}
 }
 
-export const joinStrings = Object.assign(["", ""], { raw: ["", ""] });
+export const join_strings = Object.assign(["", ""], { raw: ["", ""] });
 
 export class Builder extends NotTagged {
 	declare first: unknown;
@@ -120,23 +120,23 @@ function part(before: string, x: unknown, o: Context, after = "") {
 	if (
 		x instanceof Builder ||
 		x instanceof Identifier ||
-		isFragment(x) ||
-		(Array.isArray(x) && isFragment(x[0]))
+		is_fragment(x) ||
+		(Array.isArray(x) && is_fragment(x[0]))
 	) {
 		o.dynamic = true;
 	}
 
-	return isFragment(x) && x.strings === joinStrings
+	return is_fragment(x) && x.strings === join_strings
 		? joined(x.args[0], o, before, after)
 		: x instanceof Join
 			? joined(x, o, "", "")
 			: x instanceof Builder
 				? helper(before, x, o)
-				: isFragment(x)
+				: is_fragment(x)
 					? fragment(x, o)
 					: x instanceof Identifier
 						? x.value
-						: Array.isArray(x) && isFragment(x[0])
+						: Array.isArray(x) && is_fragment(x[0])
 							? x.reduce((acc, f) => acc + " " + fragment(f, o), "")
 							: value(x, o);
 }
@@ -162,8 +162,8 @@ function spaced(a: string, b: string) {
 	return a && b && !/\s$/.test(a) && !/^\s/.test(b) ? a + " " + b : a + b;
 }
 
-function isFragment(x: unknown): x is Query {
-	return !!x && (x as Query)[isQuery] === true;
+function is_fragment(x: unknown): x is Query {
+	return !!x && (x as Query)[is_query] === true;
 }
 
 function fragment(q: Query, o: Context) {
@@ -199,13 +199,13 @@ const builders: Record<Kind, Helper> = {
 };
 
 function call(first: unknown, rest: unknown[], o: Context) {
-	if (first === null || typeof first !== "object" || Array.isArray(first) || isFragment(first)) {
+	if (first === null || typeof first !== "object" || Array.isArray(first) || is_fragment(first)) {
 		return select(first, rest, o);
 	}
 
 	const row = first as Columns;
 	return columns(row, rest)
-		.map((x) => escapeIdentifier(column(x, o)) + " => " + part("values", row[x], o))
+		.map((x) => escape_identifier(column(x, o)) + " => " + part("values", row[x], o))
 		.join(",");
 }
 
@@ -364,7 +364,7 @@ function insert_into(words: string[], sql: string, i: number) {
 	return target && previous(sql, i) === "insert";
 }
 
-function valuesBuilder(first: Columns[], picked: string[], o: Context) {
+function values_builder(first: Columns[], picked: string[], o: Context) {
 	return first
 		.map((row) => "(" + picked.map((x) => part("values", row[x], o)).join(",") + ")")
 		.join(",");
@@ -376,10 +376,10 @@ function values_list(first: unknown, rest: unknown[], o: Context) {
 			first.length > 0 &&
 			first[0] !== null &&
 			typeof first[0] === "object" &&
-			!isFragment(first[0]),
+			!is_fragment(first[0]),
 		picked = columns(rows ? first[0] : first, rest);
 
-	return valuesBuilder((rows ? first : [first]) as Columns[], picked, o);
+	return values_builder((rows ? first : [first]) as Columns[], picked, o);
 }
 
 function update(first: unknown, rest: unknown[], o: Context) {
@@ -390,13 +390,13 @@ function update(first: unknown, rest: unknown[], o: Context) {
 	}
 
 	return picked
-		.map((x) => escapeIdentifier(column(x, o)) + "=" + part("values", row[x], o))
+		.map((x) => escape_identifier(column(x, o)) + "=" + part("values", row[x], o))
 		.join(",");
 }
 
 function insert(first: unknown, rest: unknown[], o: Context) {
 	if (Array.isArray(first) && first.every((x) => typeof x === "string")) {
-		return "(" + escapeIdentifiers(first.concat(rest.flat() as string[]), o) + ")";
+		return "(" + escape_identifiers(first.concat(rest.flat() as string[]), o) + ")";
 	}
 
 	const picked = columns(Array.isArray(first) ? first[0] || {} : first, rest);
@@ -406,9 +406,9 @@ function insert(first: unknown, rest: unknown[], o: Context) {
 
 	return (
 		"(" +
-		escapeIdentifiers(picked, o) +
+		escape_identifiers(picked, o) +
 		")values" +
-		valuesBuilder((Array.isArray(first) ? first : [first]) as Columns[], picked, o)
+		values_builder((Array.isArray(first) ? first : [first]) as Columns[], picked, o)
 	);
 }
 
@@ -426,11 +426,11 @@ function identifiers(first: unknown, o: Context) {
 }
 
 function member(x: unknown, o: Context) {
-	return isFragment(x)
+	return is_fragment(x)
 		? fragment(x, o)
 		: x instanceof Identifier
 			? x.value
-			: escapeIdentifier(column(x as string, o));
+			: escape_identifier(column(x as string, o));
 }
 
 function select(first: unknown, rest: unknown[], o: Context) {
@@ -446,9 +446,9 @@ function select(first: unknown, rest: unknown[], o: Context) {
 		.map((x) => {
 			const v = row[x];
 			return (
-				(isFragment(v) ? fragment(v, o) : v instanceof Identifier ? v.value : value(v, o)) +
+				(is_fragment(v) ? fragment(v, o) : v instanceof Identifier ? v.value : value(v, o)) +
 				" as " +
-				escapeIdentifier(column(x, o))
+				escape_identifier(column(x, o))
 			);
 		})
 		.join(",");
@@ -458,14 +458,14 @@ function column(x: string, o: Context) {
 	return o.transform.column.to ? o.transform.column.to(x) : x;
 }
 
-function escapeIdentifiers(xs: string[], o: Context) {
-	return xs.map((x) => escapeIdentifier(column(x, o))).join(",");
+function escape_identifiers(xs: string[], o: Context) {
+	return xs.map((x) => escape_identifier(column(x, o))).join(",");
 }
 
-export function escapeIdentifier(x: string) {
+export function escape_identifier(x: string) {
 	return '"' + x.replace(/"/g, '""').replace(/\./g, '"."') + '"';
 }
 
-export function notTagged() {
+export function not_tagged() {
 	throw Errors.generic("NOT_TAGGED_CALL", "Query not called as a tagged template literal");
 }

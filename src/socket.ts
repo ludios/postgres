@@ -5,7 +5,7 @@ import type { Options } from "./index.ts";
 const noop = (..._: any[]) => {},
 	agent = (globalThis.navigator && globalThis.navigator.userAgent) || "",
 	workers = agent.startsWith("Cloudflare-Workers"),
-	onreadSafe =
+	onread_safe =
 		!agent || agent.startsWith("Node.js") || agent.startsWith("Bun") || agent.startsWith("Deno"),
 	node = !agent || agent.startsWith("Node.js"),
 	contexts = new WeakMap<
@@ -42,7 +42,7 @@ export async function Socket(
 	return wrap(raw, host);
 }
 
-export function secureOptions(ssl: Options["ssl"]) {
+export function secure_options(ssl: Options["ssl"]) {
 	return ssl === "require" || ssl === "allow" || ssl === "prefer"
 		? workers
 			? {}
@@ -88,10 +88,10 @@ function connect(
 	track: (socket: RawSocket) => void,
 ) {
 	return new Promise<RawSocket>((resolve, reject) => {
-		const tlsNow = direct(options),
+		const tls_now = direct(options),
 			plain = !secured(options),
-			reads: net.OnReadOpts | false = (plain || tlsNow) &&
-				onreadSafe &&
+			reads: net.OnReadOpts | false = (plain || tls_now) &&
+				onread_safe &&
 				options.onread !== false && {
 					buffer: Buffer.allocUnsafe(65536),
 					// `b` is `buffer`, the Buffer above; true keeps the socket reading (false would pause it)
@@ -106,20 +106,20 @@ function connect(
 		if (reads) {
 			target.onread = reads;
 		}
-		const socket: RawSocket = tlsNow
+		const socket: RawSocket = tls_now
 			? tls.connect({
 					...target,
 					servername: net.isIP(host || "") || options.path ? undefined : (host ?? undefined),
-					...secureOptions(options.ssl),
+					...secure_options(options.ssl),
 					ALPNProtocols: ["postgresql"],
 				})
 			: net.connect(target);
 		track(socket);
 		socket.shared = !!reads;
-		socket.secure = tlsNow;
+		socket.secure = tls_now;
 		socket.ondata = noop;
 		socket.once("error", reject);
-		socket.once(tlsNow ? "secureConnect" : "connect", () => {
+		socket.once(tls_now ? "secureConnect" : "connect", () => {
 			socket.off("error", reject);
 			socket.setNoDelay(true);
 			resolve(socket);
@@ -176,7 +176,7 @@ function wrap(socket: RawSocket, host: string | null) {
 			}
 			socket.destroy();
 		},
-		keepAlive(seconds: number | null) {
+		keep_alive(seconds: number | null) {
 			if (seconds && socket.setKeepAlive) {
 				socket.setKeepAlive(true, 1000 * seconds);
 			}

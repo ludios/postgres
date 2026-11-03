@@ -17,7 +17,7 @@ const done = Symbol("done");
 
 export const now = () => performance.now();
 
-export const userName = (options: Options) =>
+export const user_name = (options: Options) =>
 	typeof options.user === "function" ? null : options.user;
 
 /** @returns whether any channel of tracing channel `t` has subscribers, so that tracing is worth the work */

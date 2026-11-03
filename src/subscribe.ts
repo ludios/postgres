@@ -38,10 +38,10 @@ type Message = {
 };
 
 const noop = (..._: any[]) => {},
-	statusInterval = 10000,
+	status_interval = 10000,
 	epoch = BigInt(Date.UTC(2000, 0, 1)) * 1000n;
 
-const lsnToString = (x: bigint) =>
+const lsn_to_string = (x: bigint) =>
 	(x >> 32n).toString(16).toUpperCase() + "/" + (x & 0xffffffffn).toString(16).toUpperCase();
 
 /** @returns whether `x` is a thenable: a promise of any realm or implementation, as a handler may return */
@@ -115,7 +115,7 @@ export default function Subscribe(
 		onsubscribe: () => void = noop,
 		onerror?: Subscriber["onerror"],
 	) {
-		event = parseEvent(event);
+		event = parse_event(event);
 
 		if (!connection) {
 			connection = init();
@@ -203,7 +203,7 @@ export default function Subscribe(
 			queue: Promise<unknown> | null = null,
 			failed = false,
 			stopped = false,
-			timer: Timer | null = timers.setTimeout(tick, statusInterval),
+			timer: Timer | null = timers.setTimeout(tick, status_interval),
 			soon: ReturnType<Timers["setImmediate"]> | null = null;
 
 		stream.on("data", data);
@@ -253,7 +253,7 @@ export default function Subscribe(
 		function change(row: postgres.Row | null, info: Change) {
 			const open = began("a change");
 			if (open) {
-				info.lsn = lsnToString(open.lsn);
+				info.lsn = lsn_to_string(open.lsn);
 				info.time = open.time;
 				info.xid = open.xid;
 				run(() => handle(row, info));
@@ -381,7 +381,7 @@ export default function Subscribe(
 			}
 
 			status();
-			timer = timers.setTimeout(tick, statusInterval);
+			timer = timers.setTimeout(tick, status_interval);
 		}
 
 		function status() {
@@ -483,11 +483,11 @@ function parse(
 		});
 		i += 2;
 
-		let columnIndex = 0,
+		let column_index = 0,
 			column: postgres.ColumnInfo;
 
 		while (i < x.length) {
-			column = r.columns[columnIndex++] = {
+			column = r.columns[column_index++] = {
 				key: x[i++],
 				name: transform.column.from
 					? transform.column.from(x.toString("utf8", i, (i = x.indexOf(0, i))))
@@ -585,7 +585,7 @@ function tuples(
 	return { i: xi, row: transform.row.from ? transform.row.from(row) : row };
 }
 
-function parseEvent(x: string) {
+function parse_event(x: string) {
 	// Every part is optional, so any string matches
 	const [, command, path, key] =
 		x.match(/^(\*|insert|update|delete|truncate)?:?([^.]+?\.?[^=]+)?=?(.+)?/i) ?? [];

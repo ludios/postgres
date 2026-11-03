@@ -11,7 +11,7 @@ import { Pool, backoff_seconds } from "./pool.ts";
 import { Errors, PostgresError, throw_on_casing_transforms } from "./errors.ts";
 import Subscribe from "./subscribe.ts";
 import largeObject from "./large.ts";
-import { channels, active, start, finish, userName } from "./diagnostics.ts";
+import { channels, active, start, finish, user_name } from "./diagnostics.ts";
 import type postgres from "../types/index.js";
 import type { open } from "./startup.ts";
 import type { RawSocket } from "./socket.ts";
@@ -202,7 +202,7 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 				args = [];
 			}
 			// Runs the query once the file is read; otherwise the handler
-			const fileHandler: Handler = Object.assign((query: Query) => {
+			const file_handler: Handler = Object.assign((query: Query) => {
 				fs.readFile(path, "utf8", (err, string) => {
 					if (err) {
 						query.reject(err);
@@ -212,7 +212,7 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 					handle(query);
 				});
 			}, handle);
-			return new Query([], args, fileHandler, {
+			return new Query([], args, file_handler, {
 				...query_options,
 				simple: "simple" in query_options ? query_options.simple : args.length === 0,
 			});
@@ -243,7 +243,7 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 		const context: postgres.TransactionTrace = {
 			mode,
 			database: options.database,
-			user: userName(options),
+			user: user_name(options),
 			connection: null,
 			host: null,
 			port: null,
@@ -302,7 +302,7 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 			let result: unknown;
 
 			if (above()) {
-				throw rolledBack();
+				throw rolled_back();
 			}
 
 			const stopped = () => !!did.rolled || above(),
@@ -310,7 +310,7 @@ function Postgres(a?: string | Record<string, any>, b?: Record<string, any>) {
 					Object.assign(
 						(q: Query) => {
 							if (stopped()) {
-								q.reject(did.after || (did.after = rolledBack()));
+								q.reject(did.after || (did.after = rolled_back()));
 								return;
 							}
 							q.catch((e) => did.uncaught || (did.uncaught = e));
@@ -456,7 +456,7 @@ function array() {
 	throw Errors.generic("ARRAY_REMOVED", "sql.array() is removed in v4, pass the array as it is");
 }
 
-function rolledBack() {
+function rolled_back() {
 	return Errors.generic(
 		"TRANSACTION_ROLLED_BACK",
 		"The query was not sent, the transaction was rolled back with sql.rollback()",
@@ -1083,11 +1083,12 @@ function parse_options(a?: string | Record<string, any>, b?: Record<string, any>
 
 	const env = process.env,
 		o = (!a || typeof a === "string" ? b : a) || {},
-		url = parseUrl(a),
+		url = parse_url(a),
 		query = Object.fromEntries(url.url.searchParams),
 		targets = hosts(o, query, url, env),
 		port = o.port || query.port || env.PGPORT || 5432,
-		user = o.user || o.username || url.url.username || env.PGUSERNAME || env.PGUSER || osUsername();
+		user =
+			o.user || o.username || url.url.username || env.PGUSERNAME || env.PGUSER || os_username();
 
 	// v3 read ssl from PGSSL, which only postgres.js read. If it were ignored without a word now, a
 	// pool that it gave TLS would connect without TLS.
@@ -1150,7 +1151,7 @@ function parse_options(a?: string | Record<string, any>, b?: Record<string, any>
 		unref_sockets: !!o.unref_sockets,
 		passfile: passfile(env),
 		shared_types: o.shared_types,
-		transform: parseTransform(o.transform || { undefined: undefined }),
+		transform: parse_transform(o.transform || { undefined: undefined }),
 		parameters: {},
 		shared: { retries: 0 },
 		timers: o.timers || default_timers(),
@@ -1204,7 +1205,7 @@ function parse_options(a?: string | Record<string, any>, b?: Record<string, any>
 /** A transform's `from` and `to` */
 type Pair = { from?: (...args: any[]) => any; to?: (...args: any[]) => any };
 
-function parseTransform(x: NonNullable<postgres.Options["transform"]>) {
+function parse_transform(x: NonNullable<postgres.Options["transform"]>) {
 	return { undefined: x.undefined, column: pair(x.column), value: pair(x.value), row: pair(x.row) };
 }
 
@@ -1216,7 +1217,7 @@ function pair(x: (((...args: any[]) => any) & { to?: Pair["to"] }) | Pair | unde
 	return typeof x === "function" ? { from: x, to: x.to } : { from: x && x.from, to: x && x.to };
 }
 
-function parseUrl(url: unknown) {
+function parse_url(url: unknown) {
 	if (!url || typeof url !== "string") {
 		return { url: { searchParams: new Map() }, targets: [] as Target[] };
 	}
@@ -1251,7 +1252,7 @@ function decode(x: string) {
 function hosts(
 	o: Record<string, any>,
 	query: Record<string, string>,
-	url: ReturnType<typeof parseUrl>,
+	url: ReturnType<typeof parse_url>,
 	env: NodeJS.ProcessEnv,
 ): Target[] {
 	const given = o.hostname || o.host || query.host;
@@ -1293,7 +1294,7 @@ function passfile(env: NodeJS.ProcessEnv) {
 	}
 }
 
-function osUsername() {
+function os_username() {
 	try {
 		return os.userInfo().username;
 	} catch {
