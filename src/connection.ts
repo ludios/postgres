@@ -2442,7 +2442,14 @@ function read(state: Shape, array: boolean, from: From) {
 	}
 }
 
-function compile(columns: Column[], array: boolean, from: From) {
+/**
+ * @param columns - the columns of a row
+ * @param array - whether the reader gives the row as an array of its values, else as an object
+ * @param from - the transform of each value, if any
+ * @returns a reader of a row of `columns`, from the first column's length in a DataRow; it reads
+ *   each value as DataRow() does without it
+ */
+export function compile(columns: Column[], array: boolean, from: From) {
 	const locals: string[] = [],
 		body = ["let l = 0"],
 		at = "x, i, i + l";
