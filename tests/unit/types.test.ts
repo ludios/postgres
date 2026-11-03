@@ -621,3 +621,108 @@ test("Read as text the types without a binary decoder, and those whose parser or
 		"function",
 	]);
 });
+
+/** An array literal's elements: texts and NULLs, with one or two more levels of arrays */
+type Elements = (string | null)[] | (string | null)[][] | (string | null)[][][];
+
+const element = fc.option(fc.string({ unit: "binary" })),
+	elements: fc.Arbitrary<Elements> = fc.oneof(
+		fc.array(element),
+		fc.array(fc.array(element)),
+		fc.array(fc.array(fc.array(element))),
+	),
+	// The oid of an array type with a ',' delimiter, text[], and one with ';', box[]
+	array_oids = fc.constantFrom(1009, 1020);
+
+test("Parse the array that any texts and NULLs serialize to back to them", async () => {
+	fc.assert(
+		fc.property(array_oids, elements, (oid, xs) => {
+			expect(parse(oid, serialize(oid, xs))).toStrictEqual(xs);
+		}),
+		{ numRuns: 2000 },
+	);
+});
+
+/**
+ * @param x - the text of an element
+ * @param delimiter - the element type's delimiter
+ * @returns `x` as PostgreSQL's array_out writes it: quoted, with its quotes and backslashes escaped,
+ *   only if it is empty, is null in any case, or holds a quote, a backslash, a brace, the delimiter
+ *   or white space
+ */
+function array_out_element(x: string, delimiter: string) {
+	const quoted =
+		x === "" || x.toLowerCase() === "null" || /["\\{}\t\n\v\f\r ]/.test(x) || x.includes(delimiter);
+	return quoted ? '"' + x.replace(/["\\]/g, "\\$&") + '"' : x;
+}
+
+/**
+ * @param xs - an array's elements
+ * @param delimiter - the element type's delimiter
+ * @returns the array literal that PostgreSQL's array_out writes for `xs`
+ */
+function array_out(xs: Elements, delimiter: string): string {
+	return (
+		"{" +
+		xs
+			.map((x) =>
+				Array.isArray(x)
+					? array_out(x, delimiter)
+					: x === null
+						? "NULL"
+						: array_out_element(x, delimiter),
+			)
+			.join(delimiter) +
+		"}"
+	);
+}
+
+/** The bounds that PostgreSQL writes before an array whose lower bounds are not all 1 */
+const bounds = fc
+	.array(fc.tuple(fc.integer({ min: -9, max: 9 }), fc.nat({ max: 9 })), {
+		minLength: 1,
+		maxLength: 3,
+	})
+	.map((dims) => dims.map(([lower, n]) => "[" + lower + ":" + (lower + n) + "]").join("") + "=");
+
+test("Parse the array literal that PostgreSQL writes for any texts and NULLs, with or without bounds", async () => {
+	fc.assert(
+		fc.property(array_oids, elements, fc.option(bounds), (oid, xs, prefix) => {
+			const literal = (prefix ?? "") + array_out(xs, oid === 1020 ? ";" : ",");
+			expect(parse(oid, literal)).toStrictEqual(xs);
+		}),
+		{ numRuns: 2000 },
+	);
+});
+
+test("Parse the timestamptz, timestamp and date texts of any instant back to it", async () => {
+	fc.assert(
+		fc.property(instants, micros, offsets, (t, us, offset) => {
+			const zoned = iso(t.getTime(), us, offset),
+				plain = iso(t.getTime(), us, null),
+				day = plain.replace(/ \d\d:\d\d:\d\d(\.\d+)?/, ""),
+				midnight = new Date(t);
+			midnight.setUTCHours(0, 0, 0, 0);
+			expect([
+				utc_types.parser(1184)(zoned),
+				utc_types.parser(1114)(plain),
+				utc_types.parser(1082)(day),
+			]).toStrictEqual([t, t, midnight]);
+		}),
+		{ numRuns: 5000 },
+	);
+});
+
+test("Parse the text that any Date serializes to back to it, for every date type", async () => {
+	const dates = fc.date({ noInvalidDate: true });
+	fc.assert(
+		fc.property(dates, (d) => {
+			expect([1184, 1114, 1082].map((oid) => parse(oid, serialize(oid, d)))).toStrictEqual([
+				d,
+				d,
+				d,
+			]);
+		}),
+		{ numRuns: 5000 },
+	);
+});
